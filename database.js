@@ -2,9 +2,24 @@
 
 // Cadastro Geral de Usuários e Níveis de Permissão
 const USERS_DB = {
-    "admin": { senha: "123", role: "ADM", nome: "Administrador Geral", escopo: "Total" },
-    "coordenador": { senha: "456", role: "Coordenador Municipal", nome: "Coord. São Braz - PI", escopo: "São Braz - PI" },
-    "escola": { senha: "789", role: "Escola", nome: "U.E. Polo Municipal", escopo: "U.E. Polo Municipal" }
+  admin: {
+    senha: "123",
+    role: "ADM",
+    nome: "Administrador Geral",
+    escopo: "Todos"
+  },
+  coordenador: {
+    senha: "456",
+    role: "Coordenador Municipal",
+    nome: "Coordenador Municipal",
+    escopo: "São Braz - PI"
+  },
+  escola: {
+    senha: "789",
+    role: "Escola",
+    nome: "Gestor Escolar",
+    escopo: "U.E. Polo Municipal"
+  }
 };
 
 // Cadastro Geral das 45 Olimpíadas e seus Canais Estratégicos 2026
