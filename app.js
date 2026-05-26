@@ -1,269 +1,369 @@
-/* app.js - Inteligência de Negócio, Escopo e Gestão de Níveis */
-
-// Bancos de Dados em Memória Volátil de Inicialização
-let USUARIOS_LOGADOS = { ...USERS_DB };
-let MUNICIPIOS_DATA = ["São Braz - PI", "Teresina - PI", "Picos - PI"];
-let ESCOLAS_DATA = ["U.E. Polo Municipal", "C.E. Estadual São Braz", "U.E. Clarindo Lopes"];
-let ALUNOS_REPOSITORIO = [
-    { aluno: "Carlos Eduardo", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Canguru de Matemática", premio: "Ouro" },
-    { aluno: "Ana Clara", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Canguru de Matemática", premio: "Prata" },
-    { aluno: "Mariana Souza", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Brasileira de Matemática Financeira", premio: "Ouro" },
-    { aluno: "Mateus Lima", escola: "C.E. Estadual São Braz", municipio: "São Braz - PI", olimpiada: "Olimpíada Brasileira de Geopolítica", premio: "Ouro" }
-];
-
-let currentUser = null;
+// Gerenciador e Inteligência do Sistema Olímpico
 let chartInstance = null;
+let dadosTrabalho = [];
 
-// Lógica de Autenticação com Controle de Escopo
-function executarLogin() {
-    const userField = document.getElementById("auth-user").value.trim().toLowerCase();
-    const passField = document.getElementById("auth-pass").value;
+document.addEventListener("DOMContentLoaded", () => {
+    dadosTrabalho = [...DATABASE.premiados];
+    
+    initLogin();
+    initFormularios();
+    initDragAndDrop();
+    
+    // Configura os seletores de filtros superiores
+    document.getElementById("filterMunicipio").addEventListener("change", renderizarPlataforma);
+    document.getElementById("filterEscola").addEventListener("change", renderizarPlataforma);
+    document.getElementById("filterOlimpiada").addEventListener("change", renderizarPlataforma);
+    
+    // Botão de Logout
+    document.getElementById("btnLogout").addEventListener("click", logout);
+    
+    // Verifica se já existia login salvo
+    verificarSessao();
+});
 
-    if (USUARIOS_LOGADOS[userField] && USUARIOS_LOGADOS[userField].senha === passField) {
-        currentUser = USUARIOS_LOGADOS[userField];
-        document.getElementById("auth-screen").style.display = "none";
-        document.getElementById("app-container").classList.add("app-active");
-        
-        // Atualiza elementos visuais de identificação corporativa
-        document.getElementById("nav-user-name").innerText = currentUser.nome;
-        document.getElementById("nav-user-role").innerText = `Nível: ${currentUser.role}`;
+// ==================== SISTEMA DE AUTENTICAÇÃO ====================
+function initLogin() {
+    const form = document.getElementById("loginForm");
+    if (!form) return;
 
-        // Trata os menus restritos de governança baseando-se no nível
-        aplicarRestricoesDeNivel();
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
         
-        // Inicializa as views
-        renderizarFiltrosSelects();
-        renderizarDashboard();
-        renderizarCalendarioMestre();
+        const userInput = document.getElementById("username").value.trim();
+        const passInput = document.getElementById("password").value.trim();
         
-        // Carrega as tabelas de gestão interna
-        renderizarGestaoUsuarios();
-        renderizarGestaoMunicipios();
-        renderizarGestaoEscolas();
-        renderizarGestaoAlunos();
+        // Validação comparando com o arquivo database.js
+        const contaEncontrada = DATABASE.usuarios.find(u => u.login === userInput && u.senha === passInput);
+        
+        if (contaEncontrada) {
+            localStorage.setItem("usuarioLogado", JSON.stringify(contaEncontrada));
+            aplicarLogin(contaEncontrada);
+        } else {
+            alert("Acesso Negado! Usuário ou senha incorretos.");
+        }
+    });
+}
+
+function verificarSessao() {
+    const sessaoSalva = localStorage.getItem("usuarioLogado");
+    if (sessaoSalva) {
+        aplicarLogin(JSON.parse(sessaoSalva));
+    }
+}
+
+function aplicarLogin(user) {
+    document.getElementById("loginScreen").classList.add("hidden");
+    document.getElementById("mainContent").classList.remove("hidden");
+    
+    document.getElementById("userPanelTitle").innerText = `Painel de - ${user.nome}`;
+    document.getElementById("userBadge").innerText = `Nível de Acesso: ${user.nivel}`;
+    
+    // Controlar travas e permissões de telas baseadas no cargo
+    restringirAbasPorNivel(user.nivel);
+    
+    // Desenha as tabelas e dados na tela
+    popularSeletores();
+    renderizarPlataforma();
+}
+
+function logout() {
+    localStorage.removeItem("usuarioLogado");
+    document.getElementById("mainContent").classList.add("hidden");
+    document.getElementById("loginScreen").classList.remove("hidden");
+    document.getElementById("username").value = "";
+    document.getElementById("password").value = "";
+}
+
+function restringirAbasPorNivel(nivel) {
+    const btnLancamento = document.getElementById("btn-tab-lancamento");
+    const btnUsuarios = document.getElementById("btn-tab-usuarios");
+    
+    if (nivel === "Escola") {
+        // O nível escola não gerencia usuários nem faz lançamentos em lote
+        if (btnLancamento) btnLancamento.style.display = "none";
+        if (btnUsuarios) btnUsuarios.style.display = "none";
+        switchTab("dashboard");
+    } else if (nivel === "Coordenador Municipal") {
+        if (btnLancamento) btnLancamento.style.display = "flex";
+        if (btnUsuarios) btnUsuarios.style.display = "none";
+        switchTab("dashboard");
     } else {
-        alert("❌ Credenciais inválidas! Tente novamente.");
+        // Administrador Master vê tudo
+        if (btnLancamento) btnLancamento.style.display = "flex";
+        if (btnUsuarios) btnUsuarios.style.display = "flex";
     }
 }
 
-function executarLogout() {
-    currentUser = null;
-    document.getElementById("app-container").classList.remove("app-active");
-    document.getElementById("auth-screen").style.display = "flex";
-    document.getElementById("auth-pass").value = "";
-}
-
-function aplicarRestricoesDeNivel() {
-    // Abas Administrativas
-    const btnUser = document.getElementById("btn-tab-usuarios");
-    const btnMun = document.getElementById("btn-tab-municipios");
-    const btnEsc = document.getElementById("btn-tab-escolas");
-
-    if (currentUser.role === "ADM") {
-        btnUser.style.display = "block";
-        btnMun.style.display = "block";
-        btnEsc.style.display = "block";
-    } else if (currentUser.role === "Coordenador Municipal") {
-        btnUser.style.display = "none";
-        btnMun.style.display = "none";
-        btnEsc.style.display = "block"; // Coordenador do município gerencia suas escolas
-    } else { // Nível Escola
-        btnUser.style.display = "none";
-        btnMun.style.display = "none";
-        btnEsc.style.display = "none";
-    }
-}
-
-// Renderização dos Filtros Superiores Inteligentes
-function renderizarFiltrosSelects() {
-    const filterMun = document.getElementById("filtro-municipio");
-    filterMun.innerHTML = '<option value="todos">Todos os Municípios</option>';
+// ==================== INTERFACE E NAVEGAÇÃO ====================
+function switchTab(tabId) {
+    document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
+    document.querySelectorAll(".tab-btn").forEach(el => {
+        el.classList.remove("bg-blue-600", "text-white");
+        el.classList.add("text-gray-400", "hover:bg-gray-700/50");
+    });
     
-    MUNICIPIOS_DATA.forEach(m => {
-        filterMun.innerHTML += `<option value="${m}">${m}</option>`;
-    });
-
-    // Se o usuário tiver restrição de escopo por município, força o filtro e bloqueia
-    if (currentUser.role === "Coordenador Municipal") {
-        filterMun.value = currentUser.escopo;
-        filterMun.disabled = true;
-    }
+    document.getElementById(`tab-${tabId}`).classList.remove("hidden");
+    document.getElementById(`btn-tab-${tabId}`).classList.add("bg-blue-600", "text-white");
+    document.getElementById(`btn-tab-${tabId}`).classList.remove("text-gray-400", "hover:bg-gray-700/50");
 }
 
-// Cálculo Analítico e Renderização de Gráficos (Chart.js)
-function renderizarDashboard() {
-    const mSel = document.getElementById("filtro-municipio").value;
-    const oSel = document.getElementById("filtro-olimpiada").value;
-
-    let filtrados = ALUNOS_REPOSITORIO.filter(item => {
-        const bMun = (mSel === "todos" || item.municipio === mSel);
-        const bOly = (oSel === "todas" || item.olimpiada === oSel);
-        
-        // Filtro cascata do nível de Escola logado
-        if (currentUser.role === "Escola" && item.escola !== currentUser.escopo) return false;
-        
-        return bMun && bOly;
-    });
-
-    let o = 0, p = 0, b = 0, m = 0;
-    filtrados.forEach(item => {
-        if (item.premio === "Ouro") o++;
-        else if (item.premio === "Prata") p++;
-        else if (item.premio === "Bronze") b++;
-        else if (item.premio === "Menção Honrosa") m++;
-    });
-
-    document.getElementById("card-ouro").innerText = o;
-    document.getElementById("card-prata").innerText = p;
-    document.getElementById("card-bronze").innerText = b;
-    document.getElementById("card-mencao").innerText = m;
-    document.getElementById("card-total").innerText = o + p + b + m;
-    document.getElementById("card-medalhas").innerText = o + p + b;
-
-    // Inicialização segura do gráfico de barras
-    const ctx = document.getElementById('chartCanvas').getContext('2d');
-    if (chartInstance) chartInstance.destroy();
+function popularSeletores() {
+    const selectOlimp = document.getElementById("filterOlimpiada");
+    const selectAddOlimp = document.getElementById("addAlunoOlimpiada");
+    const selectEscola = document.getElementById("filterEscola");
     
+    // Limpa opções antigas
+    selectOlimp.innerHTML = '<option value="Todas">Todas as Olimpíadas</option>';
+    selectAddOlimp.innerHTML = '';
+    
+    DATABASE.olimpiadas.forEach(o => {
+        selectOlimp.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
+        selectAddOlimp.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
+    });
+
+    // Pega as escolas únicas dos dados atuais de premiação
+    const escolasUnicas = [...new Set(dadosTrabalho.map(d => d.escola))];
+    selectEscola.innerHTML = '<option value="Todas">Todas as Escolas</option>';
+    escolasUnicas.forEach(e => {
+        selectEscola.innerHTML += `<option value="${e}">${e}</option>`;
+    });
+}
+
+// ==================== MOTOR DE FILTROS E RENDERIZAÇÃO ====================
+function renderizarPlataforma() {
+    const fMuni = document.getElementById("filterMunicipio").value;
+    const fEsco = document.getElementById("filterEscola").value;
+    const fOlim = document.getElementById("filterOlimpiada").value;
+    
+    // Filtragem Lógica
+    const dadosFiltrados = dadosTrabalho.filter(d => {
+        const matchMuni = (fMuni === "Todos" || d.municipio === fMuni);
+        const matchEsco = (fEsco === "Todas" || d.escola === fEsco);
+        const matchOlim = (fOlim === "Todas" || d.olimpiada === fOlim);
+        return matchMuni && matchEsco && matchOlim;
+    });
+
+    // Atualização dos Cards
+    let ouro = 0, prata = 0, bronze = 0, mencao = 0;
+    dadosFiltrados.forEach(d => {
+        if (d.premio === "Ouro") ouro++;
+        else if (d.premio === "Prata") prata++;
+        else if (d.premio === "Bronze") bronze++;
+        else if (d.premio === "Menção Honrosa") mencao++;
+    });
+    
+    document.getElementById("cardOuro").innerText = ouro;
+    document.getElementById("cardPrata").innerText = prata;
+    document.getElementById("cardBronze").innerText = bronze;
+    document.getElementById("cardMencao").innerText = mencao;
+    document.getElementById("lblTotalPremiados").innerText = `Total: ${dadosFiltrados.length}`;
+
+    // Atualização da Tabela de Alunos
+    const tCorpo = document.getElementById("tableAlunosCorpo");
+    tCorpo.innerHTML = "";
+    if (dadosFiltrados.length === 0) {
+        tCorpo.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum medalhista encontrado para estes filtros.</td></tr>`;
+    } else {
+        dadosFiltrados.forEach(d => {
+            let badgeColor = "bg-purple-500/20 text-purple-400 border-purple-500/30";
+            if (d.premio === "Ouro") badgeColor = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+            if (d.premio === "Prata") badgeColor = "bg-slate-400/20 text-slate-300 border-slate-400/30";
+            if (d.premio === "Bronze") badgeColor = "bg-amber-600/20 text-amber-500 border-amber-600/30";
+
+            tCorpo.innerHTML += `
+                <tr class="hover:bg-gray-800/30 transition">
+                    <td class="p-4 font-semibold text-gray-200">${d.aluno}</td>
+                    <td class="p-4 text-gray-400">${d.escola}</td>
+                    <td class="p-4 text-gray-500">${d.municipio}</td>
+                    <td class="p-4 text-gray-400">${d.olimpiada}</td>
+                    <td class="p-4 text-center">
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold border ${badgeColor}">${d.premio}</span>
+                    </td>
+                </tr>`;
+        });
+    }
+
+    // Atualização da Aba do Calendário
+    renderizarCalendario();
+    
+    // Atualização da Aba de Gestão de Usuários
+    renderizarUsuarios();
+
+    // Atualização do Gráfico
+    renderizarGrafico(dadosFiltrados);
+}
+
+function renderizarCalendario() {
+    const tCal = document.getElementById("tableCalendarioCorpo");
+    tCal.innerHTML = "";
+    DATABASE.calendario.forEach(c => {
+        tCal.innerHTML += `
+            <tr class="hover:bg-gray-800/30 transition">
+                <td class="p-4 font-bold text-blue-400">${c.olimpiada}</td>
+                <td class="p-4 text-gray-200">${c.etapa}</td>
+                <td class="p-4 font-medium text-yellow-500">${c.data}</td>
+                <td class="p-4 text-gray-400 text-xs">${c.segmento}</td>
+                <td class="p-4 text-xs italic text-gray-400 border-l-2 border-red-500/40 pl-3 bg-red-500/5">${c.acao}</td>
+            </tr>`;
+    });
+}
+
+function renderizarUsuarios() {
+    const tUser = document.getElementById("tableUsersCorpo");
+    tUser.innerHTML = "";
+    DATABASE.usuarios.forEach(u => {
+        tUser.innerHTML += `
+            <tr class="hover:bg-gray-800/30 transition">
+                <td class="p-4 font-semibold text-gray-200">${u.nome}</td>
+                <td class="p-4 text-gray-400">${u.login}</td>
+                <td class="p-4"><span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-xs">${u.nivel}</span></td>
+                <td class="p-4"><span class="text-green-400 flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span> Ativo</span></td>
+                <td class="p-4 text-gray-500 text-xs"><i class="fa-solid fa-lock mr-1"></i> Protegido</td>
+            </tr>`;
+    });
+}
+
+function renderizarGrafico(dados) {
+    const ctx = document.getElementById("chartMedalhas");
+    if (!ctx) return;
+
+    // Agrupa dados por Escola
+    const escolas = [...new Set(dados.map(d => d.escola))];
+    const dataOuro = [], dataPrata = [], dataBronze = [], dataMencao = [];
+
+    escolas.forEach(esc => {
+        const sub = dados.filter(d => d.escola === esc);
+        dataOuro.push(sub.filter(d => d.premio === "Ouro").length);
+        dataPrata.push(sub.filter(d => d.premio === "Prata").length);
+        dataBronze.push(sub.filter(d => d.premio === "Bronze").length);
+        dataMencao.push(sub.filter(d => d.premio === "Menção Honrosa").length);
+    });
+
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+
     chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['🥇 Ouro', '🥈 Prata', '🥉 Bronze', '🏅 Menção'],
-            datasets: [{
-                label: 'Volume de Premiações 2026',
-                data: [o, p, b, m],
-                backgroundColor: ['#eab308', '#94a3b8', '#ea580c', '#8b5cf6']
-            }]
+            labels: escolas.length ? escolas : ["Nenhuma Escola"],
+            datasets: [
+                { label: 'Ouro', data: dataOuro, backgroundColor: '#eab308' },
+                { label: 'Prata', data: dataPrata, backgroundColor: '#94a3b8' },
+                { label: 'Bronze', data: dataBronze, backgroundColor: '#ea580c' },
+                { label: 'Menção Honrosa', data: dataMencao, backgroundColor: '#c084fc' }
+            ]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { stacked: true, grid: { display: false }, ticks: { color: '#9ca3af' } },
+                y: { stacked: true, ticks: { color: '#9ca3af', stepSize: 1 } }
+            },
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#f3f4f6', boxWidth: 12 } }
+            }
+        }
     });
 }
 
-// Injeção de Dados do Mestre Calendário (45 Olimpíadas de database.js)
-function renderizarCalendarioMestre() {
-    let html = "";
-    OLYMPIADS_DB.forEach(oly => {
-        html += `<tr>
-            <td><span class="badge bg-${oly.cat.toLowerCase()}">${oly.cat}</span> <b>${oly.nome}</b></td>
-            <td>${oly.target}</td>
-            <td style="font-weight:bold; color:#1e2a6b;">${oly.data}</td>
-            <td><a href="${oly.site}" target="_blank" class="btn" style="padding:4px 8px; font-size:11px;">Acessar Portal</a></td>
-        </tr>`;
+// ==================== ENVIO MANUAL E IMPORTAÇÃO COMPLETA ====================
+function initFormularios() {
+    const form = document.getElementById("formManualResult");
+    if (!form) return;
+
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        
+        const novoResult = {
+            aluno: document.getElementById("addAlunoNome").value.trim(),
+            município: document.getElementById("addAlunoMunicipio").value,
+            escola: document.getElementById("addAlunoEscola").value.trim(),
+            olimpiada: document.getElementById("addAlunoOlimpiada").value,
+            premio: document.getElementById("addAlunoPremio").value
+        };
+
+        dadosTrabalho.push(novoResult);
+        alert("Resultado individual computado com sucesso!");
+        form.reset();
+        popularSeletores();
+        renderizarPlataforma();
     });
-    document.getElementById("tabela-calendario").innerHTML = html;
 }
 
-// MÓDULOS DE GESTÃO DA PLATAFORMA
+function initDragAndDrop() {
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileUploadInput");
 
-// 1. Gestão de Usuários (Apenas ADM)
-function renderizarGestaoUsuarios() {
-    if (currentUser.role !== "ADM") return;
-    let html = "";
-    Object.keys(USUARIOS_LOGADOS).forEach(key => {
-        let u = USUARIOS_LOGADOS[key];
-        html += `<tr><td><b>${key}</b></td><td>${u.nome}</td><td>${u.role}</td><td>${u.escopo}</td></tr>`;
-    });
-    document.getElementById("tbody-usuarios").innerHTML = html;
-}
+    if (!dropZone) return;
 
-function cadastrarUsuario(e) {
-    e.preventDefault();
-    const user = document.getElementById("new-user").value.trim().toLowerCase();
-    const nome = document.getElementById("new-nome").value;
-    const role = document.getElementById("new-role").value;
-    const senha = document.getElementById("new-pass").value;
-    const escopo = document.getElementById("new-escopo").value;
-
-    if (USUARIOS_LOGADOS[user]) { alert("Usuário já cadastrado!"); return; }
+    dropZone.addEventListener("click", () => fileInput.click());
     
-    USUARIOS_LOGADOS[user] = { senha, role, nome, escopo };
-    alert("✓ Usuário inserido com sucesso!");
-    document.getElementById("form-usuarios").reset();
-    renderizarGestaoUsuarios();
-}
-
-// 2. Gestão de Municípios (Apenas ADM)
-function renderizarGestaoMunicipios() {
-    let html = "";
-    MUNICIPIOS_DATA.forEach((m, idx) => {
-        html += `<tr><td>${idx+1}</td><td><b>${m}</b></td><td>Estado do Piauí</td></tr>`;
+    dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.classList.add("border-blue-500", "bg-blue-500/5");
     });
-    document.getElementById("tbody-municipios").innerHTML = html;
-}
 
-function cadastrarMunicipio(e) {
-    e.preventDefault();
-    const m = document.getElementById("new-mun-nome").value;
-    MUNICIPIOS_DATA.push(m);
-    alert("✓ Município cadastrado!");
-    document.getElementById("form-municipios").reset();
-    renderizarGestaoMunicipios();
-    renderizarFiltrosSelects();
-}
-
-// 3. Gestão de Escolas (ADM e Coordenador Municipal)
-function renderizarGestaoEscolas() {
-    let html = "";
-    ESCOLAS_DATA.forEach((esc, idx) => {
-        html += `<tr><td>${idx+1}</td><td><b>${esc}</b></td><td>Ativa</td></tr>`;
+    dropZone.addEventListener("dragleave", () => {
+        dropZone.classList.remove("border-blue-500", "bg-blue-500/5");
     });
-    document.getElementById("tbody-escolas").innerHTML = html;
-}
 
-function cadastrarEscola(e) {
-    e.preventDefault();
-    const esc = document.getElementById("new-esc-nome").value;
-    ESCOLAS_DATA.push(esc);
-    alert("✓ Escola integrada!");
-    document.getElementById("form-escolas").reset();
-    renderizarGestaoEscolas();
-}
-
-// 4. Gestão de Alunos / Resultados (Todos conforme escopo)
-function renderizarGestaoAlunos() {
-    let html = "";
-    let filtrados = ALUNOS_REPOSITORIO;
-    if (currentUser.role === "Escola") {
-        filtrados = ALUNOS_REPOSITORIO.filter(a => a.escola === currentUser.escopo);
-    }
-    
-    filtrados.forEach((a, idx) => {
-        html += `<tr>
-            <td><b>${a.aluno}</b></td>
-            <td>${a.escola}</td>
-            <td>${a.olimpiada}</td>
-            <td><span class="badge bg-mat">${a.premio}</span></td>
-        </tr>`;
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("border-blue-500", "bg-blue-500/5");
+        const arquivos = e.dataTransfer.files;
+        if (arquivos.length) processarArquivoPlanilha(arquivos[0]);
     });
-    document.getElementById("tbody-alunos").innerHTML = html;
-    
-    // Alimenta a lista de olimpíadas no formulário de cadastro de aluno
-    const selectOly = document.getElementById("new-al-olimpiada");
-    if(selectOly.options.length <= 1) {
-        OLYMPIADS_DB.forEach(o => {
-            selectOly.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
-        });
-    }
+
+    fileInput.addEventListener("change", (e) => {
+        if (e.target.files.length) processarArquivoPlanilha(e.target.files[0]);
+    });
 }
 
-function cadastrarAluno(e) {
-    e.preventDefault();
-    const aluno = document.getElementById("new-al-nome").value;
-    const escola = currentUser.role === "Escola" ? currentUser.escopo : document.getElementById("new-al-escola").value;
-    const municipio = currentUser.role === "Escola" ? "São Braz - PI" : "São Braz - PI"; 
-    const olimpiada = document.getElementById("new-al-olimpiada").value;
-    const premio = document.getElementById("new-al-premio").value;
+function processarArquivoPlanilha(arquivo) {
+    const leitor = new FileReader();
+    leitor.onload = (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const livro = XLSX.read(data, { type: 'array' });
+            const primeiraAba = livro.SheetNames[0];
+            const linhas = XLSX.utils.sheet_to_json(livro.Sheets[primeiraAba]);
 
-    ALUNOS_REPOSITORIO.push({ aluno, escola, municipio, olimpiada, premio });
-    alert("✓ Resultado olímpico computado!");
-    document.getElementById("form-alunos").reset();
-    renderizarGestaoAlunos();
-    renderizarDashboard();
+            if (linhas.length === 0) {
+                alert("A planilha está vazia!");
+                return;
+            }
+
+            // Mapeamento e Ingestão de Dados
+            linhas.forEach(linha => {
+                dadosTrabalho.push({
+                    aluno: linha.Aluno || linha.aluno || "Desconhecido",
+                    escola: linha.Escola || linha.escola || "Não Informada",
+                    municipio: linha.Municipio || linha.municipio || "São Braz - PI",
+                    olimpiada: linha.Olimpiada || linha.olimpiada || "Geral",
+                    premio: linha.Premio || linha.premio || "Menção Honrosa"
+                });
+            });
+
+            alert(`${linhas.length} novos registros importados com sucesso para o Painel!`);
+            popularSeletores();
+            renderizarPlataforma();
+        } catch (erro) {
+            console.error(erro);
+            alert("Erro ao ler o arquivo! Certifique-se de que é uma tabela válida.");
+        }
+    };
+    leitor.readAsArrayBuffer(arquivo);
 }
 
-// Controle de Navegação de Abas Internas
-function switchTab(id) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-    event.target.classList.add('active');
+function downloadCSVTemplate() {
+    const cabecalho = "Aluno,Escola,Municipio,Olimpiada,Premio\nCarlos Silva,Unidade Escolar Sao Braz,Sao Braz - PI,OBMEP,Ouro\nMaria Oliveira,Colegio Alberto Silva,Sao Braz - PI,Canguru de Matematica Brasil,Prata";
+    const blob = new Blob([cabecalho], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", "modelo_importacao_olimpiadas.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }

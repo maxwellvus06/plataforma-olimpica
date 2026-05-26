@@ -3,227 +3,284 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plataforma de Gestão Olímpica Integrada 2026</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Portal Olímpico 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
-    <div id="auth-screen" class="auth-screen">
-        <div class="auth-card">
-            <h2>Portal Olímpico 2026</h2>
-            <p>Insira suas credenciais de governança</p>
-            <form onsubmit="e => e.preventDefault(); ejecutarLogin();">
-                <div style="margin-bottom:15px; text-align:left;">
-                    <input type="text" id="auth-user" class="form-control" placeholder="Usuário (admin, coordenador, escola)" required>
+    <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
+        <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r content-gradient"></div>
+            
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mb-4 border border-blue-500/20">
+                    <i class="fa-solid fa-graduation-cap text-3xl"></i>
                 </div>
-                <div style="margin-bottom:20px; text-align:left;">
-                    <input type="password" id="auth-pass" class="form-control" placeholder="Senha" required>
-                </div>
-                <button type="button" onclick="ejecutarLogin()" class="btn" style="width:100%; padding:12px;">Entrar no Sistema</button>
-            </form>
-            <div style="margin-top:20px; font-size:11px; color:#94a3b8; text-align:left; background:#f8fafc; padding:10px; border-radius:6px;">
-                <strong>Chaves de homologação:</strong><br>
-                • ADM: user 'admin' / senha '123'<br>
-                • Coordenador: user 'coordenador' / senha '456'<br>
-                • Escola: user 'escola' / senha '789'
+                <h1 class="text-2xl font-bold tracking-tight">Portal Olímpico 2026</h1>
+                <p class="text-gray-400 text-sm mt-1">Gestão Integrada de Resultados e Calendários</p>
             </div>
-        </div>
-    </div>
 
-    <div id="app-container" class="container">
-        
-        <div class="header">
-            <div class="header-meta">
+            <form id="loginForm" class="space-y-5">
                 <div>
-                    <h2>🎯 Sistema Integrado de Gestão Olímpica (SIGO)</h2>
-                    <p>Controle de Alunos, Escolas e Cronogramas de Fases — Ciclo Letivo 2026</p>
-                </div>
-                <div style="text-align:right;">
-                    <span id="nav-user-name" class="user-badge" style="margin-right:10px;">Nome</span>
-                    <span id="nav-user-role" class="user-badge" style="background:#f59e0b;">Role</span>
-                    <button onclick="ejecutarLogout()" class="btn btn-danger" style="padding:5px 12px; font-size:12px; margin-left:10px;">Sair</button>
-                </div>
-            </div>
-
-            <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('tab-dashboard')">📊 Dashboard</button>
-                <button class="tab-btn" onclick="switchTab('tab-calendario-mestre')">📅 Calendário (45 Olimpíadas)</button>
-                <button class="tab-btn" id="btn-tab-usuarios" onclick="switchTab('tab-usuarios')">👥 Usuários</button>
-                <button class="tab-btn" id="btn-tab-municipios" onclick="switchTab('tab-municipios')">🏢 Municípios</button>
-                <button class="tab-btn" id="btn-tab-escolas" onclick="switchTab('tab-escolas')">🏫 Escolas</button>
-                <button class="tab-btn" onclick="switchTab('tab-alunos')">👨‍🎓 Alunos & Prêmios</button>
-            </div>
-        </div>
-
-        <div id="tab-dashboard" class="tab-content active">
-            <div class="barra-filtros">
-                <div class="grupo-filtro">
-                    <label>Município Polo</label>
-                    <select id="filtro-municipio" onchange="renderizarDashboard()"></select>
-                </div>
-                <div class="grupo-filtro">
-                    <label>Filtro de Olimpíada</label>
-                    <select id="filtro-olimpiada" onchange="renderizarDashboard()">
-                        <option value="todas">Todas as Olimpíadas</option>
-                        <option value="Olimpíada Canguru de Matemática">Canguru de Matemática</option>
-                        <option value="OLIMPÍADA BRASILEIRA DO SABER">Olimpíada Brasileira do Saber</option>
-                        <option value="Olimpíada Brasileira de Matemática Financeira">Matemática Financeira</option>
-                        <option value="Olimpíada Brasileira de Geopolítica">Geopolítica</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="grid-cards">
-                <div class="card card-ouro"><div class="card-title">🥇 Ouro</div><div class="card-value" id="card-ouro">0</div></div>
-                <div class="card card-prata"><div class="card-title">🥈 Prata</div><div class="card-value" id="card-prata">0</div></div>
-                <div class="card card-bronze"><div class="card-title">🥉 Bronze</div><div class="card-value" id="card-bronze">0</div></div>
-                <div class="card card-mencao"><div class="card-title">🏅 Menção H.</div><div class="card-value" id="card-mencao">0</div></div>
-                <div class="card card-total"><div class="card-title">✨ Total Prêmios</div><div class="card-value" id="card-total">0</div></div>
-                <div class="card card-medalhas"><div class="card-title">🏆 Total Medalhas</div><div class="card-value" id="card-medalhas">0</div></div>
-            </div>
-
-            <div class="layout-dashboard">
-                <div class="painel-branco">
-                    <div class="titulo-secao">📊 Performance Consolidada</div>
-                    <div style="position:relative; height:240px;"><canvas id="chartCanvas"></canvas></div>
-                </div>
-                <div class="painel-branco">
-                    <div class="titulo-secao">🏆 Feed de Conquistas Próximas</div>
-                    <table class="tabela-dados">
-                        <thead><tr><th>Aluno / Escola</th><th>Olimpíada</th><th>Resultado</th></tr></thead>
-                        <tbody id="tabela-feed"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-calendario-mestre" class="tab-content">
-            <div class="painel-branco">
-                <div class="titulo-secao">📅 Cronograma Detalhado e Links Oficiais de Fases 2026</div>
-                <div class="tabela-wrapper">
-                    <table class="tabela-dados">
-                        <thead><tr><th>Competição / Olimpíada</th><th>Segmento Elegível</th><th style="text-align:center;">Data da Prova</th><th style="text-align:center;">Ações</th></tr></thead>
-                        <tbody id="tabela-calendario"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-usuarios" class="tab-content">
-            <div class="grid-lancamento">
-                <div class="painel-branco">
-                    <div class="titulo-secao">👤 Cadastrar Novo Usuário de Governança</div>
-                    <form id="form-usuarios" onsubmit="cadastrarUsuario(event)">
-                        <div class="form-row">
-                            <div class="form-group"><label>Username</label><input type="text" id="new-user" required></div>
-                            <div class="form-group"><label>Nome Completo</label><input type="text" id="new-nome" required></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Nível de Acesso</label>
-                                <select id="new-role">
-                                    <option value="Coordenador Municipal">Coordenador Municipal</option>
-                                    <option value="Escola">Escola</option>
-                                </select>
-                            </div>
-                            <div class="form-group"><label>Senha de Acesso</label><input type="password" id="new-pass" required></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group"><label>Escopo de Atuação (Município ou Escola)</label><input type="text" id="new-escopo" placeholder="Ex: São Braz - PI" required></div>
-                        </div>
-                        <button type="submit" class="btn btn-success">Salvar Credencial</button>
-                    </form>
-                </div>
-                <div class="painel-branco">
-                    <div class="titulo-secao">👥 Usuários Ativos no Sistema</div>
-                    <table class="tabela-dados">
-                        <thead><tr><th>User</th><th>Nome</th><th>Nível</th><th>Escopo</th></tr></thead>
-                        <tbody id="tbody-usuarios"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-municipios" class="tab-content">
-            <div class="grid-lancamento">
-                <div class="painel-branco">
-                    <div class="titulo-secao">🏢 Cadastrar Município Parceiro</div>
-                    <form id="form-municipios" onsubmit="cadastrarMunicipio(event)">
-                        <div class="form-group" style="margin-bottom:15px;"><label>Nome do Município / UF</label><input type="text" id="new-mun-nome" placeholder="Ex: Teresina - PI" required></div>
-                        <button type="submit" class="btn btn-success">Adicionar Município</button>
-                    </form>
-                </div>
-                <div class="painel-branco">
-                    <div class="titulo-secao">🏢 Redes de Ensino Vinculadas</div>
-                    <table class="tabela-dados">
-                        <thead><tr><th>ID</th><th>Município</th><th>Estado</th></tr></thead>
-                        <tbody id="tbody-municipios"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-escolas" class="tab-content">
-            <div class="grid-lancamento">
-                <div class="painel-branco">
-                    <div class="titulo-secao">🏫 Cadastrar Unidade Escolar</div>
-                    <form id="form-escolas" onsubmit="cadastrarEscola(event)">
-                        <div class="form-group" style="margin-bottom:15px;"><label>Nome da Escola</label><input type="text" id="new-esc-nome" placeholder="Ex: Unidade Escolar Patronato" required></div>
-                        <button type="submit" class="btn btn-success">Adicionar Unidade</button>
-                    </form>
-                </div>
-                <div class="painel-branco">
-                    <div class="titulo-secao">🏫 Escolas Mapeadas na Rede</div>
-                    <table class="tabela-dados">
-                        <thead><tr><th>ID</th><th>Escola</th><th>Status</th></tr></thead>
-                        <tbody id="tbody-escolas"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="tab-alunos" class="tab-content">
-            <div class="grid-lancamento">
-                <div class="painel-branco">
-                    <div class="titulo-secao">👨‍🎓 Lançar Resultado do Aluno</div>
-                    <form id="form-alunos" onsubmit="cadastrarAluno(event)">
-                        <div class="form-row">
-                            <div class="form-group"><label>Nome do Estudante</label><input type="text" id="new-al-nome" required></div>
-                            <div class="form-group"><label>Unidade Escolar (Se ADM/Coord)</label><input type="text" id="new-al-escola" placeholder="U.E. Polo Municipal"></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Olimpíada Alvo</label>
-                                <select id="new-al-olimpiada"><option value="">Selecione a Competição</option></select>
-                            </div>
-                            <div class="form-group">
-                                <label>Premiação Obtida</label>
-                                <select id="new-al-premio">
-                                    <option value="Ouro">Ouro 🥇</option>
-                                    <option value="Prata">Prata 🥈</option>
-                                    <option value="Bronze">Bronze 🥉</option>
-                                    <option value="Menção Honrosa">Menção Honrosa 🏅</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-success">Computar Medalha</button>
-                    </form>
-                </div>
-                <div class="painel-branco">
-                    <div class="titulo-secao">👨‍🎓 Histórico Geral de Alunos Premiados</div>
-                    <div class="tabela-wrapper">
-                        <table class="tabela-dados">
-                            <thead><tr><th>Estudante</th><th>Escola</th><th>Olimpíada</th><th>Medalha</th></tr></thead>
-                            <tbody id="tbody-alunos"></tbody>
-                        </table>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2" for="username">Usuário</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                            <i class="fa-solid fa-user"></i>
+                        </span>
+                        <input type="text" id="username" required
+                            class="w-full bg-gray-900/50 border border-gray-700 rounded-xl py-3 pl-10 pr-4 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" 
+                            placeholder="Digite seu usuário">
                     </div>
                 </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2" for="password">Senha</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                            <i class="fa-solid fa-lock"></i>
+                        </span>
+                        <input type="password" id="password" required
+                            class="w-full bg-gray-900/50 border border-gray-700 rounded-xl py-3 pl-10 pr-4 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" 
+                            placeholder="••••••••">
+                    </div>
+                </div>
+
+                <button type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-blue-600/20 transition duration-200 flex items-center justify-center gap-2 mt-2">
+                    <span>Entrar no Sistema</span>
+                    <i class="fa-solid fa-arrow-right text-sm"></i>
+                </button>
+            </form>
+            
+            <div class="mt-6 pt-6 border-t border-gray-700/50 text-center">
+                <span class="text-xs text-gray-500">Credenciais padrão disponíveis no banco local.</span>
             </div>
         </div>
-
     </div>
 
+    <div id="mainContent" class="hidden">
+        
+        <header class="bg-gray-800 border-b border-gray-700 sticky top-0 z-40 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-chart-blit text-blue-400 text-2xl"></i>
+                <div>
+                    <h2 class="text-lg font-bold" id="userPanelTitle">Painel de Controle</h2>
+                    <span class="text-xs text-gray-400" id="userBadge">Nível: Carregando...</span>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <select id="filterMunicipio" class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <option value="Todos">Todos os Municípios</option>
+                    <option value="São Braz - PI">São Braz - PI</option>
+                </select>
+                <select id="filterEscola" class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <option value="Todas">Todas as Escolas</option>
+                </select>
+                <select id="filterOlimpiada" class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <option value="Todas">Todas as Olimpíadas</option>
+                </select>
+                <button id="btnLogout" class="bg-red-600/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 rounded-lg px-4 py-2 text-sm font-semibold transition flex items-center gap-2 ml-auto md:ml-0">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Sair</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="flex min-h-[calc(screen-16)]">
+            <aside class="w-64 bg-gray-800 border-r border-gray-700 p-4 space-y-2 hidden md:block">
+                <button onclick="switchTab('dashboard')" class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition text-left bg-blue-600 text-white" id="btn-tab-dashboard">
+                    <i class="fa-solid fa-chart-pie text-lg"></i> Dashboard Geral
+                </button>
+                <button onclick="switchTab('calendario')" class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition text-left text-gray-400 hover:bg-gray-700/50 hover:text-gray-200" id="btn-tab-calendario">
+                    <i class="fa-solid fa-calendar-days text-lg"></i> Calendário Olímpico
+                </button>
+                <button onclick="switchTab('lancamento')" class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition text-left text-gray-400 hover:bg-gray-700/50 hover:text-gray-200" id="btn-tab-lancamento">
+                    <i class="fa-solid fa-file-import text-lg"></i> Lançar Resultados
+                </button>
+                <button onclick="switchTab('usuarios')" class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition text-left text-gray-400 hover:bg-gray-700/50 hover:text-gray-200" id="btn-tab-usuarios">
+                    <i class="fa-solid fa-users-gear text-lg"></i> Gestão de Usuários
+                </button>
+            </aside>
+
+            <main class="flex-1 p-6 space-y-6 overflow-y-auto">
+                
+                <section id="tab-dashboard" class="tab-content space-y-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-gray-800 p-5 rounded-2xl border border-gray-700 flex items-center justify-between shadow-lg">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</p>
+                                <h3 class="text-3xl font-bold mt-2 text-yellow-500" id="cardOuro">0</h3>
+                            </div>
+                            <div class="p-3 bg-yellow-500/10 text-yellow-500 rounded-xl border border-yellow-500/20"><i class="fa-solid fa-trophy text-2xl"></i></div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-2xl border border-gray-700 flex items-center justify-between shadow-lg">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Medalhas de Prata</p>
+                                <h3 class="text-3xl font-bold mt-2 text-slate-300" id="cardPrata">0</h3>
+                            </div>
+                            <div class="p-3 bg-slate-400/10 text-slate-300 rounded-xl border border-slate-400/20"><i class="fa-solid fa-medal text-2xl"></i></div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-2xl border border-gray-700 flex items-center justify-between shadow-lg">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Medalhas de Bronze</p>
+                                <h3 class="text-3xl font-bold mt-2 text-amber-600" id="cardBronze">0</h3>
+                            </div>
+                            <div class="p-3 bg-amber-600/10 text-amber-600 rounded-xl border border-amber-600/20"><i class="fa-solid fa-award text-2xl"></i></div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-2xl border border-gray-700 flex items-center justify-between shadow-lg">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Menções Honrosas</p>
+                                <h3 class="text-3xl font-bold mt-2 text-purple-400" id="cardMencao">0</h3>
+                            </div>
+                            <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20"><i class="fa-solid fa-certificate text-2xl"></i></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                        <h4 class="text-base font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-chart-bar text-blue-400"></i> Distribuição de Conquistas por Escola</h4>
+                        <div class="relative h-80 w-full">
+                            <canvas id="chartMedalhas"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden shadow-xl">
+                        <div class="p-5 border-b border-gray-700 flex items-center justify-between">
+                            <h4 class="font-bold flex items-center gap-2"><i class="fa-solid fa-list-ol text-blue-400"></i> Listagem de Alunos Premiados</h4>
+                            <span class="text-xs px-2.5 py-1 bg-gray-900 border border-gray-700 rounded-full text-gray-400" id="lblTotalPremiados">Total: 0</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-900/50 text-xs font-semibold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
+                                        <th class="p-4">Aluno</th>
+                                        <th class="p-4">Escola</th>
+                                        <th class="p-4">Município</th>
+                                        <th class="p-4">Olimpíada</th>
+                                        <th class="p-4 text-center">Premiação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableAlunosCorpo" class="divide-y divide-gray-700/50 text-sm">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-calendario" class="tab-content space-y-6 hidden">
+                    <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                        <div class="mb-4">
+                            <h3 class="text-xl font-bold flex items-center gap-2"><i class="fa-solid fa-calendar text-blue-400"></i> Cronograma de Fases e Prazos 2026</h3>
+                            <p class="text-sm text-gray-400 mt-1">Acompanhe as etapas críticas, janelas de prova e regras de sigilo vigentes.</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-900 text-xs font-semibold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
+                                        <th class="p-4">Olimpíada</th>
+                                        <th class="p-4">Etapa/Fase</th>
+                                        <th class="p-4">Data Prevista</th>
+                                        <th class="p-4">Segmento</th>
+                                        <th class="p-4">Ação / Atenção Crítica</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableCalendarioCorpo" class="divide-y divide-gray-700/50 text-sm">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-lancamento" class="tab-content space-y-6 hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-1">
+                            <h4 class="font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-keyboard text-blue-400"></i> Cadastro Individual</h4>
+                            <form id="formManualResult" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Nome do Aluno</label>
+                                    <input type="text" id="addAlunoNome" required class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm focus:border-blue-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Município</label>
+                                    <select id="addAlunoMunicipio" required class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm focus:border-blue-500 focus:outline-none">
+                                        <option value="São Braz - PI">São Braz - PI</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Escola</label>
+                                    <input type="text" id="addAlunoEscola" required placeholder="Ex: Unidade Escolar São Braz" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm focus:border-blue-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Olimpíada</label>
+                                    <select id="addAlunoOlimpiada" required class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm focus:border-blue-500 focus:outline-none">
+                                        </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Tipo de Premiação</label>
+                                    <select id="addAlunoPremio" required class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm focus:border-blue-500 focus:outline-none">
+                                        <option value="Ouro">Ouro 🥇</option>
+                                        <option value="Prata">Prata 🥈</option>
+                                        <option value="Bronze">Bronze 🥉</option>
+                                        <option value="Menção Honrosa">Menção Honrosa 📜</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg text-sm transition">Salvar Registro</button>
+                            </form>
+                        </div>
+
+                        <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2 flex flex-col justify-between">
+                            <div>
+                                <h4 class="font-bold mb-2 flex items-center gap-2"><i class="fa-solid fa-file-excel text-green-400"></i> Importação em Lote (.csv ou .xlsx)</h4>
+                                <p class="text-xs text-gray-400 mb-4">Atualize múltiplos estudantes de uma só vez arrastando seu arquivo de notas.</p>
+                                
+                                <div id="dropZone" class="border-2 border-dashed border-gray-600 hover:border-blue-500 rounded-2xl p-8 text-center bg-gray-900/50 cursor-pointer transition flex flex-col items-center justify-center group py-12">
+                                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-gray-500 group-hover:text-blue-400 mb-3 transition"></i>
+                                    <p class="text-sm font-medium">Arraste sua planilha para cá ou <span class="text-blue-400">procure arquivos</span></p>
+                                    <p class="text-xs text-gray-500 mt-1">Suporta formatos Excel (.xlsx) ou CSV delimitados por vírgula</p>
+                                    <input type="file" id="fileUploadInput" class="hidden" accept=".csv, .xlsx">
+                                </div>
+                            </div>
+
+                            <div class="mt-6 pt-4 border-t border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div class="text-xs text-gray-400"><i class="fa-solid fa-circle-info text-blue-400 mr-1"></i> Baixe nossa tabela padrão para não errar a ordem das colunas.</div>
+                                <button onclick="downloadCSVTemplate()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-semibold px-4 py-2.5 rounded-xl border border-gray-600 transition flex items-center gap-2">
+                                    <i class="fa-solid fa-download"></i> Baixar Modelo Padrão CSV
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-usuarios" class="tab-content space-y-6 hidden">
+                    <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                        <h3 class="text-base font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-users text-blue-400"></i> Níveis de Permissões de Acesso do Sistema</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-900 text-xs font-semibold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
+                                        <th class="p-4">Operador / Nome</th>
+                                        <th class="p-4">Login de Usuário</th>
+                                        <th class="p-4">Nível de Governança</th>
+                                        <th class="p-4">Status</th>
+                                        <th class="p-4">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableUsersCorpo" class="divide-y divide-gray-700/50 text-sm">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
     <script src="database.js"></script>
     <script src="app.js"></script>
 </body>
