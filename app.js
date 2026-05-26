@@ -143,6 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Login primeiro. Nada de carregar/gravar todas as coleções antes do formulário funcionar.
     // Se o Firebase tiver algum erro de regra, o botão de login continua ativo e o erro aparece só ao tentar entrar.
     try {
+        aplicarTemaPreferidoLocal();
         initFirebase();
         carregarLayoutVisual().catch(erro => console.warn("Layout visual não carregado ainda:", erro));
         initLogin();
@@ -188,6 +189,7 @@ function initLogin() {
         e.preventDefault();
         const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
         const passInput = document.getElementById("auth-pass").value.trim();
+        const lembrar = !!document.getElementById("auth-remember")?.checked;
         const btn = form.querySelector('button[type="submit"]');
 
         try {
@@ -198,9 +200,11 @@ function initLogin() {
 
             if (contaEncontrada) {
                 usuarioLogado = contaEncontrada;
+                salvarSessaoLocalSeNecessario(contaEncontrada, lembrar);
 
                 if (btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando dados...'; }
                 await carregarDadosPosLogin();
+                aplicarTemaUsuario(contaEncontrada);
 
                 logarSucesso(contaEncontrada);
             } else {
@@ -208,16 +212,76 @@ function initLogin() {
             }
         } catch (erro) {
             console.error("Erro ao tentar login", erro);
-            alert(`Erro ao tentar login. Verifique conexão/Firebase.\n\n${erro.message || erro}`);
+            alert(`Erro ao tentar login. Verifique conexão/Firebase.
+
+${erro.message || erro}`);
         } finally {
             if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
         }
     });
 }
 
-function verificarSessao() {
-    // Sem armazenamento local: ao atualizar a página, o usuário precisa logar novamente.
-    return;
+const SESSAO_LOCAL_KEY = "avance_sessao_lembrar_v2";
+const TEMA_LOCAL_KEY = "avance_tema_preferido_v2";
+
+function salvarSessaoLocalSeNecessario(usuario, lembrar) {
+    try {
+        if (!lembrar) {
+            localStorage.removeItem(SESSAO_LOCAL_KEY);
+            return;
+        }
+        localStorage.setItem(SESSAO_LOCAL_KEY, JSON.stringify({
+            userId: String(usuario.id || ""),
+            login: String(usuario.login || ""),
+            criadoEm: Date.now(),
+            expiraEm: Date.now() + 1000 * 60 * 60 * 24 * 30
+        }));
+    } catch (erro) {
+        console.warn("Não foi possível salvar sessão local.", erro);
+    }
+}
+
+function lerSessaoLocal() {
+    try {
+        const bruto = localStorage.getItem(SESSAO_LOCAL_KEY);
+        if (!bruto) return null;
+        const sessao = JSON.parse(bruto);
+        if (!sessao?.userId || !sessao?.expiraEm || Date.now() > sessao.expiraEm) {
+            localStorage.removeItem(SESSAO_LOCAL_KEY);
+            return null;
+        }
+        return sessao;
+    } catch (_) {
+        localStorage.removeItem(SESSAO_LOCAL_KEY);
+        return null;
+    }
+}
+
+async function verificarSessao() {
+    const sessao = lerSessaoLocal();
+    if (!sessao) return;
+
+    const form = document.getElementById("loginForm");
+    const btn = form?.querySelector('button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Restaurando sessão...'; }
+        await sincronizarUsuariosFirebaseInicial();
+        const usuarios = getStorage("app_usuarios", []);
+        const usuario = usuarios.find(u => String(u.id) === String(sessao.userId) && (!sessao.login || normalizarTexto(u.login) === normalizarTexto(sessao.login)));
+        if (!usuario) {
+            localStorage.removeItem(SESSAO_LOCAL_KEY);
+            return;
+        }
+        usuarioLogado = usuario;
+        await carregarDadosPosLogin();
+        aplicarTemaUsuario(usuario);
+        logarSucesso(usuario);
+    } catch (erro) {
+        console.warn("Não foi possível restaurar sessão. Faça login novamente.", erro);
+        localStorage.removeItem(SESSAO_LOCAL_KEY);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
+    }
 }
 
 function logarSucesso(usuario) {
@@ -592,6 +656,7 @@ function resultadoDentroDoEscopoResultadosUsuario(resultado) {
 }
 
 function logout() {
+    try { localStorage.removeItem(SESSAO_LOCAL_KEY); } catch (_) {}
     usuarioLogado = null;
     if (monitoriaListenerAtivo) {
         monitoriaListenerAtivo();
@@ -923,14 +988,48 @@ function normalizarTexto(valor) {
     return String(valor ?? "").trim().toLowerCase();
 }
 
-function alternarTemaClaroEscuro() {
-    const claro = document.body.classList.toggle("theme-light");
+function atualizarBotaoTema() {
+    const claro = document.body.classList.contains("theme-light");
     const btn = document.getElementById("btnToggleTema");
     if (btn) {
         btn.innerHTML = claro
             ? '<i class="fa-solid fa-moon mr-2"></i>Tema escuro'
             : '<i class="fa-solid fa-sun mr-2"></i>Tema claro';
     }
+}
+
+function aplicarTemaPreferidoLocal() {
+    try {
+        const tema = localStorage.getItem(TEMA_LOCAL_KEY) || "escuro";
+        document.body.classList.toggle("theme-light", tema === "claro");
+        atualizarBotaoTema();
+    } catch (_) {}
+}
+
+function aplicarTemaUsuario(usuario = usuarioLogado) {
+    const tema = usuario?.preferencias?.tema || usuario?.temaPreferido || (() => { try { return localStorage.getItem(TEMA_LOCAL_KEY); } catch (_) { return null; } })() || "escuro";
+    document.body.classList.toggle("theme-light", tema === "claro");
+    try { localStorage.setItem(TEMA_LOCAL_KEY, tema); } catch (_) {}
+    atualizarBotaoTema();
+}
+
+async function salvarTemaUsuario(tema) {
+    try { localStorage.setItem(TEMA_LOCAL_KEY, tema); } catch (_) {}
+    if (!usuarioLogado?.id) return;
+    const usuarios = getStorage("app_usuarios", []);
+    const idx = usuarios.findIndex(u => String(u.id) === String(usuarioLogado.id));
+    if (idx === -1) return;
+    usuarios[idx] = { ...usuarios[idx], preferencias: { ...(usuarios[idx].preferencias || {}), tema } };
+    usuarioLogado = usuarios[idx];
+    setStorageLocal("app_usuarios", usuarios);
+    await salvarUsuariosSistema(usuarios);
+}
+
+function alternarTemaClaroEscuro() {
+    const claro = !document.body.classList.contains("theme-light");
+    document.body.classList.toggle("theme-light", claro);
+    atualizarBotaoTema();
+    salvarTemaUsuario(claro ? "claro" : "escuro").catch(erro => console.warn("Não foi possível salvar preferência de tema.", erro));
 }
 
 function todasEtapasPadronizadas() {
@@ -4586,6 +4685,11 @@ const LAYOUT_PADRAO = {
     corFundo: "#111827",
     corCard: "#1f2937",
     corBorda: "#374151",
+    corFundoClaro: "#f8fafc",
+    corCardClaro: "#ffffff",
+    corBordaClaro: "#d1d5db",
+    corTextoClaro: "#111827",
+    corTextoSecundarioClaro: "#4b5563",
     logoUrl: "",
     bannerUrl: "",
     estiloVisual: "classico",
@@ -4699,6 +4803,13 @@ function aplicarLayoutVisual(config = {}) {
             body:not(.theme-light) .bg-gray-800 { background-color: ${c.corCard} !important; }
             body:not(.theme-light) .bg-gray-800\/40, body:not(.theme-light) .bg-gray-800\/50 { background-color: color-mix(in srgb, ${c.corCard} 82%, transparent) !important; }
             body:not(.theme-light) .border-gray-700, body:not(.theme-light) .border-gray-800 { border-color: ${c.corBorda} !important; }
+            body.theme-light { background: ${c.corFundoClaro || "#f8fafc"} !important; color: ${c.corTextoClaro || "#111827"} !important; }
+            body.theme-light .bg-gray-900, body.theme-light .bg-gray-950 { background-color: ${c.corFundoClaro || "#f8fafc"} !important; }
+            body.theme-light .bg-gray-800, body.theme-light .bg-gray-800\/40, body.theme-light .bg-gray-800\/50, body.theme-light .bg-gray-900\/40, body.theme-light .bg-gray-900\/50 { background-color: ${c.corCardClaro || "#ffffff"} !important; }
+            body.theme-light .border-gray-700, body.theme-light .border-gray-800 { border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
+            body.theme-light .text-white, body.theme-light .text-gray-100, body.theme-light .text-gray-200, body.theme-light .text-gray-300 { color: ${c.corTextoClaro || "#111827"} !important; }
+            body.theme-light .text-gray-400, body.theme-light .text-gray-500 { color: ${c.corTextoSecundarioClaro || "#4b5563"} !important; }
+            body.theme-light input, body.theme-light select, body.theme-light textarea { background-color: ${c.corCardClaro || "#ffffff"} !important; color: ${c.corTextoClaro || "#111827"} !important; border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
             .bg-blue-600, .hover\\:bg-blue-700:hover { background-color: ${c.corPrimaria} !important; }
             .text-blue-400 { color: ${c.corDestaque} !important; }
             .border-blue-500\/20, .border-blue-700, .focus\\:border-blue-500:focus { border-color: ${c.corDestaque} !important; }
@@ -4724,6 +4835,9 @@ function lerLayoutDoFormulario() {
         corFundo: document.getElementById("layoutCorFundo")?.value || LAYOUT_PADRAO.corFundo,
         corCard: document.getElementById("layoutCorCard")?.value || LAYOUT_PADRAO.corCard,
         corBorda: document.getElementById("layoutCorBorda")?.value || LAYOUT_PADRAO.corBorda,
+        corFundoClaro: document.getElementById("layoutCorFundoClaro")?.value || LAYOUT_PADRAO.corFundoClaro,
+        corCardClaro: document.getElementById("layoutCorCardClaro")?.value || LAYOUT_PADRAO.corCardClaro,
+        corBordaClaro: document.getElementById("layoutCorBordaClaro")?.value || LAYOUT_PADRAO.corBordaClaro,
         logoUrl: document.getElementById("layoutLogoUrl")?.value?.trim() || "",
         bannerUrl: document.getElementById("layoutBannerUrl")?.value?.trim() || "",
         estiloVisual: document.getElementById("layoutEstiloVisual")?.value || LAYOUT_PADRAO.estiloVisual,
@@ -4750,6 +4864,9 @@ function preencherFormularioLayout(config = layoutVisualAtual) {
         layoutCorFundo: c.corFundo,
         layoutCorCard: c.corCard,
         layoutCorBorda: c.corBorda,
+        layoutCorFundoClaro: c.corFundoClaro,
+        layoutCorCardClaro: c.corCardClaro,
+        layoutCorBordaClaro: c.corBordaClaro,
         layoutLogoUrl: c.logoUrl,
         layoutBannerUrl: c.bannerUrl,
         layoutEstiloVisual: c.estiloVisual,

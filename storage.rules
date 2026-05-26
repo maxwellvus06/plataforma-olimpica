@@ -2,17 +2,11 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Regras abertas apenas para fase de teste/desenvolvimento.
-    // Depois que estiver tudo validado, fechamos por autenticação/perfil.
-    match /layout/{allPaths=**} {
-      allow read, write: if true;
-    }
-    match /plataforma/{allPaths=**} {
-      allow read, write: if true;
-    }
+    // DESENVOLVIMENTO / TESTE
+    // Publicar em: Firebase Console > Build > Storage > Rules > Publicar
+    // Se publicar em Firestore Rules, não resolve upload.
     match /{allPaths=**} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
   }
 }
