@@ -1,3 +1,4 @@
+// VERSÃO V8 FIREBASE ONLY — sem database.js como banco; Firestore/Storage são a fonte real.
 // Gerenciador e Inteligência do Sistema Olímpico 2026
 // VERSÃO FULL V2: visual antigo + Firebase + calendário + importação de resultados + monitoria + plataforma + tema
 let chartInstance = null;

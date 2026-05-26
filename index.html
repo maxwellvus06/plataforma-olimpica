@@ -565,9 +565,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
-    <script src="database.js"></script>
-
-    <script>
+<script>
       
 const AVANCE_FIREBASE_CONFIG = {
   apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
@@ -701,6 +699,59 @@ const AVANCE_FIREBASE_CONFIG = {
       });
     </script>
 
-    <script src="app.js?v=20260526-v6-stable-login-theme"></script>
+    
+    <script>
+      // Configuração mínima para compatibilidade com partes antigas do painel.
+      // NÃO é banco de dados. Os dados reais vêm do Firebase Firestore/Storage.
+      window.DATABASE = window.DATABASE || {
+        usuarios: [],
+        olimpiadas: [],
+        cronograma: [],
+        premiados: []
+      };
+
+      window.CONFIG_CIDADES_INICIAIS = window.CONFIG_CIDADES_INICIAIS || [];
+      window.CONFIG_ESCOLAS_INICIAIS = window.CONFIG_ESCOLAS_INICIAIS || [];
+
+      window.PERMISSOES = window.PERMISSOES || {
+        ADM: {
+          abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas", "cidades", "escolas"],
+          dashboard: { filtroTravado: false },
+          plataforma: { podeGerenciar: true },
+          resultados: { podeEditar: true },
+          usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor"] }
+        },
+        Gestor: {
+          abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "escolas"],
+          dashboard: { filtroTravado: true },
+          plataforma: { podeGerenciar: true },
+          resultados: { podeEditar: true },
+          usuarios: { podeGerenciar: true, niveisPermitidos: ["Escola", "Aluno"] }
+        },
+        Escola: {
+          abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios"],
+          dashboard: { filtroTravado: true },
+          plataforma: { podeGerenciar: false },
+          resultados: { podeEditar: false },
+          usuarios: { podeGerenciar: true, niveisPermitidos: ["Aluno"] }
+        },
+        Aluno: {
+          abas: ["dashboard", "calendario", "plataforma", "monitoria"],
+          dashboard: { filtroTravado: true },
+          plataforma: { podeGerenciar: false },
+          resultados: { podeEditar: false },
+          usuarios: { podeGerenciar: false, niveisPermitidos: [] }
+        },
+        Monitor: {
+          abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria"],
+          dashboard: { filtroTravado: false },
+          plataforma: { podeGerenciar: true },
+          resultados: { podeEditar: true },
+          usuarios: { podeGerenciar: false, niveisPermitidos: [] }
+        }
+      };
+    </script>
+
+    <script src="app.js?v=20260526-v8-firebase-only"></script>
 </body>
 </html>
