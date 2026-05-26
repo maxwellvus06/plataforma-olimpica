@@ -52,11 +52,11 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Escola: {
-        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria"],
+        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
-        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["Aluno"] },
         plataforma: { podeGerenciar: false }
     },
     Aluno: {
