@@ -213,9 +213,9 @@ function verificarSessao() {
 }
 
 function logarSucesso(usuario) {
-    document.getElementById("loginScreen").classList.add("hidden");
-    document.getElementById("mainPanel").classList.remove("hidden");
-    document.getElementById("userLoggedNome").innerText = usuario.nome;
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("mainPanel").style.display  = "flex";
+    document.getElementById("userLoggedNome").innerText  = usuario.nome;
     document.getElementById("userLoggedNivel").innerText = usuario.nivel;
 
     aplicarPermissoesNavegacao(usuario);
@@ -489,8 +489,8 @@ function logout() {
         monitoriaListenerAtivo = null;
     }
     salaMoniAtual = null;
-    document.getElementById("mainPanel").classList.add("hidden");
-    document.getElementById("loginScreen").classList.remove("hidden");
+    document.getElementById("mainPanel").style.display   = "none";
+    document.getElementById("loginScreen").style.display = "flex";
     document.getElementById("loginForm").reset();
 }
 
