@@ -213,6 +213,64 @@
                             <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
                         </div>
                     </div>
+                    <div class="bg-gray-800 border border-purple-900/40 rounded-2xl shadow-xl overflow-hidden">
+                        <div class="p-5 border-b border-gray-700 bg-purple-950/20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-file-signature text-purple-400 mr-2"></i>Central de Relatórios Criativos</h3>
+                                <p class="text-xs text-gray-400 mt-1">Gere documentos prontos para coordenação, direção, famílias, prefeitura, alunos e prestação de contas.</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="btnExportarRelatorioPDF" type="button" class="px-3 py-2 bg-red-700/80 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-pdf mr-2"></i>PDF</button>
+                                <button id="btnExportarRelatorioDOCX" type="button" class="px-3 py-2 bg-blue-700/80 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-word mr-2"></i>DOCX</button>
+                                <button id="btnExportarRelatorioXLSX" type="button" class="px-3 py-2 bg-emerald-700/80 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-excel mr-2"></i>Excel</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Modelo de relatório</label>
+                                <select id="relTipoCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
+                                    <option value="executivo">Panorama Executivo</option>
+                                    <option value="cidade">Dossiê por Cidade</option>
+                                    <option value="escola">Raio-X por Escola</option>
+                                    <option value="alunos">Mapa de Alunos</option>
+                                    <option value="olimpiadas">Catálogo de Olimpíadas</option>
+                                    <option value="calendario">Radar Operacional</option>
+                                    <option value="plataforma">Engajamento da Plataforma</option>
+                                    <option value="prestacao">Prestação de Contas</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tom do documento</label>
+                                <select id="relTomCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
+                                    <option value="gestao">Gestão / Direção</option>
+                                    <option value="institucional">Institucional / Prefeitura</option>
+                                    <option value="pedagogico">Pedagógico / Coordenação</option>
+                                    <option value="familias">Famílias e comunidade</option>
+                                    <option value="aluno">Aluno / motivacional</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Profundidade</label>
+                                <select id="relProfundidadeCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
+                                    <option value="resumo">Resumo de 1 página</option>
+                                    <option value="analitico">Analítico</option>
+                                    <option value="completo">Completo com anexos</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Nome do responsável</label>
+                                <input id="relResponsavelCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Coordenação Olímpica">
+                            </div>
+                        </div>
+                        <div id="relPreviewCriativo" class="p-5 bg-gray-900/20 space-y-4 text-sm text-gray-300">
+                            <div class="border border-dashed border-gray-700 rounded-2xl p-6 text-center text-gray-500">
+                                <i class="fa-solid fa-wand-magic-sparkles text-2xl mb-2 text-purple-400"></i>
+                                <p class="font-bold text-gray-300">Escolha um modelo e clique em “Gerar peça”.</p>
+                                <p class="text-xs mt-1">Depois exporte em PDF, DOCX ou Excel.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Medalhas</span><h3 id="cardTotalMedalhas" class="text-2xl font-black text-white mt-2">0</h3></div>
                         <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</span><h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3></div>
@@ -245,7 +303,10 @@
                                 <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-chart-line text-blue-400 mr-2"></i>Relatórios Comparativos por Ano</h3>
                                 <p class="text-xs text-gray-400 mt-1">Compare medalhas por cidade, escola e crescimento anual usando os dados salvos no Firestore.</p>
                             </div>
-                            <button id="btnAtualizarRelatorios" type="button" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-rotate mr-2"></i>Atualizar relatório</button>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="btnAtualizarRelatorios" type="button" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-rotate mr-2"></i>Atualizar relatório</button>
+                                <button id="btnGerarRelatorioCriativo" type="button" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar peça</button>
+                            </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
                             <div>
@@ -982,6 +1043,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>

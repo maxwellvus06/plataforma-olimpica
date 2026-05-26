@@ -167,6 +167,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("relAnoFim")?.addEventListener("change", gerarRelatoriosComparativos);
         document.getElementById("relFiltroCidade")?.addEventListener("change", () => { atualizarFiltroEscolasRelatorio(); gerarRelatoriosComparativos(); });
         document.getElementById("relFiltroEscola")?.addEventListener("change", gerarRelatoriosComparativos);
+        initRelatoriosCriativos();
         document.getElementById("filterCronogramaGrupoEtapa")?.addEventListener("change", () => { preencherFiltrosCronograma(); renderizarCronograma(); });
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaModoExibicao")?.addEventListener("change", renderizarCronograma);
@@ -5375,6 +5376,379 @@ async function fecharModalMonitoria() {
 }
 
 // ==================== EXPOSIÇÃO GLOBAL ====================
+
+// ==================== CENTRAL DE RELATÓRIOS CRIATIVOS ====================
+let relatorioCriativoAtual = null;
+
+function initRelatoriosCriativos() {
+    document.getElementById("btnGerarRelatorioCriativo")?.addEventListener("click", gerarRelatorioCriativo);
+    document.getElementById("btnExportarRelatorioPDF")?.addEventListener("click", () => exportarRelatorioCriativo("pdf"));
+    document.getElementById("btnExportarRelatorioDOCX")?.addEventListener("click", () => exportarRelatorioCriativo("docx"));
+    document.getElementById("btnExportarRelatorioXLSX")?.addEventListener("click", () => exportarRelatorioCriativo("xlsx"));
+    ["relTipoCriativo", "relTomCriativo", "relProfundidadeCriativo"].forEach(id => {
+        document.getElementById(id)?.addEventListener("change", () => { relatorioCriativoAtual = null; });
+    });
+}
+
+function textoTomRelatorio(tom) {
+    const mapa = {
+        gestao: "Gestão / Direção",
+        institucional: "Institucional / Prefeitura",
+        pedagogico: "Pedagógico / Coordenação",
+        familias: "Famílias e comunidade",
+        aluno: "Aluno / motivacional"
+    };
+    return mapa[tom] || "Gestão / Direção";
+}
+
+function perfilNarrativoRelatorio(tom) {
+    const mapa = {
+        gestao: "leitura objetiva para tomada de decisão, priorização de recursos e acompanhamento de indicadores",
+        institucional: "prestação de contas com linguagem institucional, valorizando alcance, transparência e impacto público",
+        pedagogico: "análise didática para coordenação, professores e planejamento de intervenções",
+        familias: "comunicação clara para famílias, destacando evolução, participação e próximos passos",
+        aluno: "devolutiva motivacional, simples e orientada a metas de estudo"
+    };
+    return mapa[tom] || mapa.gestao;
+}
+
+function valorRelatorio(id, padrao = "") { return document.getElementById(id)?.value || padrao; }
+
+function filtroEscopoDescricaoRelatorio() {
+    const cidade = valorRelatorio("relFiltroCidade", "TODAS");
+    const escola = valorRelatorio("relFiltroEscola", "TODAS");
+    if (cidade !== "TODAS" && escola !== "TODAS") return `${escola} — ${cidade}`;
+    if (cidade !== "TODAS") return `Cidade: ${cidade}`;
+    if (escola !== "TODAS") return `Escola: ${escola}`;
+    return "Todos os dados permitidos pelo escopo do usuário";
+}
+
+async function carregarDadosMultianuaisRelatorio(anos) {
+    const chaves = ["app_premiados", "app_alunos", "app_olimpiadas", "app_cronograma", "app_plataforma"];
+    const resultado = { premiados: [], alunos: [], olimpiadas: [], cronograma: [], plataforma: [] };
+    const mapa = { app_premiados: "premiados", app_alunos: "alunos", app_olimpiadas: "olimpiadas", app_cronograma: "cronograma", app_plataforma: "plataforma" };
+    for (const chave of chaves) {
+        const pacotes = await Promise.all(anos.map(async ano => {
+            try {
+                const lista = await carregarColecaoAnualRelatorio(ano, chave);
+                return lista.map(item => ({ ...item, ano }));
+            } catch (_) { return []; }
+        }));
+        resultado[mapa[chave]] = pacotes.flat();
+    }
+    return resultado;
+}
+
+function filtrarListaPorEscopoResultado(lista) {
+    return lista.filter(item => {
+        if (item.municipio || item.escola) return resultadoDentroDoEscopoUsuario(item);
+        return true;
+    });
+}
+
+function contagemPorCampo(lista, campo, limite = 10) {
+    const mapa = new Map();
+    lista.forEach(item => {
+        const valor = item[campo] || "Não informado";
+        mapa.set(valor, (mapa.get(valor) || 0) + 1);
+    });
+    return Array.from(mapa.entries()).map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome)).slice(0, limite);
+}
+
+function tabelaPremiosPorAno(premiados, anos) { return agregarPorAno(premiados, anos).map(l => ({ Ano: l.ano, Total: l.total, Ouro: l.ouro, Prata: l.prata, Bronze: l.bronze, "Menção": l.mencao })); }
+function tabelaRankingCidade(premiados) { return agregarRanking(premiados, "municipio").slice(0, 20).map((r, i) => ({ "#": i + 1, Cidade: r.nome, Medalhas: r.total, "Melhor ano": melhorAnoTexto(r.porAno) })); }
+function tabelaRankingEscola(premiados) { return agregarRanking(premiados, "escola", "municipio").slice(0, 30).map((r, i) => ({ "#": i + 1, Escola: r.nome, Cidade: r.secundario || "—", Medalhas: r.total, "Melhor ano": melhorAnoTexto(r.porAno) })); }
+function tabelaOlimpiadas(premiados) { return contagemPorCampo(premiados, "olimpiada", 30).map((r, i) => ({ "#": i + 1, Olimpíada: r.nome, Resultados: r.total })); }
+
+function gerarInsightCrescimento(porAno) {
+    if (!porAno.length) return "Ainda não há resultados suficientes para produzir leitura de crescimento.";
+    const primeiro = porAno[0];
+    const ultimo = porAno[porAno.length - 1];
+    const delta = ultimo.total - primeiro.total;
+    if (delta > 0) return `Crescimento positivo no período: ${primeiro.total} resultado(s) em ${primeiro.ano} para ${ultimo.total} em ${ultimo.ano}, um ganho de ${delta}.`;
+    if (delta < 0) return `Atenção: houve queda no período, de ${primeiro.total} resultado(s) em ${primeiro.ano} para ${ultimo.total} em ${ultimo.ano}.`;
+    return `Estabilidade no período: ${primeiro.total} resultado(s) no início e no fim da série.`;
+}
+
+function resumoExecutivoTexto(dados, anos, tom) {
+    const premiosFiltrados = aplicarFiltrosRelatorio(dados.premiados);
+    const porAno = agregarPorAno(premiosFiltrados, anos);
+    const total = premiosFiltrados.length;
+    const alunos = filtrarListaPorEscopoResultado(dados.alunos).length;
+    const olimpiadasComResultado = new Set(premiosFiltrados.map(r => r.olimpiada).filter(Boolean)).size;
+    const escolas = new Set(premiosFiltrados.map(r => r.escola).filter(Boolean)).size;
+    const melhor = porAno.slice().sort((a, b) => b.total - a.total)[0];
+    return {
+        cards: [
+            { nome: "Resultados no período", valor: total },
+            { nome: "Alunos cadastrados", valor: alunos },
+            { nome: "Escolas com resultado", valor: escolas },
+            { nome: "Olimpíadas com resultado", valor: olimpiadasComResultado },
+            { nome: "Melhor ano", valor: melhor && melhor.total ? `${melhor.ano} (${melhor.total})` : "—" }
+        ],
+        insights: [
+            `Este documento foi gerado em perfil ${textoTomRelatorio(tom).toLowerCase()}, com foco em ${perfilNarrativoRelatorio(tom)}.`,
+            gerarInsightCrescimento(porAno),
+            total ? `O ranking por escola e cidade permite identificar polos fortes e pontos que precisam de reforço pedagógico.` : `Ainda não há dados suficientes de resultados para comparação.`
+        ],
+        tabelas: [
+            { titulo: "Evolução anual de resultados", linhas: tabelaPremiosPorAno(premiosFiltrados, anos) },
+            { titulo: "Ranking por cidade", linhas: tabelaRankingCidade(premiosFiltrados) },
+            { titulo: "Ranking por escola", linhas: tabelaRankingEscola(premiosFiltrados) },
+            { titulo: "Olimpíadas com mais resultados", linhas: tabelaOlimpiadas(premiosFiltrados) }
+        ]
+    };
+}
+
+function montarRelatorioPorTipo(tipo, dados, anos, tom, profundidade) {
+    const premios = aplicarFiltrosRelatorio(dados.premiados);
+    const alunos = filtrarListaPorEscopoResultado(dados.alunos);
+    const olimpiadas = dados.olimpiadas;
+    const cronograma = dados.cronograma;
+    const plataforma = dados.plataforma;
+    const base = resumoExecutivoTexto(dados, anos, tom);
+    const periodo = `${anos[0]} a ${anos[anos.length - 1]}`;
+    const responsavel = valorRelatorio("relResponsavelCriativo", "Coordenação Olímpica");
+
+    const modelos = {
+        executivo: { titulo: "Panorama Executivo de Resultados Olímpicos", subtitulo: "visão consolidada para gestão e tomada de decisão" },
+        cidade: { titulo: "Dossiê de Desempenho por Cidade", subtitulo: "leitura territorial dos resultados e crescimento" },
+        escola: { titulo: "Raio-X de Desempenho por Escola", subtitulo: "comparativo institucional e ranking de escolas" },
+        alunos: { titulo: "Mapa de Alunos Olímpicos", subtitulo: "cadastro, distribuição e potencial de acompanhamento" },
+        olimpiadas: { titulo: "Catálogo Estratégico de Olimpíadas", subtitulo: "funil de competições, áreas e abrangência" },
+        calendario: { titulo: "Radar Operacional do Calendário", subtitulo: "prazos, etapas e riscos de execução" },
+        plataforma: { titulo: "Relatório de Engajamento da Plataforma", subtitulo: "materiais, fórum, participação e pendências" },
+        prestacao: { titulo: "Relatório de Prestação de Contas", subtitulo: "síntese institucional de entregas, alcance e resultados" }
+    };
+    const meta = modelos[tipo] || modelos.executivo;
+    const rel = {
+        tipo, titulo: meta.titulo, subtitulo: meta.subtitulo, periodo, escopo: filtroEscopoDescricaoRelatorio(), tom: textoTomRelatorio(tom), profundidade, responsavel,
+        criadoEm: new Date().toLocaleString("pt-BR"), cards: base.cards, insights: [...base.insights], tabelas: [...base.tabelas]
+    };
+
+    if (tipo === "alunos") {
+        rel.cards = [
+            { nome: "Alunos cadastrados", valor: alunos.length },
+            { nome: "Escolas representadas", valor: new Set(alunos.map(a => a.escolaNome || a.escola || a.escolaId).filter(Boolean)).size },
+            { nome: "Séries diferentes", valor: new Set(alunos.map(a => a.serie).filter(Boolean)).size },
+            { nome: "Com CPF registrado", valor: alunos.filter(a => a.cpf).length }
+        ];
+        rel.insights.push("Este relatório ajuda a conferir base de alunos, distribuição por série e escolas com maior potencial de participação.");
+        rel.tabelas = [
+            { titulo: "Alunos por escola", linhas: contagemPorCampo(alunos, "escolaNome", 30) },
+            { titulo: "Alunos por série", linhas: contagemPorCampo(alunos, "serie", 20) },
+            { titulo: "Alunos por sexo", linhas: contagemPorCampo(alunos, "sexo", 10) }
+        ];
+    }
+
+    if (tipo === "olimpiadas") {
+        rel.cards = [
+            { nome: "Olimpíadas homologadas", valor: olimpiadas.length },
+            { nome: "Ativas", valor: olimpiadas.filter(o => o.status === "Ativa").length },
+            { nome: "Áreas diferentes", valor: new Set(olimpiadas.flatMap(o => Array.isArray(o.areas) ? o.areas : [o.categoria || o.area]).filter(Boolean)).size },
+            { nome: "Internacionais associadas", valor: olimpiadas.filter(o => o.olimpiadaInternacionalAssociada && o.olimpiadaInternacionalAssociada !== "Nenhuma").length }
+        ];
+        rel.insights.push("O catálogo mostra se a estratégia está concentrada em poucas áreas ou distribuída em um funil olímpico mais amplo.");
+        rel.tabelas = [
+            { titulo: "Olimpíadas por status", linhas: contagemPorCampo(olimpiadas, "status", 10) },
+            { titulo: "Olimpíadas por abrangência", linhas: contagemPorCampo(olimpiadas, "abrangencia", 10) },
+            { titulo: "Olimpíadas cadastradas", linhas: olimpiadas.slice(0, 80).map(o => ({ Nome: o.nome, Sigla: o.categoria || o.sigla || "—", Status: o.status || "—", Abrangência: o.abrangencia || "—", Área: Array.isArray(o.areas) ? o.areas.join(", ") : (o.area || o.categoria || "—") })) }
+        ];
+    }
+
+    if (tipo === "calendario") {
+        const eventosOrdenados = [...cronograma].sort((a, b) => classificarTemporalCronograma(a).ordem - classificarTemporalCronograma(b).ordem || classificarTemporalCronograma(a).dataBase - classificarTemporalCronograma(b).dataBase);
+        rel.cards = [
+            { nome: "Eventos cadastrados", valor: cronograma.length },
+            { nome: "Próximos 30 dias", valor: cronograma.filter(e => classificarTemporalCronograma(e).codigo === "proximo").length },
+            { nome: "Futuros", valor: cronograma.filter(e => classificarTemporalCronograma(e).codigo === "futuro").length },
+            { nome: "Já aconteceram", valor: cronograma.filter(e => classificarTemporalCronograma(e).codigo === "passado").length }
+        ];
+        rel.insights.push("O radar operacional prioriza o que precisa de ação imediata, separando eventos próximos, futuros e vencidos.");
+        rel.tabelas = [
+            { titulo: "Eventos por grupo de etapa", linhas: contagemPorCampo(cronograma, "etapaGrupoNome", 20) },
+            { titulo: "Radar de eventos", linhas: eventosOrdenados.slice(0, 80).map(e => ({ Status: classificarTemporalCronograma(e).label, Olimpíada: nomeOlimpiadaPorId(e.olimpiadaId) || e.olimpiada || "—", Etapa: e.etapa || "—", Data: e.data || "—", Ação: e.acao || "—" })) }
+        ];
+    }
+
+    if (tipo === "plataforma") {
+        const concluidos = plataforma.reduce((acc, m) => acc + Object.keys(m.concluidos || {}).length, 0);
+        const interacoes = plataforma.reduce((acc, m) => acc + (Array.isArray(m.interacoes) ? m.interacoes.length : 0), 0);
+        rel.cards = [
+            { nome: "Materiais publicados", valor: plataforma.length },
+            { nome: "Marcações de feito", valor: concluidos },
+            { nome: "Interações no fórum", valor: interacoes },
+            { nome: "Disciplinas", valor: new Set(plataforma.map(m => m.disciplina).filter(Boolean)).size }
+        ];
+        rel.insights.push("Este relatório permite enxergar se a plataforma está sendo usada como biblioteca ativa ou apenas como repositório passivo.");
+        rel.tabelas = [
+            { titulo: "Materiais por disciplina", linhas: contagemPorCampo(plataforma, "disciplina", 20) },
+            { titulo: "Materiais por tipo", linhas: contagemPorCampo(plataforma, "tipoMaterial", 20) },
+            { titulo: "Materiais com maior engajamento", linhas: plataforma.map(m => ({ Material: m.titulo || m.nome || "Sem título", Disciplina: m.disciplina || "—", Tipo: m.tipoMaterial || "—", Feitos: Object.keys(m.concluidos || {}).length, Interações: Array.isArray(m.interacoes) ? m.interacoes.length : 0 })).sort((a,b)=> (b.Feitos+b.Interações)-(a.Feitos+a.Interações)).slice(0,30) }
+        ];
+    }
+
+    if (tipo === "cidade") rel.insights.push("Use este dossiê para comparar cidades, justificar expansão do projeto e identificar polos que precisam de reforço.");
+    if (tipo === "escola") rel.insights.push("Use este raio-X para conversar com direções escolares e acompanhar evolução por unidade.");
+    if (tipo === "prestacao") rel.insights.push("Este formato é adequado para anexar em prestação de contas, reuniões institucionais e apresentação de impacto.");
+
+    if (profundidade === "resumo") rel.tabelas = rel.tabelas.slice(0, 2).map(t => ({ ...t, linhas: t.linhas.slice(0, 12) }));
+    if (profundidade === "analitico") rel.tabelas = rel.tabelas.slice(0, 4).map(t => ({ ...t, linhas: t.linhas.slice(0, 35) }));
+    return rel;
+}
+
+async function gerarRelatorioCriativo() {
+    const btn = document.getElementById("btnGerarRelatorioCriativo");
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Gerando...'; }
+        await gerarRelatoriosComparativos();
+        const anos = anosSelecionadosRelatorio();
+        const dados = await carregarDadosMultianuaisRelatorio(anos);
+        relatorioCriativoAtual = montarRelatorioPorTipo(valorRelatorio("relTipoCriativo", "executivo"), dados, anos, valorRelatorio("relTomCriativo", "gestao"), valorRelatorio("relProfundidadeCriativo", "analitico"));
+        renderizarPreviewRelatorioCriativo(relatorioCriativoAtual);
+    } catch (erro) {
+        console.error("Erro ao gerar relatório criativo", erro);
+        alert(`Erro ao gerar relatório.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar peça'; }
+    }
+}
+
+function renderizarPreviewRelatorioCriativo(rel) {
+    const alvo = document.getElementById("relPreviewCriativo");
+    if (!alvo || !rel) return;
+    alvo.innerHTML = `
+        <div class="rounded-2xl border border-purple-900/40 bg-gray-950/50 p-5">
+            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div>
+                    <p class="text-[11px] uppercase tracking-[0.25em] text-purple-400 font-black">${textoSeguro(rel.tom)} · ${textoSeguro(rel.periodo)}</p>
+                    <h2 class="text-2xl font-black text-white mt-1">${textoSeguro(rel.titulo)}</h2>
+                    <p class="text-sm text-gray-400 mt-1">${textoSeguro(rel.subtitulo)}</p>
+                </div>
+                <div class="text-xs text-gray-500 lg:text-right"><p>Escopo: ${textoSeguro(rel.escopo)}</p><p>Responsável: ${textoSeguro(rel.responsavel)}</p><p>Gerado em: ${textoSeguro(rel.criadoEm)}</p></div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
+                ${rel.cards.map(c => `<div class="bg-gray-900 border border-gray-800 rounded-xl p-3"><p class="text-[10px] text-gray-500 uppercase font-bold">${textoSeguro(c.nome)}</p><p class="text-xl font-black text-white mt-1">${textoSeguro(c.valor)}</p></div>`).join("")}
+            </div>
+            <div class="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-3">
+                ${rel.insights.map(i => `<div class="bg-purple-950/20 border border-purple-900/30 rounded-xl p-3 text-sm text-gray-300"><i class="fa-solid fa-lightbulb text-purple-400 mr-2"></i>${textoSeguro(i)}</div>`).join("")}
+            </div>
+        </div>
+        ${rel.tabelas.map(t => `<div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden"><div class="p-4 border-b border-gray-700 bg-gray-800/60"><h3 class="text-sm font-bold text-white uppercase tracking-wider">${textoSeguro(t.titulo)}</h3></div>${htmlTabelaRelatorio(t.linhas)}</div>`).join("")}
+    `;
+}
+
+function htmlTabelaRelatorio(linhas) {
+    if (!linhas || !linhas.length) return `<div class="p-6 text-center text-gray-500">Sem dados para esta tabela.</div>`;
+    const cols = Object.keys(linhas[0]);
+    return `<div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/60 text-[11px] font-bold text-gray-400 uppercase tracking-wider">${cols.map(c => `<th class="p-3">${textoSeguro(c)}</th>`).join("")}</tr></thead><tbody class="divide-y divide-gray-700/40 text-sm text-gray-300">${linhas.map(l => `<tr>${cols.map(c => `<td class="p-3">${textoSeguro(l[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+async function garantirRelatorioCriativoAtual() {
+    if (!relatorioCriativoAtual) await gerarRelatorioCriativo();
+    if (!relatorioCriativoAtual) throw new Error("Relatório não foi gerado.");
+    return relatorioCriativoAtual;
+}
+
+function nomeArquivoRelatorio(rel, ext) {
+    const base = String(rel.titulo || "relatorio").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toLowerCase();
+    return `${base}_${rel.periodo.replace(/\s+/g, "")}.${ext}`;
+}
+
+async function exportarRelatorioCriativo(formato) {
+    try {
+        const rel = await garantirRelatorioCriativoAtual();
+        if (formato === "pdf") return exportarRelatorioPDF(rel);
+        if (formato === "docx") return exportarRelatorioDOCX(rel);
+        if (formato === "xlsx") return exportarRelatorioXLSX(rel);
+    } catch (erro) {
+        console.error("Erro ao exportar relatório", erro);
+        alert(`Erro ao exportar relatório.\n\n${erro.message || erro}`);
+    }
+}
+
+function baixarBlob(blob, nomeArquivo) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = nomeArquivo; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+function exportarRelatorioPDF(rel) {
+    if (!window.jspdf?.jsPDF) throw new Error("Biblioteca jsPDF não carregada.");
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margem = 42; let y = 48; const largura = 512;
+    const addText = (txt, size = 10, bold = false, cor = [30,30,30]) => {
+        doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); doc.setTextColor(...cor);
+        const linhas = doc.splitTextToSize(String(txt ?? ""), largura);
+        linhas.forEach(l => { if (y > 780) { doc.addPage(); y = 48; } doc.text(l, margem, y); y += size + 5; });
+    };
+    doc.setFillColor(31, 41, 55); doc.rect(0, 0, 595, 110, "F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text(rel.titulo, margem, 45);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${rel.subtitulo} · ${rel.periodo}`, margem, 66); doc.text(`Escopo: ${rel.escopo}`, margem, 84);
+    y = 135;
+    addText("Indicadores principais", 13, true, [31,41,55]);
+    rel.cards.forEach(c => addText(`${c.nome}: ${c.valor}`, 10, true)); y += 6;
+    addText("Leitura interpretativa", 13, true, [31,41,55]);
+    rel.insights.forEach(i => addText(`• ${i}`, 10)); y += 6;
+    rel.tabelas.forEach(t => {
+        addText(t.titulo, 13, true, [31,41,55]);
+        const linhas = t.linhas || [];
+        if (!linhas.length) { addText("Sem dados."); return; }
+        const cols = Object.keys(linhas[0]).slice(0, 5);
+        addText(cols.join(" | "), 8, true);
+        linhas.slice(0, 25).forEach(l => addText(cols.map(c => l[c]).join(" | "), 8));
+        y += 8;
+    });
+    doc.save(nomeArquivoRelatorio(rel, "pdf"));
+}
+
+async function exportarRelatorioDOCX(rel) {
+    if (!window.docx) throw new Error("Biblioteca DOCX não carregada.");
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType } = window.docx;
+    const children = [
+        new Paragraph({ text: rel.titulo, heading: HeadingLevel.TITLE }),
+        new Paragraph({ children: [new TextRun({ text: `${rel.subtitulo} · ${rel.periodo}`, italics: true })] }),
+        new Paragraph({ text: `Escopo: ${rel.escopo}` }),
+        new Paragraph({ text: `Responsável: ${rel.responsavel} · Gerado em ${rel.criadoEm}` }),
+        new Paragraph({ text: "Indicadores principais", heading: HeadingLevel.HEADING_1 }),
+        ...rel.cards.map(c => new Paragraph({ children: [new TextRun({ text: `${c.nome}: `, bold: true }), new TextRun(String(c.valor))] })),
+        new Paragraph({ text: "Leitura interpretativa", heading: HeadingLevel.HEADING_1 }),
+        ...rel.insights.map(i => new Paragraph({ text: `• ${i}` }))
+    ];
+    rel.tabelas.forEach(t => {
+        children.push(new Paragraph({ text: t.titulo, heading: HeadingLevel.HEADING_1 }));
+        if (!t.linhas?.length) { children.push(new Paragraph("Sem dados.")); return; }
+        const cols = Object.keys(t.linhas[0]).slice(0, 6);
+        children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+            new TableRow({ children: cols.map(c => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: c, bold: true })] })] })) }),
+            ...t.linhas.slice(0, 40).map(l => new TableRow({ children: cols.map(c => new TableCell({ children: [new Paragraph(String(l[c] ?? ""))] })) }))
+        ] }));
+    });
+    const doc = new Document({ sections: [{ children }] });
+    const blob = await Packer.toBlob(doc);
+    baixarBlob(blob, nomeArquivoRelatorio(rel, "docx"));
+}
+
+async function exportarRelatorioXLSX(rel) {
+    if (typeof ExcelJS === "undefined") throw new Error("ExcelJS não carregado.");
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Plataforma Olímpica";
+    const resumo = wb.addWorksheet("Resumo");
+    resumo.addRows([[rel.titulo], [rel.subtitulo], ["Período", rel.periodo], ["Escopo", rel.escopo], ["Tom", rel.tom], ["Responsável", rel.responsavel], [], ["Indicador", "Valor"], ...rel.cards.map(c => [c.nome, c.valor]), [], ["Leituras"], ...rel.insights.map(i => [i])]);
+    resumo.getColumn(1).width = 42; resumo.getColumn(2).width = 24;
+    rel.tabelas.forEach((t, idx) => {
+        const nome = (t.titulo || `Tabela ${idx+1}`).slice(0, 28).replace(/[\\/?*\[\]:]/g, "");
+        const ws = wb.addWorksheet(nome || `Tabela ${idx+1}`);
+        if (!t.linhas?.length) { ws.addRow(["Sem dados"]); return; }
+        const cols = Object.keys(t.linhas[0]);
+        ws.addRow(cols);
+        t.linhas.forEach(l => ws.addRow(cols.map(c => l[c] ?? "")));
+        formatarPlanilhaModelo(ws, cols.length);
+    });
+    await baixarWorkbookExcelJS(wb, nomeArquivoRelatorio(rel, "xlsx"));
+}
+
 window.navegarAba = navegarAba;
 window.editarUsuario = editarUsuario;
 window.editarCidade = editarCidade;
