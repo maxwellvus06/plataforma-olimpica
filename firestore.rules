@@ -2,9 +2,6 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // REGRA TEMPORÁRIA PARA TESTE E HOMOLOGAÇÃO.
-    // Publique isso no Firebase Console > Firestore Database > Rules.
-    // Depois que tudo estiver funcionando, trocamos por regras com autenticação real.
     match /{document=**} {
       allow read, write: if true;
     }
