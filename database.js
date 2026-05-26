@@ -1,3 +1,17 @@
+// ==================== CONFIGURAÇÃO FIREBASE — AVANCE OLÍMPICO ====================
+// Este arquivo continua sendo a base local de segurança.
+// O app.js usa estes mesmos dados para semear/sincronizar o Realtime Database.
+const FIREBASE_CONFIG_AVANCE = {
+    apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
+    authDomain: "avanceolimpico.firebaseapp.com",
+    databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
+    projectId: "avanceolimpico",
+    storageBucket: "avanceolimpico.firebasestorage.app",
+    messagingSenderId: "895771266102",
+    appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
+    measurementId: "G-FPETQTFRZN"
+};
+
 // Banco de Dados Centralizado - Plataforma Olímpica 2026
 const DATABASE = {
     // Lista de Credenciais Oficiais e Escopo de Permissões Iniciais

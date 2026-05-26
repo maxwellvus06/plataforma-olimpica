@@ -33,7 +33,7 @@ const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 document.addEventListener("DOMContentLoaded", async () => {
     initFirebase();
     garantirCadastrosBasicos();
-    await sincronizarUsuariosFirebaseInicial();
+    await carregarDadosFirebaseInicial();
     dadosTrabalho = carregarPremiados();
     initLogin();
     initDragAndDrop();
@@ -385,59 +385,102 @@ function getStorage(chave, fallback = []) {
 
 function setStorage(chave, valor) {
     localStorage.setItem(chave, JSON.stringify(valor));
+    salvarChaveFirebase(chave, valor);
 }
 
-function normalizarListaUsuarios(valor) {
+function setStorageLocal(chave, valor) {
+    localStorage.setItem(chave, JSON.stringify(valor));
+}
+
+function normalizarListaFirebase(valor) {
     if (!valor) return [];
     if (Array.isArray(valor)) return valor.filter(Boolean);
     if (typeof valor === "object") return Object.values(valor).filter(Boolean);
     return [];
 }
 
-async function sincronizarUsuariosFirebaseInicial() {
+function getFirebasePath(chave) {
+    if (typeof FIREBASE_DATA_PATHS !== "undefined" && FIREBASE_DATA_PATHS[chave]) return FIREBASE_DATA_PATHS[chave];
+    if (chave === "app_usuarios" && typeof FIREBASE_USUARIOS_PATH !== "undefined") return FIREBASE_USUARIOS_PATH;
+    return `avance_olimpico/${chave}`;
+}
+
+function salvarChaveFirebase(chave, valor) {
     initFirebase();
-    const locais = getStorage("app_usuarios", []);
+    if (!firebaseDB) return Promise.resolve();
+    const path = getFirebasePath(chave);
+    return firebaseDB.ref(path).set(valor).catch(erro => {
+        console.warn(`${chave} salvo localmente, mas não sincronizado no Firebase.`, erro);
+    });
+}
+
+async function carregarChaveFirebase(chave, fallback = []) {
+    initFirebase();
+    const locais = getStorage(chave, fallback);
     if (!firebaseDB) return locais;
 
     try {
-        const snap = await firebaseDB.ref(FIREBASE_USUARIOS_PATH).once("value");
-        const remotos = normalizarListaUsuarios(snap.val());
+        const snap = await firebaseDB.ref(getFirebasePath(chave)).once("value");
+        const remotoBruto = snap.val();
+        const remotos = normalizarListaFirebase(remotoBruto);
 
         if (remotos.length > 0) {
-            const mapa = new Map();
-            remotos.forEach(u => mapa.set(u.id || u.login, u));
-            locais.forEach(u => {
-                const chave = u.id || u.login;
-                const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(u.login));
-                if (!mapa.has(chave) && !loginJaExiste) mapa.set(chave, u);
-            });
-            const mesclados = Array.from(mapa.values()).filter(Boolean);
-            setStorage("app_usuarios", mesclados);
-            if (mesclados.length !== remotos.length) await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(mesclados);
-            return mesclados;
+            let finais = remotos;
+
+            // Regra de segurança do login: nunca deixar o Firebase apagar o usuário admin local.
+            // Se o Firebase já tem usuários, mescla por id/login para evitar login quebrado.
+            if (chave === "app_usuarios" && Array.isArray(locais) && locais.length > 0) {
+                const mapa = new Map();
+                remotos.forEach(item => mapa.set(item.id || item.login || novoId(), item));
+                locais.forEach(item => {
+                    const id = item.id || item.login || novoId();
+                    const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(item.login));
+                    if (!mapa.has(id) && !loginJaExiste) mapa.set(id, item);
+                });
+                finais = Array.from(mapa.values()).filter(Boolean);
+                if (finais.length !== remotos.length) await firebaseDB.ref(getFirebasePath(chave)).set(finais);
+            }
+
+            setStorageLocal(chave, finais);
+            return finais;
         }
 
-        if (locais.length > 0) {
-            await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(locais);
-            return locais;
+        if (Array.isArray(locais) && locais.length > 0) {
+            await firebaseDB.ref(getFirebasePath(chave)).set(locais);
         }
+        return locais;
     } catch (erro) {
-        console.warn("Não foi possível sincronizar usuários no Firebase. Usando usuários locais.", erro);
+        console.warn(`Não foi possível carregar ${chave} do Firebase. Usando dados locais.`, erro);
+        return locais;
     }
-    return locais;
+}
+
+async function carregarDadosFirebaseInicial() {
+    const chaves = [
+        "app_usuarios",
+        "app_cidades",
+        "app_escolas",
+        "app_olimpiadas",
+        "app_cronograma",
+        "app_premiados",
+        "app_plataforma"
+    ];
+
+    for (const chave of chaves) {
+        await carregarChaveFirebase(chave, []);
+    }
+}
+
+async function sincronizarUsuariosFirebaseInicial() {
+    return await carregarChaveFirebase("app_usuarios", []);
 }
 
 function salvarUsuariosFirebase(usuarios) {
-    initFirebase();
-    if (!firebaseDB) return Promise.resolve();
-    return firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(usuarios).catch(erro => {
-        console.warn("Usuários salvos localmente, mas não sincronizados no Firebase.", erro);
-    });
+    return salvarChaveFirebase("app_usuarios", usuarios);
 }
 
 function salvarUsuariosSistema(usuarios) {
     setStorage("app_usuarios", usuarios);
-    salvarUsuariosFirebase(usuarios);
 }
 
 function garantirCadastrosBasicos() {
@@ -1575,8 +1618,18 @@ function downloadTemplate() {
 // ==================== PLATAFORMA DE ENSINO ====================
 const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
-const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
-const FIREBASE_USUARIOS_PATH = "sistema_usuarios";
+const FIREBASE_ROOT_PATH = "avance_olimpico";
+const FIREBASE_DATA_PATHS = {
+    app_usuarios: `${FIREBASE_ROOT_PATH}/app_usuarios`,
+    app_cidades: `${FIREBASE_ROOT_PATH}/app_cidades`,
+    app_escolas: `${FIREBASE_ROOT_PATH}/app_escolas`,
+    app_olimpiadas: `${FIREBASE_ROOT_PATH}/app_olimpiadas`,
+    app_cronograma: `${FIREBASE_ROOT_PATH}/app_cronograma`,
+    app_premiados: `${FIREBASE_ROOT_PATH}/app_premiados`,
+    app_plataforma: `${FIREBASE_ROOT_PATH}/app_plataforma`
+};
+const FIREBASE_MATERIAIS_PATH = FIREBASE_DATA_PATHS.app_plataforma;
+const FIREBASE_USUARIOS_PATH = FIREBASE_DATA_PATHS.app_usuarios;
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
 
@@ -1873,7 +1926,7 @@ function ajustarCamposFormMaterial() {
 function initFirebase() {
     if (firebaseApp && firebaseDB && firebaseFirestore && firebaseStorage) return;
 
-    const firebaseConfig = {
+    const firebaseConfig = (typeof FIREBASE_CONFIG_AVANCE !== "undefined") ? FIREBASE_CONFIG_AVANCE : {
         apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
         authDomain: "avanceolimpico.firebaseapp.com",
         databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
@@ -1891,6 +1944,7 @@ function initFirebase() {
         if (!firebaseDB && firebase.database) firebaseDB = firebase.database();
         if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
         if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
+        if (firebase.analytics) { try { firebase.analytics(); } catch (_) {} }
     } catch(e) {
         console.warn("Firebase não configurado ainda:", e.message);
     }
