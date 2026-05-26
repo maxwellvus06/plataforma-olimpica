@@ -60,7 +60,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Aluno: {
-        abas: ["dashboard", "calendario", "plataforma", "monitoria"],
+        abas: ["plataforma", "monitoria"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -68,8 +68,8 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Monitor: {
-        abas: ["dashboard", "calendario", "plataforma", "monitoria"],
-        dashboard: { filtroTravado: false },
+        abas: ["plataforma", "monitoria"],
+        dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
         usuarios: { podeGerenciar: false, niveisPermitidos: [] },

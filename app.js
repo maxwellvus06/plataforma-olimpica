@@ -90,6 +90,7 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    ativarPrimeiraAbaPermitida();
 }
 
 // ==================== SISTEMA DE PERMISSÕES ====================
@@ -196,6 +197,46 @@ function podeVerAba(aba) {
     return perms && perms.abas.includes(aba);
 }
 
+function primeiraAbaPermitida() {
+    const perms = usuarioLogado ? PERMISSOES[usuarioLogado.nivel] : null;
+    return perms?.abas?.[0] || "dashboard";
+}
+
+function ativarPrimeiraAbaPermitida() {
+    const aba = primeiraAbaPermitida();
+    document.querySelectorAll(".tab-view").forEach(view => view.classList.add("hidden"));
+    const view = document.getElementById(`view-${aba}`);
+    if (view) view.classList.remove("hidden");
+
+    document.querySelectorAll(".nav-item").forEach(btn => {
+        btn.classList.remove("text-blue-400", "bg-blue-500/10");
+        btn.classList.add("text-gray-400");
+    });
+    const btn = document.getElementById(`btnNav-${aba}`) || ({
+        usuarios: document.getElementById("btnNavUsuarios"),
+        olimpiadas: document.getElementById("btnNavOlimpiadas"),
+        cidades: document.getElementById("btnNavCidades"),
+        escolas: document.getElementById("btnNavEscolas")
+    })[aba];
+    if (btn) {
+        btn.classList.remove("text-gray-400");
+        btn.classList.add("text-blue-400", "bg-blue-500/10");
+    }
+
+    const titulos = {
+        dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
+        importar: "Importar Resultados", usuarios: "Gerenciar Usuários e Permissões",
+        olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
+        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
+    };
+    const titulo = document.getElementById("pageTitleDisplay");
+    if (titulo) titulo.innerText = titulos[aba] || "Painel Operacional";
+
+    if (aba === "plataforma") renderizarPlataformaEnsino();
+    if (aba === "monitoria") renderizarSalasMonitoria();
+    if (aba === "importar") renderizarResultadosImportacao();
+}
+
 function getCidadeGestor() {
     if (!usuarioLogado) return null;
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return null;
@@ -269,11 +310,13 @@ function opcoesVinculoUsuario(nivelUsuario) {
     }
 
     if (usuarioLogado?.nivel === "Gestor") {
-        return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
+        if (nivelUsuario === "Escola" || nivelUsuario === "Aluno") return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
+        return [];
     }
 
     if (usuarioLogado?.nivel === "Escola") {
-        return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
+        if (nivelUsuario === "Aluno") return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
+        return [];
     }
 
     return [];
