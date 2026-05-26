@@ -3035,3 +3035,59 @@ document.addEventListener("DOMContentLoaded", () => {
     // esta chamada garante o listener correto.
     initLogin();
 });
+
+
+
+// =====================================================================
+// PATCH V4 — SESSÃO FIRESTORE ROBUSTA
+// =====================================================================
+// O login principal agora é interceptado no index.html, consulta diretamente
+// a coleção "usuarios" e salva a sessão. Aqui garantimos que, ao recarregar,
+// o painel carregue Firestore antes de renderizar.
+
+function verificarSessao() {
+    const sessaoGuardada = sessionStorage.getItem("avance_session");
+    if (!sessaoGuardada) return;
+
+    try {
+        usuarioLogado = JSON.parse(sessaoGuardada);
+    } catch (e) {
+        sessionStorage.removeItem("avance_session");
+        return;
+    }
+
+    (async () => {
+        try {
+            initFirebase();
+            if (typeof carregarBaseFirestoreInicial === "function") {
+                await carregarBaseFirestoreInicial();
+            }
+            dadosTrabalho = carregarPremiados();
+        } catch (erro) {
+            console.warn("Sessão encontrada, mas houve falha ao carregar Firestore. Vou abrir com dados locais disponíveis.", erro);
+        }
+
+        logarSucesso(usuarioLogado);
+    })();
+}
+
+// Garante que o tema funcione mesmo se algum trecho antigo tiver falhado.
+function aplicarTemaAvance() {
+    const tema = localStorage.getItem("avance_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", tema);
+    const html = tema === "dark"
+        ? '<i class="fa-solid fa-moon"></i><span>Escuro</span>'
+        : '<i class="fa-solid fa-sun"></i><span>Claro</span>';
+    document.querySelectorAll("#btnThemeToggleLogin, #btnThemeToggleHeader").forEach(btn => btn.innerHTML = html);
+}
+
+function alternarTemaAvance() {
+    const atual = document.documentElement.getAttribute("data-theme") || localStorage.getItem("avance_theme") || "dark";
+    const novo = atual === "dark" ? "light" : "dark";
+    localStorage.setItem("avance_theme", novo);
+    document.documentElement.setAttribute("data-theme", novo);
+    aplicarTemaAvance();
+}
+
+window.aplicarTemaAvanceSeguro = aplicarTemaAvance;
+window.alternarTemaAvanceSeguro = alternarTemaAvance;
