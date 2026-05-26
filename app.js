@@ -92,6 +92,25 @@ const SALAS_MONITORIA = [
 ];
 
 // ==================== GERENCIADOR DO SISTEMA OLÍMPICO 2026 ====================
+// ==================== PATHS FIREBASE (todas as coleções) ====================
+const FIREBASE_USUARIOS_PATH   = "sistema_usuarios";
+const FIREBASE_CIDADES_PATH    = "sistema_cidades";
+const FIREBASE_ESCOLAS_PATH    = "sistema_escolas";
+const FIREBASE_OLIMPIADAS_PATH = "sistema_olimpiadas";
+const FIREBASE_CRONOGRAMA_PATH = "sistema_cronograma";
+const FIREBASE_PREMIADOS_PATH  = "sistema_premiados";
+const FIREBASE_MATERIAIS_PATH  = "plataforma_materiais";
+
+// Mapeamento path Firebase → chave localStorage (cache offline)
+const FIREBASE_PATH_CACHE = {
+    [FIREBASE_CIDADES_PATH]:    "app_cidades",
+    [FIREBASE_ESCOLAS_PATH]:    "app_escolas",
+    [FIREBASE_OLIMPIADAS_PATH]: "app_olimpiadas",
+    [FIREBASE_CRONOGRAMA_PATH]: "app_cronograma",
+    [FIREBASE_PREMIADOS_PATH]:  "app_premiados",
+    [FIREBASE_USUARIOS_PATH]:   "app_usuarios"
+};
+
 let chartInstance = null;
 let dadosTrabalho = [];
 let usuarioLogado = null;
@@ -488,16 +507,43 @@ function normalizarListaUsuarios(valor) {
     return [];
 }
 
+// Normaliza um documento de usuário do Firestore para o formato interno do sistema.
+// Aceita tanto o formato antigo (username/password/role/fullname)
+// quanto o formato novo (login/senha/nivel/nome).
+function normalizarUsuarioFirestore(doc) {
+    const u = typeof doc.data === "function"
+        ? { id: doc.id, ...doc.data() }
+        : { ...doc };
+    return {
+        id:        u.id        || u.uid                              || String(Date.now()),
+        login:     u.login     || u.username                         || "",
+        senha:     u.senha     || u.password                         || "",
+        nivel:     u.nivel     || u.role                             || "Aluno",
+        nome:      u.nome      || u.fullname || u.name               || "",
+        email:     u.email                                           || "",
+        telefone:  u.telefone  || u.phone                            || "",
+        vinculoId: u.vinculoId || u.vinculo                          || ""
+    };
+}
+
 async function sincronizarUsuariosFirebaseInicial() {
     initFirebase();
-    const locais = getStorage("app_usuarios", []);
-    if (!firebaseDB) return locais;
+
+    // Garante sementes no cache local antes de qualquer coisa
+    let locais = getStorage("app_usuarios", []);
+    if (!Array.isArray(locais) || locais.length === 0) {
+        locais = [...DATABASE.usuarios];
+        setStorage("app_usuarios", locais);
+    }
+
+    if (!firebaseFirestore) return locais;
 
     try {
-        const snap = await firebaseDB.ref(FIREBASE_USUARIOS_PATH).once("value");
-        const remotos = normalizarListaUsuarios(snap.val());
+        const snap = await firebaseFirestore.collection(FIREBASE_USUARIOS_PATH).get();
 
-        if (remotos.length > 0) {
+        if (!snap.empty) {
+            // Firestore tem usuários → normaliza e mescla (aceita campos username/password/role)
+            const remotos = snap.docs.map(d => normalizarUsuarioFirestore(d));
             const mapa = new Map();
             remotos.forEach(u => mapa.set(u.id || u.login, u));
             locais.forEach(u => {
@@ -507,25 +553,25 @@ async function sincronizarUsuariosFirebaseInicial() {
             });
             const mesclados = Array.from(mapa.values()).filter(Boolean);
             setStorage("app_usuarios", mesclados);
-            if (mesclados.length !== remotos.length) await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(mesclados);
+            if (mesclados.length !== remotos.length) {
+                await fsSetAll(FIREBASE_USUARIOS_PATH, mesclados);
+            }
             return mesclados;
         }
 
-        if (locais.length > 0) {
-            await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(locais);
-            return locais;
-        }
+        // Firestore vazio → sobe as sementes
+        await fsSetAll(FIREBASE_USUARIOS_PATH, locais);
+        return locais;
+
     } catch (erro) {
-        console.warn("Não foi possível sincronizar usuários no Firebase. Usando usuários locais.", erro);
+        console.warn("Firestore indisponível no login. Usando cache local.", erro);
+        return getStorage("app_usuarios", locais);
     }
-    return locais;
 }
 
 function salvarUsuariosFirebase(usuarios) {
-    initFirebase();
-    if (!firebaseDB) return Promise.resolve();
-    return firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(usuarios).catch(erro => {
-        console.warn("Usuários salvos localmente, mas não sincronizados no Firebase.", erro);
+    return fsSetAll(FIREBASE_USUARIOS_PATH, usuarios).catch(erro => {
+        console.warn("Usuários salvos localmente, mas não sincronizados no Firestore.", erro);
     });
 }
 
@@ -1679,68 +1725,70 @@ function downloadTemplate() {
     XLSX.writeFile(wb, "modelo_importacao_resultados.xlsx");
 }
 
-// ==================== PATHS FIREBASE (todas as coleções) ====================
-const FIREBASE_USUARIOS_PATH   = "sistema_usuarios";
-const FIREBASE_CIDADES_PATH    = "sistema_cidades";
-const FIREBASE_ESCOLAS_PATH    = "sistema_escolas";
-const FIREBASE_OLIMPIADAS_PATH = "sistema_olimpiadas";
-const FIREBASE_CRONOGRAMA_PATH = "sistema_cronograma";
-const FIREBASE_PREMIADOS_PATH  = "sistema_premiados";
-const FIREBASE_MATERIAIS_PATH  = "plataforma_materiais";
+// ==================== FIRESTORE HELPERS GENÉRICOS ====================
+// Todas as coleções de dados usam Firestore.
+// O Realtime Database (firebaseDB) é mantido APENAS para Monitoria (chat + WebRTC em tempo real).
 
-// Mapeamento path Firebase → chave localStorage (cache offline)
-const FIREBASE_PATH_CACHE = {
-    [FIREBASE_CIDADES_PATH]:    "app_cidades",
-    [FIREBASE_ESCOLAS_PATH]:    "app_escolas",
-    [FIREBASE_OLIMPIADAS_PATH]: "app_olimpiadas",
-    [FIREBASE_CRONOGRAMA_PATH]: "app_cronograma",
-    [FIREBASE_PREMIADOS_PATH]:  "app_premiados",
-    [FIREBASE_USUARIOS_PATH]:   "app_usuarios"
-};
-
-// ==================== FIREBASE HELPERS GENÉRICOS ====================
-
-// Lê lista do Firebase (com fallback para localStorage)
-async function fbGet(path) {
+// Lê todos os documentos de uma coleção Firestore → retorna array de objetos com { id, ...dados }
+async function fsGetAll(colecao) {
     initFirebase();
-    if (!firebaseDB) return getStorage(FIREBASE_PATH_CACHE[path] || path);
+    const cacheKey = FIREBASE_PATH_CACHE[colecao];
+    if (!firebaseFirestore) return getStorage(cacheKey || colecao);
     try {
-        const snap = await firebaseDB.ref(path).once("value");
-        const val = snap.val();
-        const lista = val
-            ? (Array.isArray(val) ? val.filter(Boolean) : Object.values(val).filter(Boolean))
-            : [];
-        // Atualiza cache local
-        const cacheKey = FIREBASE_PATH_CACHE[path];
+        const snap = await firebaseFirestore.collection(colecao).get();
+        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         if (cacheKey) setStorage(cacheKey, lista);
         return lista;
     } catch (e) {
-        console.warn(`fbGet(${path}) falhou, usando cache local.`, e);
-        return getStorage(FIREBASE_PATH_CACHE[path] || path);
+        console.warn(`fsGetAll(${colecao}) falhou, usando cache local.`, e);
+        return getStorage(cacheKey || colecao);
     }
 }
 
-// Salva lista no Firebase E no localStorage (cache)
-async function fbSet(path, lista) {
-    // Salva cache imediatamente (UI não trava)
-    const cacheKey = FIREBASE_PATH_CACHE[path];
+// Salva lista completa numa coleção Firestore usando batch (apaga tudo e re-insere)
+async function fsSetAll(colecao, lista) {
+    const cacheKey = FIREBASE_PATH_CACHE[colecao];
+    // Atualiza cache imediatamente para UI não travar
     if (cacheKey) setStorage(cacheKey, lista);
 
     initFirebase();
-    if (!firebaseDB) return;
+    if (!firebaseFirestore) return;
     try {
-        await firebaseDB.ref(path).set(lista);
+        const colRef = firebaseFirestore.collection(colecao);
+        // Apaga documentos existentes em batches de 500
+        let snap = await colRef.get();
+        while (!snap.empty) {
+            const batch = firebaseFirestore.batch();
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            snap = await colRef.get();
+        }
+        // Insere novos documentos
+        if (lista.length > 0) {
+            const batch = firebaseFirestore.batch();
+            lista.forEach(item => {
+                const { id, ...dados } = item;
+                const ref = id ? colRef.doc(String(id)) : colRef.doc();
+                batch.set(ref, dados);
+            });
+            await batch.commit();
+        }
     } catch (e) {
-        console.warn(`fbSet(${path}) falhou. Dado salvo localmente como fallback.`, e);
+        console.warn(`fsSetAll(${colecao}) falhou. Cache local atualizado como fallback.`, e);
     }
 }
 
-// Carrega todas as coleções do Firebase para o localStorage (chamado no login)
+// Alias para compatibilidade — fbSet agora chama fsSetAll
+async function fbSet(path, lista) {
+    return fsSetAll(path, lista);
+}
+
+// Carrega todas as coleções do Firestore para o cache local (chamado no boot)
 async function sincronizarColecoesFirebase() {
     initFirebase();
-    if (!firebaseDB) return;
+    if (!firebaseFirestore) return;
 
-    const paths = [
+    const colecoes = [
         FIREBASE_CIDADES_PATH,
         FIREBASE_ESCOLAS_PATH,
         FIREBASE_OLIMPIADAS_PATH,
@@ -1748,26 +1796,32 @@ async function sincronizarColecoesFirebase() {
         FIREBASE_PREMIADOS_PATH
     ];
 
-    await Promise.allSettled(paths.map(async path => {
+    await Promise.allSettled(colecoes.map(async colecao => {
         try {
-            const snap = await firebaseDB.ref(path).once("value");
-            const val = snap.val();
-            const cacheKey = FIREBASE_PATH_CACHE[path];
+            const cacheKey = FIREBASE_PATH_CACHE[colecao];
             if (!cacheKey) return;
-
-            if (val) {
-                // Firebase tem dados → atualiza cache local
-                const lista = Array.isArray(val) ? val.filter(Boolean) : Object.values(val).filter(Boolean);
+            const snap = await firebaseFirestore.collection(colecao).get();
+            if (!snap.empty) {
+                // Firestore tem dados → atualiza cache
+                const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 setStorage(cacheKey, lista);
             } else {
-                // Firebase vazio → sobe os dados locais (seed inicial)
+                // Firestore vazio → sobe as sementes
                 const locais = getStorage(cacheKey);
                 if (locais && locais.length > 0) {
-                    await firebaseDB.ref(path).set(locais);
+                    const batch = firebaseFirestore.batch();
+                    locais.forEach(item => {
+                        const { id, ...dados } = item;
+                        const ref = id
+                            ? firebaseFirestore.collection(colecao).doc(String(id))
+                            : firebaseFirestore.collection(colecao).doc();
+                        batch.set(ref, dados);
+                    });
+                    await batch.commit();
                 }
             }
         } catch (e) {
-            console.warn(`Falha ao sincronizar ${path}`, e);
+            console.warn(`Falha ao sincronizar coleção ${colecao}`, e);
         }
     }));
 }
@@ -1780,25 +1834,15 @@ const LIMITE_ANEXO_MONITORIA_MB = 10;
 
 async function carregarMateriaisPlataforma() {
     initFirebase();
-
-    // Agora a Plataforma usa Realtime Database para a lista de materiais.
-    // Os arquivos PDF ficam no Google Drive via Apps Script.
-    if (!firebaseDB) return getStorage("app_plataforma");
-
+    if (!firebaseFirestore) return getStorage("app_plataforma");
     try {
-        const snapshot = await firebaseDB
-            .ref(FIREBASE_MATERIAIS_PATH)
-            .orderByChild("criadoEm")
-            .once("value");
-
-        const materiais = [];
-        snapshot.forEach(child => {
-            materiais.push({ id: child.key, ...child.val() });
-        });
-
-        return materiais.reverse();
+        const snap = await firebaseFirestore
+            .collection(FIREBASE_MATERIAIS_PATH)
+            .orderBy("criadoEm", "desc")
+            .get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (erro) {
-        console.warn("Falha ao carregar materiais do Firebase Realtime Database. Usando cache local como fallback.", erro);
+        console.warn("Falha ao carregar materiais do Firestore. Usando cache local.", erro);
         return getStorage("app_plataforma");
     }
 }
@@ -1977,7 +2021,7 @@ async function salvarNovoMaterial(event) {
     if (!titulo) return alert("O título é obrigatório.");
     if ((tipo === "video" || tipo === "link") && !url) return alert("Informe a URL do material.");
     if (tipo === "arquivo" && (!fileInput || fileInput.files.length === 0)) return alert("Selecione um arquivo PDF para publicar.");
-    if (!firebaseDB) return alert("Firebase Realtime Database ainda não carregou. Verifique se o Firebase está configurado e se o Realtime Database está ativo.");
+    if (!firebaseFirestore) return alert("Firestore ainda não carregou. Verifique se o Firebase está configurado corretamente.");
 
     try {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
@@ -1990,7 +2034,7 @@ async function salvarNovoMaterial(event) {
             url: tipo === "video" || tipo === "link" ? url : "",
             criadoPor: usuarioLogado?.nome || "Sistema",
             criadoPorId: usuarioLogado?.id || "",
-            criadoEm: firebase.database.ServerValue.TIMESTAMP,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
             hospedagem: tipo === "arquivo" ? "google_drive" : "link_externo"
         };
 
@@ -2003,7 +2047,7 @@ async function salvarNovoMaterial(event) {
             material.tamanhoBytes = arquivo.size;
         }
 
-        await firebaseDB.ref(FIREBASE_MATERIAIS_PATH).push(material);
+        await firebaseFirestore.collection(FIREBASE_MATERIAIS_PATH).add(material);
 
         // Cache local apenas como cópia de emergência para visualização offline.
         const cache = getStorage("app_plataforma");
@@ -2030,9 +2074,9 @@ async function excluirMaterial(id) {
 
     try {
         let material = null;
-        if (firebaseDB) {
-            const snap = await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).once("value");
-            material = snap.val();
+        if (firebaseFirestore) {
+            const doc = await firebaseFirestore.collection(FIREBASE_MATERIAIS_PATH).doc(id).get();
+            material = doc.exists ? { id: doc.id, ...doc.data() } : null;
         } else {
             material = getStorage("app_plataforma").find(m => m.id === id) || null;
         }
@@ -2041,8 +2085,8 @@ async function excluirMaterial(id) {
             await excluirArquivoGoogleDrive(material.driveFileId);
         }
 
-        if (firebaseDB) {
-            await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
+        if (firebaseFirestore) {
+            await firebaseFirestore.collection(FIREBASE_MATERIAIS_PATH).doc(id).delete();
         }
 
         const materiaisLocais = getStorage("app_plataforma").filter(m => m.id !== id && m.driveFileId !== material?.driveFileId);
