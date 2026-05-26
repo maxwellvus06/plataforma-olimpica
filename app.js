@@ -1814,6 +1814,162 @@ function salvarNovoUsuario(event) {
     alert("Usuário criado com sucesso.");
 }
 
+// ==================== RESET DE SENHAS EM LOTE ====================
+function niveisResetSenhaDisponiveis() {
+    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor"];
+}
+
+function usuarioPertenceCidade(usuario, cidadeId) {
+    if (!usuario || !cidadeId) return false;
+    const escolas = getStorage("app_escolas", []);
+
+    if (usuario.cidadeId && String(usuario.cidadeId) === String(cidadeId)) return true;
+    if (usuario.nivel === "Gestor" && String(usuario.vinculoId || "") === String(cidadeId)) return true;
+
+    if (usuario.nivel === "Escola" || usuario.nivel === "Aluno") {
+        const escolaId = usuario.escolaId || usuario.vinculoId || "";
+        const escola = escolas.find(e => String(e.id) === String(escolaId));
+        return !!escola && String(escola.cidadeId) === String(cidadeId);
+    }
+
+    return false;
+}
+
+function usuarioPertenceEscola(usuario, escolaId) {
+    if (!usuario || !escolaId) return false;
+    return String(usuario.vinculoId || "") === String(escolaId) || String(usuario.escolaId || "") === String(escolaId);
+}
+
+function usuariosAlvoResetSenha(tipoAlvo, valorAlvo) {
+    const usuarios = getStorage("app_usuarios", []);
+    if (!tipoAlvo || !valorAlvo) return [];
+
+    if (tipoAlvo === "nivel") return usuarios.filter(u => u.nivel === valorAlvo);
+    if (tipoAlvo === "cidade") return usuarios.filter(u => usuarioPertenceCidade(u, valorAlvo));
+    if (tipoAlvo === "escola") return usuarios.filter(u => usuarioPertenceEscola(u, valorAlvo));
+
+    return [];
+}
+
+function textoAlvoResetSenha(tipoAlvo, valorAlvo) {
+    const cidades = getStorage("app_cidades", []);
+    const escolas = getStorage("app_escolas", []);
+    if (tipoAlvo === "nivel") return `nível ${valorAlvo}`;
+    if (tipoAlvo === "cidade") {
+        const cidade = cidades.find(c => String(c.id) === String(valorAlvo));
+        return cidade ? `cidade ${cidade.nome} - ${cidade.uf}` : "cidade selecionada";
+    }
+    if (tipoAlvo === "escola") {
+        const escola = escolas.find(e => String(e.id) === String(valorAlvo));
+        return escola ? `escola ${escola.nome}` : "escola selecionada";
+    }
+    return "alvo selecionado";
+}
+
+function atualizarOpcoesResetSenhaLote() {
+    const tipo = document.getElementById("resetSenhaTipoAlvo")?.value || "nivel";
+    const select = document.getElementById("resetSenhaValorAlvo");
+    if (!select) return;
+
+    const cidades = getStorage("app_cidades", []).slice().sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    const escolas = getStorage("app_escolas", []).slice().sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    const usuarios = getStorage("app_usuarios", []);
+
+    let options = [];
+    if (tipo === "nivel") {
+        options = niveisResetSenhaDisponiveis().map(n => {
+            const qtd = usuarios.filter(u => u.nivel === n).length;
+            return { value: n, text: `${n} — ${qtd} usuário(s)` };
+        });
+    } else if (tipo === "cidade") {
+        options = cidades.map(c => {
+            const qtd = usuarios.filter(u => usuarioPertenceCidade(u, c.id)).length;
+            return { value: c.id, text: `${c.nome} - ${c.uf} — ${qtd} usuário(s)` };
+        });
+    } else if (tipo === "escola") {
+        options = escolas.map(e => {
+            const cidade = cidades.find(c => c.id === e.cidadeId);
+            const qtd = usuarios.filter(u => usuarioPertenceEscola(u, e.id)).length;
+            return { value: e.id, text: `${e.nome}${cidade ? ` (${cidade.nome} - ${cidade.uf})` : ""} — ${qtd} usuário(s)` };
+        });
+    }
+
+    select.innerHTML = '<option value="">Selecione...</option>' + options.map(o => `<option value="${textoSeguro(o.value)}">${textoSeguro(o.text)}</option>`).join("");
+}
+
+function prepararPainelResetSenhaLote() {
+    const painel = document.getElementById("painelResetSenhaLote");
+    if (!painel) return;
+    if (usuarioLogado?.nivel === "ADM") {
+        painel.classList.remove("hidden");
+        atualizarOpcoesResetSenhaLote();
+    } else {
+        painel.classList.add("hidden");
+    }
+}
+
+async function resetarSenhasEmLote(event) {
+    event.preventDefault();
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem resetar senhas em lote.");
+
+    const tipoAlvo = document.getElementById("resetSenhaTipoAlvo")?.value || "";
+    const valorAlvo = document.getElementById("resetSenhaValorAlvo")?.value || "";
+    const novaSenha = document.getElementById("resetSenhaNova")?.value || "";
+    const confirmar = document.getElementById("resetSenhaConfirmar")?.value || "";
+
+    if (!tipoAlvo || !valorAlvo) return alert("Selecione o alvo do reset.");
+    if (!novaSenha.trim()) return alert("Digite a nova senha.");
+    if (novaSenha.length < 6) return alert("Use uma senha com pelo menos 6 caracteres.");
+    if (novaSenha !== confirmar) return alert("A confirmação da senha não confere.");
+
+    const usuarios = getStorage("app_usuarios", []);
+    const alvos = usuariosAlvoResetSenha(tipoAlvo, valorAlvo);
+    if (alvos.length === 0) return alert("Nenhum usuário encontrado para este alvo.");
+
+    const incluiUsuarioLogado = alvos.some(u => u.id === usuarioLogado?.id);
+    const textoAlvo = textoAlvoResetSenha(tipoAlvo, valorAlvo);
+    const avisoProprio = incluiUsuarioLogado ? "\n\nAtenção: seu próprio usuário também está dentro deste alvo." : "";
+    const listaResumo = alvos.slice(0, 8).map(u => `• ${u.nome || u.login} (${u.nivel})`).join("\n");
+    const extra = alvos.length > 8 ? `\n• ... e mais ${alvos.length - 8} usuário(s)` : "";
+
+    const confirmarReset = confirm(`Você está prestes a resetar a senha de ${alvos.length} usuário(s) do alvo: ${textoAlvo}.\n\n${listaResumo}${extra}${avisoProprio}\n\nDeseja continuar?`);
+    if (!confirmarReset) return;
+
+    const idsAlvo = new Set(alvos.map(u => String(u.id)));
+    const atualizados = usuarios.map(u => {
+        if (!idsAlvo.has(String(u.id))) return u;
+        return {
+            ...u,
+            senha: novaSenha,
+            senhaRedefinidaEm: new Date().toISOString(),
+            senhaRedefinidaPorId: usuarioLogado.id,
+            senhaRedefinidaPorNome: usuarioLogado.nome || usuarioLogado.login || "Administrador"
+        };
+    });
+
+    const btn = event.target?.querySelector('button[type="submit"]');
+    const textoOriginal = btn?.innerHTML;
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Resetando...';
+        }
+        await setStorage("app_usuarios", atualizados);
+        renderizarTabelasGerenciais();
+        event.target.reset();
+        atualizarOpcoesResetSenhaLote();
+        alert(`Senha redefinida com sucesso para ${alvos.length} usuário(s).`);
+    } catch (erro) {
+        console.error("Erro ao resetar senhas em lote", erro);
+        alert(`Não foi possível resetar as senhas no Firestore.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = textoOriginal || '<i class="fa-solid fa-rotate-right mr-2"></i>Resetar senhas selecionadas';
+        }
+    }
+}
+
 // ==================== CADASTROS ADM ====================
 function valoresMarcados(name) {
     return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map(el => el.value);
@@ -2818,6 +2974,7 @@ function renderizarTabelasGerenciais() {
         document.getElementById("addUserEscolaSelect").innerHTML = '<option value="">Selecione a unidade escolar...</option>' + escolasFiltradas.map(e => `<option value="${e.id}">${e.nome}</option>`).join("");
     }
     popularSelectAlunoParaUsuario();
+    prepararPainelResetSenhaLote();
 }
 
 function montarOptions(placeholder, itens, getValor, getTexto) {
