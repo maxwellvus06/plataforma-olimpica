@@ -1,20 +1,24 @@
-VERSÃO CORRIGIDA: LOGIN PRIMEIRO, FIRESTORE DEPOIS
+VERSÃO: Calendário avançado + tema claro/escuro
 
-O que foi corrigido:
-1. A tela de login não tenta mais carregar/gravar todas as coleções antes de ativar o formulário.
-2. Ao clicar em Entrar, o sistema busca apenas sistema_usuarios no Cloud Firestore.
-3. Se o login for aceito, aí sim o sistema carrega cidades, escolas, olimpíadas, cronograma, premiados e plataforma.
-4. Sem localStorage e sem sessionStorage.
-5. Dados administrativos no Cloud Firestore.
+Substitua no GitHub estes arquivos:
+- index.html
+- database.js
+- app.js
 
-Passos:
-1. Substitua index.html, database.js e app.js no GitHub.
-2. No Firebase Console, vá em Firestore Database > Rules.
-3. Para testar, cole o conteúdo de firestore.rules e clique em Publicar.
-4. Abra o site em aba anônima ou dê Ctrl + F5.
-5. Login de teste: admin / 123.
+O que foi adicionado:
+1) Bloqueio/controle de duplicidade no calendário:
+   - A mesma olimpíada não pode ter a mesma etapa/fase duas vezes.
+   - Ao tentar cadastrar ou editar duplicado, o sistema pergunta se deseja substituir o evento existente.
+   - Na importação XLSX, duplicidades são substituídas automaticamente e o sistema informa quantas foram substituídas.
 
-Se não entrar:
-- Abra F12 > Console e veja o erro vermelho.
-- Confirme que você está em Firestore Database, não Realtime Database.
-- Confirme se as coleções sistema_usuarios etc. aparecem no Firestore.
+2) Modo de exibição do Calendário Oficial:
+   - Por etapas / filtros: mantém o modo atual.
+   - Por data: ordena por proximidade operacional:
+     a) próximos 30 dias no topo;
+     b) eventos futuros, com mais de 30 dias, no meio;
+     c) eventos que já aconteceram no fim da lista.
+
+3) Tema claro/escuro:
+   - Botão no canto superior direito.
+   - Não usa localStorage nem sessionStorage.
+   - Ao recarregar a página, volta ao tema padrão escuro.

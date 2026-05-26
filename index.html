@@ -7,6 +7,22 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <style>
+        body.theme-light { background: #f8fafc !important; color: #111827 !important; }
+        body.theme-light .bg-gray-950 { background-color: #f1f5f9 !important; }
+        body.theme-light .bg-gray-900 { background-color: #f8fafc !important; }
+        body.theme-light .bg-gray-900\/50 { background-color: rgba(241,245,249,.75) !important; }
+        body.theme-light .bg-gray-900\/30 { background-color: rgba(241,245,249,.65) !important; }
+        body.theme-light .bg-gray-800 { background-color: #ffffff !important; }
+        body.theme-light .bg-gray-800\/40, body.theme-light .bg-gray-800\/50 { background-color: rgba(255,255,255,.82) !important; }
+        body.theme-light .border-gray-800, body.theme-light .border-gray-700 { border-color: #d1d5db !important; }
+        body.theme-light .text-white, body.theme-light .text-gray-100, body.theme-light .text-gray-200, body.theme-light .text-gray-300 { color: #111827 !important; }
+        body.theme-light .text-gray-400, body.theme-light .text-gray-500 { color: #4b5563 !important; }
+        body.theme-light input, body.theme-light select, body.theme-light textarea { background-color: #ffffff !important; color: #111827 !important; border-color: #cbd5e1 !important; }
+        body.theme-light table thead tr { background-color: #f1f5f9 !important; }
+        body.theme-light .hover\:bg-gray-800\/40:hover { background-color: rgba(226,232,240,.72) !important; }
+        body.theme-light .nav-item:hover { background-color: #e2e8f0 !important; color: #1f2937 !important; }
+    </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
@@ -105,9 +121,12 @@
         <div class="flex-1 flex flex-col min-w-0">
             <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-8 shrink-0">
                 <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
-                <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span class="text-xs font-mono text-gray-400 uppercase tracking-wider font-semibold">Ciclo Operacional 2026</span>
+                <div class="flex items-center gap-3">
+                    <button id="btnToggleTema" type="button" class="px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-950 text-xs font-bold text-gray-300 hover:text-white hover:border-blue-700 transition"><i class="fa-solid fa-sun mr-2"></i>Tema claro</button>
+                    <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span class="text-xs font-mono text-gray-400 uppercase tracking-wider font-semibold">Ciclo Operacional 2026</span>
+                    </div>
                 </div>
             </header>
 
@@ -178,7 +197,14 @@
                     </div>
                     <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
                         <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-calendar-check text-blue-400 mr-2"></i>Calendário Operacional de Olimpíadas</h3></div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Modo de exibição</label>
+                                <select id="filterCronogramaModoExibicao" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
+                                    <option value="ETAPAS">Por etapas / filtros</option>
+                                    <option value="DATA">Por data</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Filtrar por grupo de etapa</label>
                                 <select id="filterCronogramaGrupoEtapa" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>

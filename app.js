@@ -127,6 +127,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
         document.getElementById("filterCronogramaGrupoEtapa")?.addEventListener("change", () => { preencherFiltrosCronograma(); renderizarCronograma(); });
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
+        document.getElementById("filterCronogramaModoExibicao")?.addEventListener("change", renderizarCronograma);
+        document.getElementById("btnToggleTema")?.addEventListener("click", alternarTemaClaroEscuro);
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -713,6 +715,16 @@ function normalizarTexto(valor) {
     return String(valor ?? "").trim().toLowerCase();
 }
 
+function alternarTemaClaroEscuro() {
+    const claro = document.body.classList.toggle("theme-light");
+    const btn = document.getElementById("btnToggleTema");
+    if (btn) {
+        btn.innerHTML = claro
+            ? '<i class="fa-solid fa-moon mr-2"></i>Tema escuro'
+            : '<i class="fa-solid fa-sun mr-2"></i>Tema claro';
+    }
+}
+
 function todasEtapasPadronizadas() {
     return TAXONOMIA_ETAPAS.flatMap(grupo => grupo.etapas.map(etapa => ({
         ...etapa,
@@ -1201,11 +1213,14 @@ function editarCronograma(id) {
             if (!d.olimpiadaId || !d.etapa || !d.data || !d.segmento || !d.acao) return alert("Todos os campos do evento são obrigatórios."), false;
             const lista = getStorage("app_cronograma");
             const i = lista.findIndex(c => c.id === id);
+            if (i === -1) return alert("Evento não encontrado."), false;
             const infoEtapa = normalizarEtapaCronograma(d.etapa);
-            lista[i] = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: d.data, segmento: d.segmento, acao: d.acao };
-            setStorage("app_cronograma", lista);
+            const atualizado = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: d.data, segmento: d.segmento, acao: d.acao };
+            const resultado = inserirOuSubstituirEventoCronograma(lista, atualizado, id, true);
+            if (resultado.cancelado) return false;
+            setStorage("app_cronograma", resultado.lista);
             renderizarCronograma();
-            alert("Evento atualizado com sucesso.");
+            alert(resultado.substituido ? "Evento atualizado e duplicidade substituída com sucesso." : "Evento atualizado com sucesso.");
         },
         onApagar: () => excluirCronograma(id)
     });
@@ -1372,11 +1387,14 @@ function salvarNovoCronograma(event) {
     const acao = document.getElementById("addCroAcao").value.trim();
     const infoEtapa = normalizarEtapaCronograma(etapa);
     const cronograma = getStorage("app_cronograma");
-    cronograma.push({ id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data, segmento, acao });
-    setStorage("app_cronograma", cronograma);
+    const novo = { id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data, segmento, acao };
+    const resultado = inserirOuSubstituirEventoCronograma(cronograma, novo, null, true);
+    if (resultado.cancelado) return;
+    setStorage("app_cronograma", resultado.lista);
     document.getElementById("formCadCronograma").reset();
     preencherSelectEtapasCronograma();
     renderizarCronograma();
+    if (resultado.substituido) alert("Evento duplicado substituído com sucesso.");
 }
 
 function salvarNovaCidade(event) {
@@ -1483,6 +1501,95 @@ function gravarResultadoComSobrescrita(novo) {
     dadosTrabalho.push(novo);
 }
 
+function chaveEventoCronograma(evento) {
+    const info = normalizarEtapaCronograma(evento?.etapa || evento?.etapaCodigo || "");
+    const etapaChave = info.etapaCodigo || normalizarTexto(info.etapa || evento?.etapa || "");
+    return `${String(evento?.olimpiadaId || "")}|${etapaChave}`;
+}
+
+function inserirOuSubstituirEventoCronograma(listaAtual, novoEvento, idIgnorado = null, pedirConfirmacao = true) {
+    const chaveNova = chaveEventoCronograma(novoEvento);
+    const duplicado = listaAtual.find(item => item.id !== idIgnorado && chaveEventoCronograma(item) === chaveNova);
+    if (duplicado && pedirConfirmacao) {
+        const olimpiada = getStorage("app_olimpiadas").find(o => o.id === novoEvento.olimpiadaId);
+        const nomeOlimpiada = olimpiada?.nome || "Olimpíada selecionada";
+        const ok = confirm(
+            `Já existe um evento cadastrado para esta mesma olimpíada e mesma etapa.\n\n` +
+            `Olimpíada: ${nomeOlimpiada}\n` +
+            `Etapa: ${novoEvento.etapa}\n` +
+            `Data atual cadastrada: ${duplicado.data || "não informada"}\n\n` +
+            `Se você continuar, o evento existente será substituído por este novo registro. Deseja substituir?`
+        );
+        if (!ok) return { lista: listaAtual, cancelado: true, substituido: false };
+    }
+
+    let eventoFinal = { ...novoEvento };
+    if (duplicado && !idIgnorado) eventoFinal.id = duplicado.id;
+
+    const listaSemAntigos = listaAtual.filter(item => item.id !== eventoFinal.id && (!duplicado || item.id !== duplicado.id));
+    listaSemAntigos.push(eventoFinal);
+    return { lista: listaSemAntigos, cancelado: false, substituido: !!duplicado };
+}
+
+function parseDataBr(dataStr) {
+    const texto = String(dataStr || "");
+    const regex = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g;
+    const achados = [...texto.matchAll(regex)];
+    if (!achados.length) return null;
+
+    const anoReferencia = achados.map(m => m[3]).find(Boolean);
+    const datas = achados.map(m => {
+        let ano = m[3] || anoReferencia || String(new Date().getFullYear());
+        if (ano.length === 2) ano = `20${ano}`;
+        const dia = Number(m[1]);
+        const mes = Number(m[2]) - 1;
+        const data = new Date(Number(ano), mes, dia, 12, 0, 0, 0);
+        return Number.isNaN(data.getTime()) ? null : data;
+    }).filter(Boolean);
+
+    if (!datas.length) return null;
+    return { inicio: datas[0], fim: datas[datas.length - 1] };
+}
+
+function classificarTemporalCronograma(evento) {
+    const periodo = parseDataBr(evento?.data);
+    if (!periodo) return { codigo: "semdata", ordem: 2, label: "Data a confirmar", classe: "text-gray-400", dataBase: new Date(8640000000000000) };
+
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const limite = new Date(hoje);
+    limite.setDate(limite.getDate() + 30);
+
+    const inicio = new Date(periodo.inicio);
+    inicio.setHours(0, 0, 0, 0);
+    const fim = new Date(periodo.fim || periodo.inicio);
+    fim.setHours(23, 59, 59, 999);
+
+    if (fim < hoje) return { codigo: "passado", ordem: 3, label: "Já aconteceu", classe: "text-gray-500", dataBase: inicio };
+    if (inicio <= limite) return { codigo: "proximo", ordem: 0, label: "Próximos 30 dias", classe: "text-emerald-400", dataBase: inicio };
+    return { codigo: "futuro", ordem: 1, label: "Futuro", classe: "text-blue-400", dataBase: inicio };
+}
+
+function ordenarCronogramaPorModo(lista) {
+    const modo = document.getElementById("filterCronogramaModoExibicao")?.value || "ETAPAS";
+    if (modo !== "DATA") return lista;
+
+    return [...lista].sort((a, b) => {
+        const ca = classificarTemporalCronograma(a);
+        const cb = classificarTemporalCronograma(b);
+        if (ca.ordem !== cb.ordem) return ca.ordem - cb.ordem;
+        if (ca.codigo === "passado" && cb.codigo === "passado") return cb.dataBase - ca.dataBase;
+        return ca.dataBase - cb.dataBase;
+    });
+}
+
+function badgeTemporalCronograma(evento) {
+    const modo = document.getElementById("filterCronogramaModoExibicao")?.value || "ETAPAS";
+    if (modo !== "DATA") return "";
+    const status = classificarTemporalCronograma(evento);
+    return `<div class="mt-1 text-[10px] uppercase tracking-wider font-bold ${status.classe}">${textoSeguro(status.label)}</div>`;
+}
+
 // ==================== RENDERS COMPONENTES ====================
 function renderizarCronograma() {
     preencherFiltrosCronograma();
@@ -1494,13 +1601,13 @@ function renderizarCronograma() {
     const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
     const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
 
-    const cronogramaFiltrado = cronograma.filter(c => {
+    const cronogramaFiltrado = ordenarCronogramaPorModo(cronograma.filter(c => {
         const info = normalizarEtapaCronograma(c.etapa);
         const porGrupo = filtroGrupo === "TODOS" ||
             (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
         const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
         return porGrupo && porEtapa;
-    });
+    }));
 
     if (!cronogramaFiltrado.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum evento encontrado para os filtros selecionados.</td></tr>`;
@@ -1509,11 +1616,13 @@ function renderizarCronograma() {
 
     tbody.innerHTML = cronogramaFiltrado.map(c => {
         const oli = olimpiadas.find(o => o.id === c.olimpiadaId);
+        const temporal = classificarTemporalCronograma(c);
+        const rowExtra = temporal.codigo === "passado" ? " opacity-70" : "";
         return `
-            <tr class="hover:bg-gray-800/40 transition">
+            <tr class="hover:bg-gray-800/40 transition${rowExtra}">
                 <td class="p-4 font-bold text-white">${oli ? textoSeguro(oli.nome) : "Desconhecida"}</td>
                 <td class="p-4 text-xs font-semibold">${etapaVisualCronograma(c)}</td>
-                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${textoSeguro(c.data)}</td>
+                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${textoSeguro(c.data)}${badgeTemporalCronograma(c)}</td>
                 <td class="p-4 text-xs text-gray-400 font-medium">${textoSeguro(c.segmento)}</td>
                 <td class="p-4 text-gray-400 text-xs leading-relaxed">${textoSeguro(c.acao)}</td>
                 <td class="p-4 text-right">${podeEditar ? `<button onclick="editarCronograma('${textoSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
@@ -1839,18 +1948,22 @@ function processarPlanilhaCronograma(arquivo) {
             const olimpiadas = getStorage("app_olimpiadas");
             const cronograma = getStorage("app_cronograma");
             let inseridos = 0;
+            let substituidos = 0;
             linhas.forEach(linha => {
                 const siglaOuNome = (linha.SIGLA || linha.Olimpiada || "").trim().toLowerCase();
                 const foundOli = olimpiadas.find(o => o.nome.toLowerCase().includes(siglaOuNome) || o.categoria.toLowerCase() === siglaOuNome);
                 if (foundOli) {
                     const etapaOriginal = linha["FASE / ETAPA"] || linha.Etapa || "Fase Única — Aplicação";
                     const infoEtapa = normalizarEtapaCronograma(etapaOriginal);
-                    cronograma.push({ id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: linha["DATA / PERÍODO 2026"] || linha.Data || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." });
+                    const novoEvento = { id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: linha["DATA / PERÍODO 2026"] || linha.Data || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." };
+                    const resultado = inserirOuSubstituirEventoCronograma(cronograma, novoEvento, null, false);
+                    cronograma.splice(0, cronograma.length, ...resultado.lista);
+                    if (resultado.substituido) substituidos++;
                     inseridos++;
                 }
             });
             setStorage("app_cronograma", cronograma);
-            alert(`${inseridos} etapas mapeadas com sucesso!`);
+            alert(`${inseridos} etapas mapeadas com sucesso!${substituidos ? `\n${substituidos} evento(s) duplicado(s) foram substituídos.` : ""}`);
             renderizarCronograma();
         } catch (err) { alert("Erro ao processar planilha de cronograma."); }
     };
