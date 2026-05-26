@@ -37,3 +37,4 @@ if (!localStorage.getItem("app_cidades")) localStorage.setItem("app_cidades", JS
 if (!localStorage.getItem("app_escolas")) localStorage.setItem("app_escolas", JSON.stringify(CONFIG_ESCOLAS_INICIAIS));
 if (!localStorage.getItem("app_olimpiadas")) localStorage.setItem("app_olimpiadas", JSON.stringify(DATABASE.olimpiadas));
 if (!localStorage.getItem("app_cronograma")) localStorage.setItem("app_cronograma", JSON.stringify(DATABASE.cronograma));
+if (!localStorage.getItem("app_premiados")) localStorage.setItem("app_premiados", JSON.stringify(DATABASE.premiados));

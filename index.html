@@ -228,13 +228,13 @@
                         <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
                         <div>
                             <h3 class="text-lg font-bold text-white">Importação Massiva de Medalhistas</h3>
-                            <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formatos Excel ou planilhas (.csv) contendo as colunas padrão.</p>
+                            <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formato Excel (.xlsx) seguindo o modelo oficial com listas suspensas.</p>
                         </div>
                         <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition">
-                            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv">
+                            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls">
                             <p class="text-sm text-gray-400">Arraste a planilha aqui ou <span class="text-blue-400 font-semibold underline">clique para procurar</span></p>
                         </div>
-                        <button onclick="downloadCSVTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Alunos .CSV</button>
+                        <button onclick="downloadResultadosTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Resultados .XLSX</button>
                     </div>
                 </section>
 
@@ -299,6 +299,7 @@
                                             <th class="p-4">Login / Nível</th>
                                             <th class="p-4">E-mail / Telefone</th>
                                             <th class="p-4">Vínculo Territorial</th>
+                                            <th class="p-4 text-right">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody id="tableUsuariosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
@@ -332,7 +333,7 @@
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
                             <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Olimpíadas Disponíveis</h3></div>
-                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">ID</th><th class="p-4">Nome</th><th class="p-4">Frente</th><th class="p-4">Séries</th></tr></thead><tbody id="tableOlimpiadasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">ID</th><th class="p-4">Nome</th><th class="p-4">Frente</th><th class="p-4">Séries</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableOlimpiadasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
@@ -352,7 +353,7 @@
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
                             <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cidades Polo</h3></div>
-                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">ID</th><th class="p-4">Nome Oficial</th><th class="p-4">Sigla</th><th class="p-4">UF</th></tr></thead><tbody id="tableCidadesCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">ID</th><th class="p-4">Nome Oficial</th><th class="p-4">Sigla</th><th class="p-4">UF</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableCidadesCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
@@ -385,7 +386,7 @@
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
                             <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Escolas Homologadas</h3></div>
-                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse min-w-max"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">INEP</th><th class="p-4">Escola</th><th class="p-4">CNPJ</th><th class="p-4">Gestão</th><th class="p-4">Cidade Polo</th></tr></thead><tbody id="tableEscolasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse min-w-max"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">INEP</th><th class="p-4">Escola</th><th class="p-4">CNPJ</th><th class="p-4">Gestão</th><th class="p-4">Cidade Polo</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableEscolasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
@@ -396,6 +397,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="database.js"></script>
     <script src="app.js"></script>
 </body>

@@ -4,7 +4,7 @@ let dadosTrabalho = [];
 let usuarioLogado = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-    dadosTrabalho = [...DATABASE.premiados];
+    dadosTrabalho = carregarPremiados();
     initLogin();
     initDragAndDrop();
     initDragAndDropCronograma();
@@ -25,7 +25,7 @@ function initLogin() {
         const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
         const passInput = document.getElementById("auth-pass").value.trim();
         
-        const usuariosCadastrados = JSON.parse(localStorage.getItem("app_usuarios")) || [];
+        const usuariosCadastrados = getStorage("app_usuarios");
         const contaEncontrada = usuariosCadastrados.find(u => u.login === userInput && u.senha === passInput);
 
         if (contaEncontrada) {
@@ -74,6 +74,117 @@ function logout() {
     document.getElementById("mainPanel").classList.add("hidden");
     document.getElementById("loginScreen").classList.remove("hidden");
     document.getElementById("loginForm").reset();
+}
+
+function getStorage(chave, fallback = []) {
+    try {
+        const salvo = localStorage.getItem(chave);
+        return salvo ? JSON.parse(salvo) : fallback;
+    } catch (e) {
+        console.warn(`Falha ao ler ${chave}`, e);
+        return fallback;
+    }
+}
+
+function setStorage(chave, valor) {
+    localStorage.setItem(chave, JSON.stringify(valor));
+}
+
+function carregarPremiados() {
+    const salvos = getStorage("app_premiados", null);
+    if (Array.isArray(salvos)) return salvos;
+    const base = Array.isArray(DATABASE?.premiados) ? [...DATABASE.premiados] : [];
+    setStorage("app_premiados", base);
+    return base;
+}
+
+function salvarPremiados() {
+    setStorage("app_premiados", dadosTrabalho);
+}
+
+function novoId() {
+    return String(Date.now() + Math.floor(Math.random() * 10000));
+}
+
+function textoSeguro(valor) {
+    return String(valor ?? "").replace(/[&<>'"]/g, char => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+    }[char]));
+}
+
+function normalizarTexto(valor) {
+    return String(valor ?? "").trim().toLowerCase();
+}
+
+function confirmarExclusao(tipo, nome) {
+    return confirm(`Tem certeza que deseja apagar ${tipo}: ${nome}?\n\nEssa ação não pode ser desfeita.`);
+}
+
+function existeResultadoParaCampo(campo, valor) {
+    const alvo = normalizarTexto(valor);
+    return dadosTrabalho.some(item => normalizarTexto(item[campo]) === alvo);
+}
+
+function excluirUsuario(id) {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const usuarios = getStorage("app_usuarios");
+    const usuario = usuarios.find(u => u.id === id);
+    if (!usuario) return alert("Usuário não encontrado.");
+    if (usuarioLogado?.id === id) return alert("Segurança: você não pode apagar o próprio usuário enquanto está logado.");
+    const admins = usuarios.filter(u => u.nivel === "ADM");
+    if (usuario.nivel === "ADM" && admins.length <= 1) return alert("Segurança: não é permitido apagar o último administrador do sistema.");
+    if (!confirmarExclusao("o usuário", usuario.nome)) return;
+    setStorage("app_usuarios", usuarios.filter(u => u.id !== id));
+    renderizarTabelasGerenciais();
+}
+
+function excluirCidade(id) {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const usuarios = getStorage("app_usuarios");
+    const cidade = cidades.find(c => c.id === id);
+    if (!cidade) return alert("Cidade não encontrada.");
+    const nomeMunicipio = `${cidade.nome} - ${cidade.uf}`;
+    if (escolas.some(e => e.cidadeId === id)) return alert("Segurança: não é possível apagar esta cidade porque existem escolas cadastradas nela.");
+    if (usuarios.some(u => u.nivel === "Gestor" && u.vinculoId === id)) return alert("Segurança: não é possível apagar esta cidade porque existem gestores vinculados a ela.");
+    if (existeResultadoParaCampo("municipio", nomeMunicipio)) return alert("Segurança: não é possível apagar esta cidade porque existem resultados vinculados a ela.");
+    if (!confirmarExclusao("a cidade", nomeMunicipio)) return;
+    setStorage("app_cidades", cidades.filter(c => c.id !== id));
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarPlataforma();
+}
+
+function excluirEscola(id) {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const escolas = getStorage("app_escolas");
+    const usuarios = getStorage("app_usuarios");
+    const escola = escolas.find(e => e.id === id);
+    if (!escola) return alert("Escola não encontrada.");
+    if (usuarios.some(u => (u.nivel === "Escola" || u.nivel === "Aluno") && u.vinculoId === id)) return alert("Segurança: não é possível apagar esta escola porque existem usuários vinculados a ela.");
+    if (existeResultadoParaCampo("escola", escola.nome)) return alert("Segurança: não é possível apagar esta escola porque existem resultados vinculados a ela.");
+    if (!confirmarExclusao("a escola", escola.nome)) return;
+    setStorage("app_escolas", escolas.filter(e => e.id !== id));
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarPlataforma();
+}
+
+function excluirOlimpiada(id) {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const olimpiadas = getStorage("app_olimpiadas");
+    const cronograma = getStorage("app_cronograma");
+    const olimpiada = olimpiadas.find(o => o.id === id);
+    if (!olimpiada) return alert("Olimpíada não encontrada.");
+    if (existeResultadoParaCampo("olimpiada", olimpiada.nome) || existeResultadoParaCampo("olimpiada", olimpiada.categoria)) return alert("Segurança: não é possível apagar esta olimpíada porque existem resultados cadastrados para ela.");
+    if (cronograma.some(c => c.olimpiadaId === id)) return alert("Segurança: não é possível apagar esta olimpíada porque existem etapas de cronograma vinculadas a ela.");
+    if (!confirmarExclusao("a olimpíada", olimpiada.nome)) return;
+    setStorage("app_olimpiadas", olimpiadas.filter(o => o.id !== id));
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarCronograma();
+    renderizarPlataforma();
 }
 
 // ==================== NAVEGAÇÃO ENTRE ABAS ====================\
@@ -132,10 +243,11 @@ function salvarNovoUsuario(event) {
         if (!vinculoId) return alert("Erro: Perfis de Escola/Aluno precisam ser associados a uma escola!");
     }
 
-    const usuarios = JSON.parse(localStorage.getItem("app_usuarios")) || [];
-    usuarios.push({ id: String(Date.now()), login, senha, nivel, nome, email, telefone, vinculoId });
+    const usuarios = getStorage("app_usuarios");
+    if (usuarios.some(u => normalizarTexto(u.login) === login)) return alert("Erro: já existe um usuário com esse login.");
+    usuarios.push({ id: novoId(), login, senha, nivel, nome, email, telefone, vinculoId });
     
-    localStorage.setItem("app_usuarios", JSON.stringify(usuarios));
+    setStorage("app_usuarios", usuarios);
     document.getElementById("formCadUsuario").reset();
     ajustarCamposFormUsuario();
     renderizarTabelasGerenciais();
@@ -150,10 +262,11 @@ function salvarNovaOlimpiada(event) {
     const categoria = document.getElementById("addOliCategoria").value.trim().toUpperCase();
     const series = document.getElementById("addOliSeries").value.trim();
 
-    const olimpiadas = JSON.parse(localStorage.getItem("app_olimpiadas")) || [];
-    olimpiadas.push({ id: String(Date.now()), nome, categoria, series });
+    const olimpiadas = getStorage("app_olimpiadas");
+    if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(nome))) return alert("Erro: esta olimpíada já está cadastrada.");
+    olimpiadas.push({ id: novoId(), nome, categoria, series });
     
-    localStorage.setItem("app_olimpiadas", JSON.stringify(olimpiadas));
+    setStorage("app_olimpiadas", olimpiadas);
     document.getElementById("formCadOlimpiada").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
@@ -169,10 +282,10 @@ function salvarNovoCronograma(event) {
     const segmento = document.getElementById("addCroSegmento").value.trim();
     const acao = document.getElementById("addCroAcao").value.trim();
 
-    const cronograma = JSON.parse(localStorage.getItem("app_cronograma")) || [];
-    cronograma.push({ id: String(Date.now()), olimpiadaId, etapa, data, segmento, acao });
+    const cronograma = getStorage("app_cronograma");
+    cronograma.push({ id: novoId(), olimpiadaId, etapa, data, segmento, acao });
     
-    localStorage.setItem("app_cronograma", JSON.stringify(cronograma));
+    setStorage("app_cronograma", cronograma);
     document.getElementById("formCadCronograma").reset();
     renderizarCronograma();
 }
@@ -185,10 +298,11 @@ function salvarNovaCidade(event) {
     const sigla = document.getElementById("addCidSigla").value.trim().toUpperCase();
     const uf = document.getElementById("addCidUf").value.trim().toUpperCase();
 
-    const cidades = JSON.parse(localStorage.getItem("app_cidades")) || [];
-    cidades.push({ id: String(Date.now()), nome, sigla, uf });
+    const cidades = getStorage("app_cidades");
+    if (cidades.some(c => normalizarTexto(c.nome) === normalizarTexto(nome) && normalizarTexto(c.uf) === normalizarTexto(uf))) return alert("Erro: esta cidade já está cadastrada.");
+    cidades.push({ id: novoId(), nome, sigla, uf });
     
-    localStorage.setItem("app_cidades", JSON.stringify(cidades));
+    setStorage("app_cidades", cidades);
     document.getElementById("formCadCidade").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
@@ -208,10 +322,12 @@ function salvarNovaEscola(event) {
     const email = document.getElementById("addEscEmail").value.trim();
     const cidadeId = document.getElementById("addEscCidadeSelect").value;
 
-    const escolas = JSON.parse(localStorage.getItem("app_escolas")) || [];
-    escolas.push({ id: String(Date.now()), nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId });
+    const escolas = getStorage("app_escolas");
+    if (escolas.some(e => normalizarTexto(e.inep) === normalizarTexto(inep))) return alert("Erro: já existe uma escola com esse INEP.");
+    if (escolas.some(e => normalizarTexto(e.nome) === normalizarTexto(nome))) return alert("Erro: já existe uma escola com esse nome.");
+    escolas.push({ id: novoId(), nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId });
     
-    localStorage.setItem("app_escolas", JSON.stringify(escolas));
+    setStorage("app_escolas", escolas);
     document.getElementById("formCadEscola").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
@@ -219,8 +335,8 @@ function salvarNovaEscola(event) {
 
 // ==================== RENDERS DE COMPONENTES E DATA VIS ====================\
 function renderizarCronograma() {
-    const cronograma = JSON.parse(localStorage.getItem("app_cronograma")) || [];
-    const olimpiadas = JSON.parse(localStorage.getItem("app_olimpiadas")) || [];
+    const cronograma = getStorage("app_cronograma");
+    const olimpiadas = getStorage("app_olimpiadas");
     const tbody = document.getElementById("tableCronogramaCorpo");
     if (!tbody) return;
 
@@ -239,15 +355,15 @@ function renderizarCronograma() {
 }
 
 function renderizarTabelasGerenciais() {
-    const cidades = JSON.parse(localStorage.getItem("app_cidades")) || [];
-    const escolas = JSON.parse(localStorage.getItem("app_escolas")) || [];
-    const olimpiadas = JSON.parse(localStorage.getItem("app_olimpiadas")) || [];
-    const usuarios = JSON.parse(localStorage.getItem("app_usuarios")) || [];
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const olimpiadas = getStorage("app_olimpiadas");
+    const usuarios = getStorage("app_usuarios");
 
     // Tabela de Cidades
     if (document.getElementById("tableCidadesCorpo")) {
         document.getElementById("tableCidadesCorpo").innerHTML = cidades.map(c => `
-            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${c.id}</td><td class="p-4 font-semibold text-white">${c.nome}</td><td class="p-4 font-mono text-blue-400">${c.sigla}</td><td class="p-4 font-bold text-gray-400">${c.uf}</td></tr>
+            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(c.id)}</td><td class="p-4 font-semibold text-white">${textoSeguro(c.nome)}</td><td class="p-4 font-mono text-blue-400">${textoSeguro(c.sigla)}</td><td class="p-4 font-bold text-gray-400">${textoSeguro(c.uf)}</td><td class="p-4 text-right"><button onclick="excluirCidade('${textoSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
         `).join("");
     }
     // Tabela de Escolas
@@ -255,14 +371,14 @@ function renderizarTabelasGerenciais() {
         document.getElementById("tableEscolasCorpo").innerHTML = escolas.map(e => {
             const cid = cidades.find(c => c.id === e.cidadeId);
             return `
-                <tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${e.inep}</td><td class="p-4"><div class="font-bold text-white text-sm">${e.nome}</div><div class="text-gray-500">${e.razaoSocial}</div></td><td class="p-4 font-mono">${e.cnpj}</td><td class="p-4"><div>${e.diretor}</div><div class="text-blue-400 font-mono">${e.email}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${cid.nome} - ${cid.uf}` : "Desconhecido"}</td></tr>
+                <tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${textoSeguro(e.inep)}</td><td class="p-4"><div class="font-bold text-white text-sm">${textoSeguro(e.nome)}</div><div class="text-gray-500">${textoSeguro(e.razaoSocial)}</div></td><td class="p-4 font-mono">${textoSeguro(e.cnpj)}</td><td class="p-4"><div>${textoSeguro(e.diretor)}</div><div class="text-blue-400 font-mono">${textoSeguro(e.email)}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${textoSeguro(cid.nome)} - ${textoSeguro(cid.uf)}` : "Desconhecido"}</td><td class="p-4 text-right"><button onclick="excluirEscola('${textoSeguro(e.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
             `;
         }).join("");
     }
     // Tabela de Olimpíadas Base
     if (document.getElementById("tableOlimpiadasCorpo")) {
         document.getElementById("tableOlimpiadasCorpo").innerHTML = olimpiadas.map(o => `
-            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${o.id}</td><td class="p-4 font-bold text-white">${o.nome}</td><td class="p-4 text-blue-400 font-mono font-semibold">${o.categoria}</td><td class="p-4 text-gray-400 font-medium">${o.series}</td></tr>
+            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(o.id)}</td><td class="p-4 font-bold text-white">${textoSeguro(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${textoSeguro(o.categoria)}</td><td class="p-4 text-gray-400 font-medium">${textoSeguro(o.series)}</td><td class="p-4 text-right"><button onclick="excluirOlimpiada('${textoSeguro(o.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
         `).join("");
     }
     // Tabela de Usuários / Operadores
@@ -278,16 +394,17 @@ function renderizarTabelasGerenciais() {
             }
             return `
                 <tr class="hover:bg-gray-750 text-xs">
-                    <td class="p-4 font-bold text-white">${u.nome}</td>
+                    <td class="p-4 font-bold text-white">${textoSeguro(u.nome)}</td>
                     <td class="p-4">
-                        <div class="font-mono text-blue-400 font-bold">${u.login}</div>
-                        <div class="text-gray-500 font-medium text-[10px] uppercase">${u.nivel}</div>
+                        <div class="font-mono text-blue-400 font-bold">${textoSeguro(u.login)}</div>
+                        <div class="text-gray-500 font-medium text-[10px] uppercase">${textoSeguro(u.nivel)}</div>
                     </td>
                     <td class="p-4">
-                        <div>${u.email}</div>
-                        <div class="text-gray-500 font-mono">${u.telefone}</div>
+                        <div>${textoSeguro(u.email)}</div>
+                        <div class="text-gray-500 font-mono">${textoSeguro(u.telefone)}</div>
                     </td>
-                    <td class="p-4 font-semibold ${u.nivel === 'ADM' ? 'text-blue-400' : 'text-amber-400'}">${descVinculo}</td>
+                    <td class="p-4 font-semibold ${u.nivel === 'ADM' ? 'text-blue-400' : 'text-amber-400'}">${textoSeguro(descVinculo)}</td>
+                    <td class="p-4 text-right"><button onclick="excluirUsuario('${textoSeguro(u.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td>
                 </tr>
             `;
         }).join("");
@@ -309,9 +426,9 @@ function renderizarTabelasGerenciais() {
 }
 
 function popularSeletores() {
-    const cidades = JSON.parse(localStorage.getItem("app_cidades")) || [];
-    const escolas = JSON.parse(localStorage.getItem("app_escolas")) || [];
-    const olimpiadas = JSON.parse(localStorage.getItem("app_olimpiadas")) || [];
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const olimpiadas = getStorage("app_olimpiadas");
 
     if (document.getElementById("filterMunicipio")) {
         document.getElementById("filterMunicipio").innerHTML = '<option value="TODOS">-- Todos os Municípios --</option>' + cidades.map(c => `<option value="${c.nome} - ${c.uf}">${c.nome} - ${c.uf}</option>`).join("");
@@ -340,8 +457,8 @@ function renderizarPlataforma() {
         `).join("");
     }
 
-    const tCidades = (JSON.parse(localStorage.getItem("app_cidades")) || []).length;
-    const tEscolas = (JSON.parse(localStorage.getItem("app_escolas")) || []).length;
+    const tCidades = getStorage("app_cidades").length;
+    const tEscolas = getStorage("app_escolas").length;
 
     if(document.getElementById("cardTotalMedalhas")) document.getElementById("cardTotalMedalhas").innerText = dadosFiltrados.length;
     if(document.getElementById("cardTotalOuro")) document.getElementById("cardTotalOuro").innerText = dadosFiltrados.filter(x => x.premio.toLowerCase() === "ouro").length;
@@ -395,8 +512,8 @@ function processarPlanilhaCronograma(arquivo) {
             const primeiraAba = workbook.SheetNames[0];
             const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba]);
 
-            const olimpiadas = JSON.parse(localStorage.getItem("app_olimpiadas")) || [];
-            const cronograma = JSON.parse(localStorage.getItem("app_cronograma")) || [];
+            const olimpiadas = getStorage("app_olimpiadas");
+            const cronograma = getStorage("app_cronograma");
 
             let inseridos = 0;
             linhas.forEach(linha => {
@@ -416,7 +533,7 @@ function processarPlanilhaCronograma(arquivo) {
                 }
             });
 
-            localStorage.setItem("app_cronograma", JSON.stringify(cronograma));
+            setStorage("app_cronograma", cronograma);
             alert(`${inseridos} etapas mapeadas e associadas com sucesso via Excel!`);
             renderizarCronograma();
         } catch (err) {
@@ -459,28 +576,136 @@ function processarPlanilha(arquivo) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
-            const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            linhas.forEach(linha => {
-                dadosTrabalho.push({
-                    aluno: linha.Aluno || "Desconhecido", escola: linha.Escola || "Não Informada",
-                    municipio: linha.Municipio || "São Braz - PI", olimpiada: linha.Olimpiada || "Geral", premio: linha.Premio || "Menção Honrosa"
-                });
+            const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+            const escolas = getStorage("app_escolas");
+            const cidades = getStorage("app_cidades");
+            const olimpiadas = getStorage("app_olimpiadas");
+            const premiosPermitidos = ["Ouro", "Prata", "Bronze", "Menção Honrosa", "Participação", "Finalista"];
+            const erros = [];
+            let inseridos = 0;
+
+            linhas.forEach((linha, idx) => {
+                const aluno = String(linha.Aluno || "").trim();
+                const escola = String(linha.Escola || "").trim();
+                const municipio = String(linha.Municipio || linha.Município || "").trim();
+                const olimpiada = String(linha.Olimpiada || linha.Olimpíada || "").trim();
+                const premio = String(linha.Premio || linha.Prêmio || "").trim();
+                const numeroLinha = idx + 2;
+
+                if (!aluno || !escola || !municipio || !olimpiada || !premio) {
+                    erros.push(`Linha ${numeroLinha}: há campo obrigatório vazio.`);
+                    return;
+                }
+                if (!escolas.some(e => normalizarTexto(e.nome) === normalizarTexto(escola))) {
+                    erros.push(`Linha ${numeroLinha}: escola não cadastrada (${escola}).`);
+                    return;
+                }
+                if (!cidades.some(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(municipio))) {
+                    erros.push(`Linha ${numeroLinha}: município não cadastrado (${municipio}).`);
+                    return;
+                }
+                if (!olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(olimpiada))) {
+                    erros.push(`Linha ${numeroLinha}: olimpíada não cadastrada (${olimpiada}).`);
+                    return;
+                }
+                if (!premiosPermitidos.some(p => normalizarTexto(p) === normalizarTexto(premio))) {
+                    erros.push(`Linha ${numeroLinha}: prêmio inválido (${premio}).`);
+                    return;
+                }
+
+                dadosTrabalho.push({ aluno, escola, municipio, olimpiada, premio });
+                inseridos++;
             });
-            alert(`${linhas.length} registros de premiados importados!`);
+
+            salvarPremiados();
             popularSeletores();
             renderizarPlataforma();
-        } catch (erro) { alert("Erro ao ler planilha."); }
+
+            if (erros.length) {
+                alert(`${inseridos} registros importados.\n\nAtenção: ${erros.length} linha(s) não foram importadas:\n${erros.slice(0, 8).join("\n")}${erros.length > 8 ? "\n..." : ""}`);
+            } else {
+                alert(`${inseridos} registros de premiados importados com sucesso!`);
+            }
+        } catch (erro) {
+            console.error(erro);
+            alert("Erro ao ler planilha. Verifique se o arquivo segue o modelo .XLSX baixado pelo sistema.");
+        }
     };
     leitor.readAsArrayBuffer(arquivo);
 }
 
-function downloadCSVTemplate() {
-    const cabecalho = "Aluno,Escola,Municipio,Olimpiada,Premio\nCarlos Silva,U. E. São Braz,São Braz - PI,OBMEP,Ouro";
-    const blob = new Blob([cabecalho], { type: 'text/csv;charset=utf-8;' });
+function criarDownloadBlob(blob, nomeArquivo) {
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", "modelo_importacao_olimpiadas.csv");
+    link.setAttribute("download", nomeArquivo);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+}
+
+async function downloadResultadosTemplate() {
+    const escolas = getStorage("app_escolas").map(e => e.nome).filter(Boolean);
+    const cidades = getStorage("app_cidades").map(c => `${c.nome} - ${c.uf}`).filter(Boolean);
+    const olimpiadas = getStorage("app_olimpiadas").map(o => o.nome).filter(Boolean);
+    const premios = ["Ouro", "Prata", "Bronze", "Menção Honrosa", "Participação", "Finalista"];
+
+    if (window.ExcelJS) {
+        const wb = new ExcelJS.Workbook();
+        wb.creator = "Plataforma Olímpica";
+        wb.created = new Date();
+
+        const ws = wb.addWorksheet("Resultados");
+        ws.columns = [
+            { header: "Aluno", key: "aluno", width: 32 },
+            { header: "Escola", key: "escola", width: 34 },
+            { header: "Municipio", key: "municipio", width: 26 },
+            { header: "Olimpiada", key: "olimpiada", width: 46 },
+            { header: "Premio", key: "premio", width: 20 }
+        ];
+        ws.addRow({ aluno: "Carlos Silva", escola: escolas[0] || "Cadastre uma escola", municipio: cidades[0] || "Cadastre uma cidade", olimpiada: olimpiadas[0] || "Cadastre uma olimpíada", premio: "Ouro" });
+        ws.getRow(1).font = { bold: true };
+        ws.views = [{ state: "frozen", ySplit: 1 }];
+
+        const listas = wb.addWorksheet("Listas");
+        listas.state = "hidden";
+        const maxLinhas = Math.max(escolas.length, cidades.length, olimpiadas.length, premios.length, 1);
+        listas.getCell("A1").value = "Escolas";
+        listas.getCell("B1").value = "Municipios";
+        listas.getCell("C1").value = "Olimpiadas";
+        listas.getCell("D1").value = "Premios";
+        for (let i = 0; i < maxLinhas; i++) {
+            listas.getCell(`A${i + 2}`).value = escolas[i] || null;
+            listas.getCell(`B${i + 2}`).value = cidades[i] || null;
+            listas.getCell(`C${i + 2}`).value = olimpiadas[i] || null;
+            listas.getCell(`D${i + 2}`).value = premios[i] || null;
+        }
+
+        const refEscolas = `Listas!$A$2:$A$${Math.max(escolas.length + 1, 2)}`;
+        const refCidades = `Listas!$B$2:$B$${Math.max(cidades.length + 1, 2)}`;
+        const refOlimpiadas = `Listas!$C$2:$C$${Math.max(olimpiadas.length + 1, 2)}`;
+        const refPremios = `Listas!$D$2:$D$${premios.length + 1}`;
+
+        for (let linha = 2; linha <= 501; linha++) {
+            ws.getCell(`B${linha}`).dataValidation = { type: "list", allowBlank: false, formulae: [refEscolas], showErrorMessage: true, errorTitle: "Escola inválida", error: "Escolha uma escola da lista." };
+            ws.getCell(`C${linha}`).dataValidation = { type: "list", allowBlank: false, formulae: [refCidades], showErrorMessage: true, errorTitle: "Município inválido", error: "Escolha um município da lista." };
+            ws.getCell(`D${linha}`).dataValidation = { type: "list", allowBlank: false, formulae: [refOlimpiadas], showErrorMessage: true, errorTitle: "Olimpíada inválida", error: "Escolha uma olimpíada da lista." };
+            ws.getCell(`E${linha}`).dataValidation = { type: "list", allowBlank: false, formulae: [refPremios], showErrorMessage: true, errorTitle: "Prêmio inválido", error: "Escolha um prêmio da lista." };
+        }
+
+        const buffer = await wb.xlsx.writeBuffer();
+        criarDownloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "modelo_importacao_resultados.xlsx");
+        return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet([{ Aluno: "Carlos Silva", Escola: escolas[0] || "", Municipio: cidades[0] || "", Olimpiada: olimpiadas[0] || "", Premio: "Ouro" }]);
+    const wsListas = XLSX.utils.aoa_to_sheet([["Escolas", "Municipios", "Olimpiadas", "Premios"], ...Array.from({ length: Math.max(escolas.length, cidades.length, olimpiadas.length, premios.length) }, (_, i) => [escolas[i] || "", cidades[i] || "", olimpiadas[i] || "", premios[i] || ""])]);
+    XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+    XLSX.utils.book_append_sheet(wb, wsListas, "Listas");
+    XLSX.writeFile(wb, "modelo_importacao_resultados.xlsx");
+}
+
+function downloadCSVTemplate() {
+    downloadResultadosTemplate();
 }
