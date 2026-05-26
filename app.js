@@ -1573,7 +1573,7 @@ function downloadTemplate() {
 }
 
 // ==================== PLATAFORMA DE ENSINO ====================
-const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
+const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzS_0RAles3wHcGqGJojeQJ1qQHFHrBVr5PJAJ5WOQVpgrDN6AU-riYiGjgeEfA20EtNw/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
 const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
 const FIREBASE_USUARIOS_PATH = "sistema_usuarios";
