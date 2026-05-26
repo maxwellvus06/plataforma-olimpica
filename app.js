@@ -3185,3 +3185,253 @@ logout = function() {
     document.getElementById("loginScreen")?.classList.remove("hidden");
     document.getElementById("loginForm")?.reset();
 };
+
+
+
+// =====================================================================
+// PATCH V6 FINAL — LOGIN ESTÁVEL + TEMA ESTÁVEL
+// =====================================================================
+// Esta é a camada que passa a valer por último.
+// Ela remove listeners antigos do formulário, consulta o Firestore direto,
+// abre o painel sem reload e mantém a variável interna usuarioLogado correta.
+
+function normalizarUsuarioV6(id, u = {}) {
+    const login = String(u.login || u.username || "").trim().toLowerCase();
+    const senha = String(u.senha || u.password || "");
+    const nivel = String(u.nivel || u.role || "Aluno").trim();
+    const nome = String(u.nome || u.fullname || u.name || login || "Usuário").trim();
+
+    return {
+        id: id || u.id || login || novoId(),
+        login,
+        username: login,
+        senha,
+        password: senha,
+        nivel,
+        role: nivel,
+        nome,
+        fullname: nome,
+        email: u.email || "",
+        telefone: u.telefone || "",
+        vinculoId: u.vinculoId || u.vinculo || "",
+        vinculo: u.vinculoId || u.vinculo || "",
+        vinculoNome: u.vinculoNome || "Geral/Master"
+    };
+}
+
+function mensagemLoginV6(texto, ok = false) {
+    let msg = document.getElementById("loginMessage");
+    if (!msg) {
+        const form = document.getElementById("loginForm");
+        msg = document.createElement("p");
+        msg.id = "loginMessage";
+        msg.className = "min-h-[18px] text-center text-xs font-bold";
+        form?.appendChild(msg);
+    }
+    msg.textContent = texto || "";
+    msg.classList.toggle("text-red-400", !ok);
+    msg.classList.toggle("text-emerald-400", ok);
+}
+
+async function buscarUsuarioFirestoreV6(loginDigitado, senhaDigitada) {
+    initFirebase();
+
+    if (!firebaseFirestore) {
+        throw new Error("Firestore não inicializado. Confira se firebase-firestore-compat.js está no index.html.");
+    }
+
+    const loginAlvo = String(loginDigitado || "").trim().toLowerCase();
+    const senhaAlvo = String(senhaDigitada || "").trim();
+
+    const snap = await firebaseFirestore.collection("usuarios").get();
+
+    let encontrado = null;
+
+    snap.forEach(docSnap => {
+        if (encontrado) return;
+
+        const user = normalizarUsuarioV6(docSnap.id, docSnap.data() || {});
+        const loginOK = user.login === loginAlvo || user.username === loginAlvo;
+        const senhaOK = String(user.senha) === senhaAlvo || String(user.password) === senhaAlvo;
+
+        if (loginOK && senhaOK) encontrado = user;
+    });
+
+    return encontrado;
+}
+
+async function abrirPainelV6(usuario) {
+    usuarioLogado = normalizarUsuarioV6(usuario.id, usuario);
+
+    sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
+    localStorage.setItem("avance_session_backup", JSON.stringify(usuarioLogado));
+
+    // Mantém o usuário logado disponível para funções antigas que ainda leem localStorage.
+    const locaisRaw = localStorage.getItem("app_usuarios");
+    let locais = [];
+    try { locais = JSON.parse(locaisRaw || "[]"); } catch { locais = []; }
+    if (!Array.isArray(locais)) locais = [];
+    locais = locais.filter(u => String(u.id) !== String(usuarioLogado.id) && String(u.login || u.username || "").toLowerCase() !== usuarioLogado.login);
+    localStorage.setItem("app_usuarios", JSON.stringify([usuarioLogado, ...locais]));
+
+    document.getElementById("loginScreen")?.classList.add("hidden");
+    document.getElementById("mainPanel")?.classList.remove("hidden");
+
+    const nomeEl = document.getElementById("userLoggedNome");
+    const nivelEl = document.getElementById("userLoggedNivel");
+    if (nomeEl) nomeEl.innerText = usuarioLogado.nome;
+    if (nivelEl) nivelEl.innerText = usuarioLogado.nivel;
+
+    try {
+        initFirebase();
+        if (typeof carregarBaseFirestoreInicial === "function") {
+            await carregarBaseFirestoreInicial();
+        }
+        dadosTrabalho = carregarPremiados();
+    } catch (erroCarga) {
+        console.warn("V6: login OK, mas falhou ao carregar alguma coleção. Abrindo painel mesmo assim.", erroCarga);
+    }
+
+    const chamadas = [
+        ["permissões", () => aplicarPermissoesNavegacao(usuarioLogado)],
+        ["seletores", () => popularSeletores()],
+        ["dashboard", () => renderizarPlataformaDashboard()],
+        ["cronograma", () => renderizarCronograma()],
+        ["gerenciais", () => renderizarTabelasGerenciais()],
+        ["resultados", () => renderizarResultadosImportacao()],
+        ["form usuário", () => ajustarCamposFormUsuario()],
+        ["plataforma", () => renderizarPlataformaEnsino()],
+        ["aba inicial", () => ativarPrimeiraAbaPermitida()]
+    ];
+
+    for (const [nome, fn] of chamadas) {
+        try { fn(); } catch (e) { console.warn("V6 falha parcial em " + nome, e); }
+    }
+
+    // Garantia visual: se qualquer coisa da aba inicial falhar, abre dashboard.
+    if (!document.querySelector(".tab-view:not(.hidden)")) {
+        document.querySelectorAll(".tab-view").forEach(v => v.classList.add("hidden"));
+        document.getElementById("view-dashboard")?.classList.remove("hidden");
+    }
+
+    aplicarTemaV6();
+}
+
+async function submitLoginV6(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const form = document.getElementById("loginForm");
+    const btn = form?.querySelector('button[type="submit"]');
+    const userInput = document.getElementById("auth-user")?.value?.trim() || "";
+    const passInput = document.getElementById("auth-pass")?.value?.trim() || "";
+
+    if (!userInput || !passInput) {
+        mensagemLoginV6("Digite usuário e senha.", false);
+        return false;
+    }
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...';
+        }
+
+        mensagemLoginV6("Consultando Firestore...", true);
+
+        const usuario = await buscarUsuarioFirestoreV6(userInput, passInput);
+
+        if (!usuario) {
+            mensagemLoginV6("Usuário ou senha não encontrados na coleção usuarios.", false);
+            return false;
+        }
+
+        mensagemLoginV6("Login confirmado. Abrindo painel...", true);
+        await abrirPainelV6(usuario);
+        return false;
+    } catch (erro) {
+        console.error("LOGIN V6:", erro);
+        mensagemLoginV6("Erro ao acessar Firestore. Veja o Console/F12.", false);
+        alert("Erro no login:\n\n" + (erro.message || erro));
+        return false;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = "Acessar Painel";
+        }
+    }
+}
+
+// Esta função substitui todas as initLogin antigas.
+function initLogin() {
+    const formAntigo = document.getElementById("loginForm");
+    if (!formAntigo) return;
+
+    // Remove listeners antigos clonando o formulário. Preserva HTML e valores atuais.
+    const userVal = document.getElementById("auth-user")?.value || "";
+    const passVal = document.getElementById("auth-pass")?.value || "";
+    const clone = formAntigo.cloneNode(true);
+    formAntigo.parentNode.replaceChild(clone, formAntigo);
+
+    document.getElementById("auth-user").value = userVal;
+    document.getElementById("auth-pass").value = passVal;
+
+    clone.addEventListener("submit", submitLoginV6, true);
+}
+
+function verificarSessao() {
+    const sessaoGuardada = sessionStorage.getItem("avance_session") || localStorage.getItem("avance_session_backup");
+    if (!sessaoGuardada) return;
+
+    try {
+        usuarioLogado = normalizarUsuarioV6(null, JSON.parse(sessaoGuardada));
+        sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
+    } catch (e) {
+        sessionStorage.removeItem("avance_session");
+        localStorage.removeItem("avance_session_backup");
+        return;
+    }
+
+    abrirPainelV6(usuarioLogado);
+}
+
+function aplicarTemaV6() {
+    const tema = localStorage.getItem("avance_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", tema);
+
+    const html = tema === "dark"
+        ? '<i class="fa-solid fa-moon"></i><span>Escuro</span>'
+        : '<i class="fa-solid fa-sun"></i><span>Claro</span>';
+
+    document.querySelectorAll("#btnThemeToggleLogin, #btnThemeToggleHeader").forEach(btn => {
+        btn.innerHTML = html;
+        btn.onclick = (ev) => {
+            ev.preventDefault();
+            alternarTemaV6();
+        };
+    });
+}
+
+function alternarTemaV6() {
+    const atual = document.documentElement.getAttribute("data-theme") || localStorage.getItem("avance_theme") || "dark";
+    const novo = atual === "dark" ? "light" : "dark";
+    localStorage.setItem("avance_theme", novo);
+    document.documentElement.setAttribute("data-theme", novo);
+    aplicarTemaV6();
+}
+
+window.abrirPainelAposLoginAvance = abrirPainelV6;
+window.aplicarTemaAvanceSeguro = aplicarTemaV6;
+window.alternarTemaAvanceSeguro = alternarTemaV6;
+window.aplicarTemaAvance = aplicarTemaV6;
+window.alternarTemaAvance = alternarTemaV6;
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Roda por último e passa a dominar os listeners antigos.
+    initLogin();
+    aplicarTemaV6();
+
+    // Se já existe sessão, abre direto.
+    verificarSessao();
+});

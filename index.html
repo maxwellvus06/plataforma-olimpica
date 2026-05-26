@@ -25,6 +25,17 @@
         .theme-toggle-btn { display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:.55rem .8rem; border-radius:.75rem; font-size:.72rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; border:1px solid rgba(148,163,184,.35); background:rgba(15,23,42,.85); color:#e5e7eb; transition:.15s ease; }
         .theme-toggle-btn:hover { filter:brightness(1.12); transform:translateY(-1px); }
         html[data-theme="light"] .theme-toggle-btn { background:#f8fafc; color:#111827; border-color:#d0d5dd; }
+
+        html[data-theme="dark"] body { background:#111827 !important; color:#f3f4f6 !important; }
+        html[data-theme="dark"] .theme-toggle-btn { background:rgba(15,23,42,.95) !important; color:#e5e7eb !important; border-color:#334155 !important; }
+        html[data-theme="light"] .bg-blue-500\/10 { background-color:#eff6ff !important; }
+        html[data-theme="light"] .bg-gray-700 { background-color:#e5e7eb !important; }
+        html[data-theme="light"] .hover\:bg-gray-900:hover { background-color:#f3f4f6 !important; }
+        html[data-theme="light"] .text-blue-400 { color:#2563eb !important; }
+        html[data-theme="light"] .text-amber-400 { color:#d97706 !important; }
+        html[data-theme="light"] .text-purple-400 { color:#7c3aed !important; }
+        html[data-theme="light"] .text-emerald-400 { color:#059669 !important; }
+
     </style>
 
     <script>
@@ -690,6 +701,6 @@ const AVANCE_FIREBASE_CONFIG = {
       });
     </script>
 
-    <script src="app.js?v=20260526-v5-no-reload"></script>
+    <script src="app.js?v=20260526-v6-stable-login-theme"></script>
 </body>
 </html>
