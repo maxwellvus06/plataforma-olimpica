@@ -650,9 +650,19 @@ const AVANCE_FIREBASE_CONFIG = {
           const semDuplicar = Array.isArray(locais) ? locais.filter(u => String(u.id) !== String(encontrado.id) && String(u.login || u.username || "").toLowerCase() !== encontrado.login) : [];
           localStorage.setItem("app_usuarios", JSON.stringify([encontrado, ...semDuplicar]));
 
-          setLoginMessageAvanceV4("Login confirmado. Carregando painel...", true);
+          setLoginMessageAvanceV4("Login confirmado. Abrindo painel...", true);
 
-          setTimeout(() => location.reload(), 350);
+          
+          // Abre o painel sem recarregar a página. O reload estava fazendo o sistema
+          // voltar para a tela inicial em alguns navegadores/hospedagens.
+          if (typeof window.abrirPainelAposLoginAvance === "function") {
+            await window.abrirPainelAposLoginAvance(encontrado);
+          } else {
+            document.getElementById("loginScreen")?.classList.add("hidden");
+            document.getElementById("mainPanel")?.classList.remove("hidden");
+            document.getElementById("userLoggedNome").textContent = encontrado.nome || encontrado.fullname || encontrado.login;
+            document.getElementById("userLoggedNivel").textContent = encontrado.nivel || encontrado.role || "ADM";
+          }
           return false;
         } catch (erro) {
           console.error("LOGIN V4 FIRESTORE:", erro);
@@ -680,6 +690,6 @@ const AVANCE_FIREBASE_CONFIG = {
       });
     </script>
 
-    <script src="app.js?v=20260526-v4-login-real"></script>
+    <script src="app.js?v=20260526-v5-no-reload"></script>
 </body>
 </html>

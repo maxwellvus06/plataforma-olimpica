@@ -3091,3 +3091,97 @@ function alternarTemaAvance() {
 
 window.aplicarTemaAvanceSeguro = aplicarTemaAvance;
 window.alternarTemaAvanceSeguro = alternarTemaAvance;
+
+
+
+// =====================================================================
+// PATCH V5 — NÃO RECARREGAR APÓS LOGIN
+// =====================================================================
+// O V4 confirmava o login, dava reload e alguns ambientes voltavam para a
+// tela inicial. Esta função abre o painel diretamente e sincroniza os dados.
+
+window.abrirPainelAposLoginAvance = async function(usuario) {
+    try {
+        usuarioLogado = usuario;
+        sessionStorage.setItem("avance_session", JSON.stringify(usuario));
+        localStorage.setItem("avance_session_backup", JSON.stringify(usuario));
+
+        document.getElementById("loginScreen")?.classList.add("hidden");
+        document.getElementById("mainPanel")?.classList.remove("hidden");
+
+        const nomeEl = document.getElementById("userLoggedNome");
+        const nivelEl = document.getElementById("userLoggedNivel");
+
+        if (nomeEl) nomeEl.innerText = usuario.nome || usuario.fullname || usuario.login || usuario.username || "Usuário";
+        if (nivelEl) nivelEl.innerText = usuario.nivel || usuario.role || "ADM";
+
+        try {
+            initFirebase();
+            if (typeof carregarBaseFirestoreInicial === "function") {
+                await carregarBaseFirestoreInicial();
+            }
+            dadosTrabalho = carregarPremiados();
+        } catch (erroCarga) {
+            console.warn("Não consegui carregar tudo do Firestore agora. Abrindo painel com o que estiver disponível.", erroCarga);
+        }
+
+        try { aplicarPermissoesNavegacao(usuario); } catch (e) { console.warn("Permissões:", e); }
+        try { popularSeletores(); } catch (e) { console.warn("Seletores:", e); }
+        try { renderizarPlataformaDashboard(); } catch (e) { console.warn("Dashboard:", e); }
+        try { renderizarCronograma(); } catch (e) { console.warn("Cronograma:", e); }
+        try { renderizarTabelasGerenciais(); } catch (e) { console.warn("Gerenciais:", e); }
+        try { renderizarResultadosImportacao(); } catch (e) { console.warn("Resultados:", e); }
+        try { ajustarCamposFormUsuario(); } catch (e) { console.warn("Campos usuário:", e); }
+        try { renderizarPlataformaEnsino(); } catch (e) { console.warn("Plataforma:", e); }
+        try { ativarPrimeiraAbaPermitida(); } catch (e) { 
+            console.warn("Aba inicial:", e);
+            document.querySelectorAll(".tab-view").forEach(view => view.classList.add("hidden"));
+            document.getElementById("view-dashboard")?.classList.remove("hidden");
+        }
+
+        if (typeof aplicarTemaAvanceSeguro === "function") aplicarTemaAvanceSeguro();
+        return true;
+    } catch (erro) {
+        console.error("Erro ao abrir painel após login:", erro);
+        alert("Login confirmado, mas houve erro ao abrir o painel:\\n\\n" + (erro.message || erro));
+        return false;
+    }
+};
+
+// Substitui a verificação de sessão para também usar backup em localStorage.
+// Isso evita perda de sessão quando o navegador limpa sessionStorage no reload.
+function verificarSessao() {
+    const sessaoGuardada = sessionStorage.getItem("avance_session") || localStorage.getItem("avance_session_backup");
+    if (!sessaoGuardada) return;
+
+    try {
+        usuarioLogado = JSON.parse(sessaoGuardada);
+        sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
+    } catch (e) {
+        sessionStorage.removeItem("avance_session");
+        localStorage.removeItem("avance_session_backup");
+        return;
+    }
+
+    window.abrirPainelAposLoginAvance(usuarioLogado);
+}
+
+// Garante logout limpando backup também.
+const logoutOriginalV5 = typeof logout === "function" ? logout : null;
+logout = function() {
+    sessionStorage.removeItem("avance_session");
+    localStorage.removeItem("avance_session_backup");
+    usuarioLogado = null;
+
+    try {
+        if (monitoriaListenerAtivo) {
+            monitoriaListenerAtivo();
+            monitoriaListenerAtivo = null;
+        }
+    } catch (e) {}
+
+    salaMoniAtual = null;
+    document.getElementById("mainPanel")?.classList.add("hidden");
+    document.getElementById("loginScreen")?.classList.remove("hidden");
+    document.getElementById("loginForm")?.reset();
+};
