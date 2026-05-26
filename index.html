@@ -3,65 +3,212 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plataforma Olímpica 2026</title>
+    <title>Plataforma Olímpica Avance 2026</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen">
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
-    <div id="login-screen" class="flex items-center justify-center min-h-screen">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-md border border-gray-700">
-            <h2 class="text-2xl font-bold mb-6 text-center text-blue-400">Acesso à Plataforma Olímpica</h2>
+    <div id="login-screen" class="flex items-center justify-center min-h-screen px-4 bg-gradient-to-br from-gray-950 to-gray-900">
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 transform transition duration-500 hover:scale-105">
+            <div class="flex justify-center mb-4">
+                <span class="text-4xl">🚀</span>
+            </div>
+            <h2 class="text-2xl font-bold mb-2 text-center text-blue-400">Avance Consultoria</h2>
+            <p class="text-xs text-center text-gray-400 mb-6 uppercase tracking-widest">Plataforma Olímpica v1.2</p>
             
             <form id="login-form" onsubmit="handleLogin(event)">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Usuário</label>
-                    <input type="text" id="auth-user" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500" required>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Usuário de Acesso</label>
+                    <input type="text" id="auth-user" class="w-full p-3 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" placeholder="Ex: admin" required>
                 </div>
                 <div class="mb-6">
-                    <label class="block text-sm font-medium mb-1">Senha</label>
-                    <input type="password" id="auth-pass" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500" required>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Senha Corporativa</label>
+                    <input type="password" id="auth-pass" class="w-full p-3 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" placeholder="••••••••" required>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-2 rounded transition duration-200">Entrar</button>
+                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-bold p-3 rounded-lg shadow-lg transition duration-200">Autenticar Sistema</button>
             </form>
-            
         </div>
     </div>
 
-    <div id="main-panel" class="hidden">
-        <header class="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
+    <div id="main-panel" class="hidden flex flex-col min-h-screen">
+        <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div>
-                <h1 class="text-xl font-bold text-blue-400">Plataforma Olímpica 2026</h1>
-                <p id="user-display" class="text-xs text-gray-400"></p>
+                <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                    <span class="text-blue-400">Avance</span> Plataforma Olímpica 2026
+                </h1>
+                <p id="user-display" class="text-xs text-gray-400 mt-0.5 font-mono"></p>
             </div>
-            <button onclick="handleLogout()" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded">Sair</button>
+            <button onclick="handleLogout()" class="bg-gray-700 hover:bg-red-600 text-gray-200 hover:text-white text-xs font-bold px-4 py-2 rounded-lg border border-gray-600 hover:border-red-500 transition duration-200">Desconectar</button>
         </header>
 
-        <nav class="bg-gray-800 px-4 flex space-x-2 border-b border-gray-700">
-            <button onclick="switchTab('dashboard')" class="tab-btn py-3 px-4 text-sm font-medium border-b-2 border-blue-500 text-blue-400">Dashboard</button>
-            <button onclick="switchTab('calendario')" class="tab-btn py-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">Calendário</button>
-            <button id="tab-cidades" onclick="switchTab('cidades')" class="tab-btn hidden py-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">Gerenciar Cidades (ADM)</button>
-            <button id="tab-escolas" onclick="switchTab('escolas')" class="tab-btn hidden py-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">Gerenciar Escolas (ADM)</button>
+        <nav class="bg-gray-800 px-6 flex flex-wrap gap-1 border-b border-gray-700">
+            <button onclick="switchTab('dashboard')" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-blue-500 text-blue-400 transition">Dashboard Analítico</button>
+            <button onclick="switchTab('calendario')" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-gray-400 hover:text-white transition">Calendário Oficial (45)</button>
+            
+            <button id="tab-cidades" onclick="switchTab('cidades')" class="tab-btn hidden py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-gray-400 hover:text-white transition">⚙️ Controlar Cidades</button>
+            <button id="tab-escolas" onclick="switchTab('escolas')" class="tab-btn hidden py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-gray-400 hover:text-white transition">🏫 Controlar Escolas</button>
         </nav>
 
-        <main class="p-6">
-            <section id="content-dashboard" class="tab-content">
-                <h2 class="text-2xl font-bold mb-4">Resultados Gerais</h2>
-                <p class="text-gray-400">Selecione os filtros para analisar os dados das olimpíadas de 2026.</p>
+        <main class="flex-1 p-6 max-w-7xl w-full mx-auto">
+            
+            <section id="content-dashboard" class="tab-content space-y-6">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-md">
+                        <p class="text-xs uppercase font-bold text-gray-400 tracking-wider">Total de Competições</p>
+                        <h3 class="text-3xl font-extrabold text-blue-400 mt-2">45 Mapeadas</h3>
+                    </div>
+                    <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-md">
+                        <p class="text-xs uppercase font-bold text-gray-400 tracking-wider">Municípios Parceiros</p>
+                        <h3 id="dash-tot-cidades" class="text-3xl font-extrabold text-green-400 mt-2">0</h3>
+                    </div>
+                    <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-md">
+                        <p class="text-xs uppercase font-bold text-gray-400 tracking-wider">Escolas Conveniadas</p>
+                        <h3 id="dash-tot-escolas" class="text-3xl font-extrabold text-purple-400 mt-2">0</h3>
+                    </div>
+                    <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-md">
+                        <p class="text-xs uppercase font-bold text-gray-400 tracking-wider">Ano Corrente</p>
+                        <h3 class="text-3xl font-extrabold text-yellow-400 mt-2">Ciclo 2026</h3>
+                    </div>
+                </div>
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700">
+                    <h3 class="text-lg font-bold mb-2">Visão Geral de Governança</h3>
+                    <p class="text-sm text-gray-400">Use os menus de cadastro superiores para parametrizar a rede educacional antes de vincular alunos e premiações.</p>
+                </div>
             </section>
 
-            <section id="content-calendario" class="tab-content hidden">
-                <h2 class="text-2xl font-bold mb-4">Calendário Olímpico 2026</h2>
-                <div id="lista-olimpiadas" class="space-y-2"></div>
+            <section id="content-calendario" class="tab-content hidden space-y-4">
+                <div class="flex justify-between items-center mb-2">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Calendário Integrado de Olimpíadas</h2>
+                        <p class="text-xs text-gray-400">Injeção nativa de todas as 45 frentes do ecossistema de aprendizagem.</p>
+                    </div>
+                </div>
+                <div class="overflow-x-auto bg-gray-800 rounded-xl border border-gray-700 shadow-lg">
+                    <table class="w-full text-left text-sm text-gray-300">
+                        <thead class="bg-gray-750 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-gray-700">
+                            <tr>
+                                <th class="p-4">Competição</th>
+                                <th class="p-4">Frente / Categoria</th>
+                                <th class="p-4">Regulamento</th>
+                                <th class="p-4">Etapa Atual</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-olimpiadas-body" class="divide-y divide-gray-700"></tbody>
+                    </table>
+                </div>
             </section>
 
-            <section id="content-cidades" class="tab-content hidden">
-                <h2 class="text-2xl font-bold text-blue-400 mb-4">Cadastro de Cidades (Controle ADM)</h2>
-                <p class="text-sm text-gray-400 mb-4">Módulo de gerenciamento prévio de municípios.</p>
+            <section id="content-cidades" class="tab-content hidden space-y-6">
+                <div>
+                    <h2 class="text-xl font-bold text-blue-400">Cadastro de Cidades Polo</h2>
+                    <p class="text-xs text-gray-400">Os municípios precisam estar registrados para habilitar o vínculo de escolas conveniadas.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                    <form onsubmit="cadastrarCidade(event)" class="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-4 shadow-lg">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-gray-200 border-b border-gray-700 pb-2">Nova Cidade</h3>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1 text-gray-400">Nome da Cidade</label>
+                            <input type="text" id="cid-nome" class="w-full p-2.5 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Ex: Teresina" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">Sigla Identificadora</label>
+                                <input type="text" id="cid-sigla" class="w-full p-2.5 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Ex: THE" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">Unidade Federal (UF)</label>
+                                <input type="text" id="cid-uf" class="w-full p-2.5 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Ex: PI" maxlength="2" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-2.5 rounded text-xs uppercase tracking-wider shadow-md transition">Salvar Município</button>
+                    </form>
+                    
+                    <div class="lg:col-span-2 bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
+                        <table class="w-full text-left text-sm text-gray-300">
+                            <thead class="bg-gray-750 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-gray-700">
+                                <tr>
+                                    <th class="p-4">Nome Oficial</th>
+                                    <th class="p-4">Sigla</th>
+                                    <th class="p-4 text-center">UF</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-cidades-body" class="divide-y divide-gray-700"></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
-            <section id="content-escolas" class="tab-content hidden">
-                <h2 class="text-2xl font-bold text-blue-400 mb-4">Cadastro de Escolas Parceiras (Controle ADM)</h2>
-                <p class="text-sm text-gray-400 mb-4">Módulo de gerenciamento prévio de unidades escolares.</p>
+            <section id="content-escolas" class="tab-content hidden space-y-6">
+                <div>
+                    <h2 class="text-xl font-bold text-blue-400">Cadastro de Escolas Conveniadas</h2>
+                    <p class="text-xs text-gray-400">Bloqueio corporativo ativo: apenas escolas com dados cadastrais e vinculadas a uma cidade polo homologada.</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                    <form onsubmit="cadastrarEscola(event)" class="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3 shadow-lg">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-gray-200 border-b border-gray-700 pb-2">Nova Unidade Escolar</h3>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1 text-gray-400">Nome da Escola</label>
+                            <input type="text" id="esc-nome" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1 text-gray-400">Razão Social</label>
+                            <input type="text" id="esc-razao" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">CNPJ</label>
+                                <input type="text" id="esc-cnpj" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" placeholder="00.000.000/0001-00" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">Código INEP</label>
+                                <input type="text" id="esc-inep" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div class="col-span-2">
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">Endereço</label>
+                                <input type="text" id="esc-endereco" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">CEP</label>
+                                <input type="text" id="esc-cep" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" placeholder="64000-000" required>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">Nome do Diretor</label>
+                                <input type="text" id="esc-diretor" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-gray-400">E-mail Institucional</label>
+                                <input type="email" id="esc-email" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1 text-gray-400">Cidade Vinculada (UF)</label>
+                            <select id="esc-cidade-select" class="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm text-white focus:outline-none" required>
+                                <option value="">Selecione uma Cidade previamente cadastrada...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-2.5 rounded text-xs uppercase tracking-wider transition shadow-md">Homologar Escola</button>
+                    </form>
+                    
+                    <div class="lg:col-span-2 bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto shadow-lg">
+                        <table class="w-full text-left text-sm text-gray-300 min-w-max">
+                            <thead class="bg-gray-750 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-gray-700">
+                                <tr>
+                                    <th class="p-4">INEP</th>
+                                    <th class="p-4">Escola / Razão Social</th>
+                                    <th class="p-4">CNPJ</th>
+                                    <th class="p-4">Diretor / Email</th>
+                                    <th class="p-4">Cidade - UF</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-escolas-body" class="divide-y divide-gray-700"></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
         </main>
     </div>

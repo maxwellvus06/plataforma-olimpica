@@ -1,34 +1,31 @@
-// CONTROLADOR DE ACESSOS, LOGIN E CADASTROS
-
-// Força a carga inicial se o banco local estiver vazio
-if (!localStorage.getItem("cidades")) {
-    localStorage.setItem("cidades", JSON.stringify(CIDADES_PADRAO));
-}
-if (!localStorage.getItem("escolas")) {
-    localStorage.setItem("escolas", JSON.stringify(ESCOLAS_PADRAO));
-}
+// CONTROLADOR DE FLUXO DA PLATAFORMA AVANCE
 
 let currentUser = null;
 
+// Inicializa o Boot do App preenchendo os seletores e contadores de forma segura
+document.addEventListener("DOMContentLoaded", () => {
+    // Caso esteja na página recarregada logado ou em ambiente aberto
+    updateCounters();
+});
+
 function handleLogin(event) {
-    // Impede o recarregamento indesejado da página
-    event.preventDefault(); 
+    event.preventDefault();
 
     const userIn = document.getElementById("auth-user").value.trim();
     const passIn = document.getElementById("auth-pass").value.trim();
 
-    // Validação direta na constante de segurança + LocalStorage
-    const found = CREDENCIAIS_PADRAO.find(u => u.username === userIn && u.password === passIn);
+    const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
+    const found = usuarios.find(u => u.username === userIn && u.password === passIn);
 
     if (found) {
         currentUser = found;
         
-        // Destrava a interface visual
+        // Chaves Visuais de Login
         document.getElementById("login-screen").classList.add("hidden");
         document.getElementById("main-panel").classList.remove("hidden");
-        document.getElementById("user-display").innerText = `Logado como: ${found.name} (${found.role})`;
+        document.getElementById("user-display").innerText = `Operador: ${found.name} | Perfil: ${found.role}`;
 
-        // Aplica o nível de governança do ADM
+        // Regra Estrita de Acesso ADM
         if (found.role === "ADM") {
             document.getElementById("tab-cidades").classList.remove("hidden");
             document.getElementById("tab-escolas").classList.remove("hidden");
@@ -37,13 +34,14 @@ function handleLogin(event) {
             document.getElementById("tab-escolas").classList.add("hidden");
         }
 
-        // Renderiza as tabelas internas automaticamente
+        // Renderização em Cascata do Core
         renderOlimpiadas();
         renderCidades();
         renderEscolas();
         renderCidadeSelect();
+        updateCounters();
     } else {
-        alert("Usuário ou senha incorretos!");
+        alert("Falha na autenticação corporativa! Credenciais inválidas para 2026.");
     }
 }
 
@@ -56,44 +54,39 @@ function handleLogout() {
 
 function switchTab(tabId) {
     document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
-    
-    // Altera os estilos dos botões das abas de forma dinâmica
-    const botoes = document.querySelectorAll(".tab-btn");
-    botoes.forEach(btn => {
-        btn.classList.remove("border-blue-500", "text-blue-400");
-        btn.classList.add("border-transparent", "text-gray-400");
+    document.querySelectorAll(".tab-btn").forEach(el => {
+        el.classList.remove("border-blue-500", "text-blue-400");
+        el.classList.add("border-transparent", "text-gray-400");
     });
 
     document.getElementById(`content-${tabId}`).classList.remove("hidden");
-    
-    if (event && event.currentTarget) {
-        event.currentTarget.classList.remove("border-transparent", "text-gray-400");
-        event.currentTarget.classList.add("border-blue-500", "text-blue-400");
-    }
+    event.currentTarget.classList.remove("border-transparent", "text-gray-400");
+    event.currentTarget.classList.add("border-blue-500", "text-blue-400");
 }
 
-// LÓGICA DE CADASTROS EXCLUSIVOS (ADM)
+// PIPELINE DE GESTÃO E PERSISTÊNCIA (ADM)
 function cadastrarCidade(event) {
     event.preventDefault();
-    if (currentUser?.role !== "ADM") return alert("Acesso restrito ao Administrador.");
+    if (currentUser?.role !== "ADM") return alert("Acesso negado. Feature restrita ao ADM.");
 
     const nome = document.getElementById("cid-nome").value.trim();
     const sigla = document.getElementById("cid-sigla").value.trim().toUpperCase();
     const uf = document.getElementById("cid-uf").value.trim().toUpperCase();
 
     const cidades = JSON.parse(localStorage.getItem("cidades")) || [];
-    
     cidades.push({ id: String(Date.now()), nome, sigla, uf });
-    localStorage.setItem("cidades", JSON.stringify(cidades));
     
+    localStorage.setItem("cidades", JSON.stringify(cidades));
     event.target.reset();
+
     renderCidades();
     renderCidadeSelect();
+    updateCounters();
 }
 
 function cadastrarEscola(event) {
     event.preventDefault();
-    if (currentUser?.role !== "ADM") return alert("Acesso restrito ao Administrador.");
+    if (currentUser?.role !== "ADM") return alert("Acesso negado. Feature restrita ao ADM.");
 
     const nome = document.getElementById("esc-nome").value.trim();
     const razaoSocial = document.getElementById("esc-razao").value.trim();
@@ -105,30 +98,43 @@ function cadastrarEscola(event) {
     const email = document.getElementById("esc-email").value.trim();
     const cidadeId = document.getElementById("esc-cidade-select").value;
 
+    if (!cidadeId) return alert("Erro: Uma escola precisa pertencer obrigatoriamente a uma cidade cadastrada!");
+
     const escolas = JSON.parse(localStorage.getItem("escolas")) || [];
+    escolas.push({ id: String(Date.now()), nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId });
 
-    escolas.push({
-        id: String(Date.now()),
-        nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId
-    });
-    
     localStorage.setItem("escolas", JSON.stringify(escolas));
-
     event.target.reset();
+
     renderEscolas();
+    updateCounters();
 }
 
-// INJEÇÃO DE ELEMENTOS NA TELA
+// INJEÇÃO DE ELEMENTOS VISUAIS PREMIUM
+function renderOlimpiadas() {
+    const tbody = document.getElementById("table-olimpiadas-body");
+    if (!tbody) return;
+
+    tbody.innerHTML = OLIMPIADAS_DATA.map(o => `
+        <tr class="hover:bg-gray-750 transition duration-150">
+            <td class="p-4 font-semibold text-white">${o.nome}</td>
+            <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300">${o.categoria}</span></td>
+            <td class="p-4 text-blue-400 hover:underline cursor-pointer font-medium">${o.edital}</td>
+            <td class="p-4"><span class="text-xs font-mono text-yellow-400">${o.status}</span></td>
+        </tr>
+    `).join("");
+}
+
 function renderCidades() {
     const cidades = JSON.parse(localStorage.getItem("cidades")) || [];
     const tbody = document.getElementById("table-cidades-body");
     if (!tbody) return;
-    
+
     tbody.innerHTML = cidades.map(c => `
-        <tr class="border-b border-gray-700">
-            <td class="py-2 font-medium">${c.nome}</td>
-            <td class="py-2">${c.sigla}</td>
-            <td class="py-2 text-blue-400">${c.uf}</td>
+        <tr class="hover:bg-gray-750">
+            <td class="p-4 font-medium text-white">${c.nome}</td>
+            <td class="p-4 font-mono">${c.sigla}</td>
+            <td class="p-4 text-center text-blue-400 font-bold">${c.uf}</td>
         </tr>
     `).join("");
 }
@@ -141,13 +147,20 @@ function renderEscolas() {
 
     tbody.innerHTML = escolas.map(e => {
         const cidade = cidades.find(c => c.id === e.cidadeId);
+        const localizacao = cidade ? `${cidade.nome} (${cidade.uf})` : "Desconhecida";
         return `
-            <tr class="border-b border-gray-700 text-xs">
-                <td class="py-2 text-gray-400 font-mono">${e.inep}</td>
-                <td class="py-2 font-semibold text-white">${e.nome}</td>
-                <td class="py-2">${e.cnpj}</td>
-                <td class="py-2">${e.diretor}</td>
-                <td class="py-2 text-blue-400">${cidade ? cidade.nome : "Padrão"}</td>
+            <tr class="hover:bg-gray-750 text-xs">
+                <td class="p-4 font-mono text-gray-400">${e.inep}</td>
+                <td class="p-4">
+                    <div class="font-semibold text-white">${e.nome}</div>
+                    <div class="text-gray-400 text-[10px]">${e.razaoSocial}</div>
+                </td>
+                <td class="p-4 font-mono">${e.cnpj}</td>
+                <td class="p-4 text-gray-300">
+                    <div>${e.diretor}</div>
+                    <div class="text-blue-300 text-[10px]">${e.email}</div>
+                </td>
+                <td class="p-4 font-medium text-blue-400">${localizacao}</td>
             </tr>
         `;
     }).join("");
@@ -157,19 +170,18 @@ function renderCidadeSelect() {
     const cidades = JSON.parse(localStorage.getItem("cidades")) || [];
     const select = document.getElementById("esc-cidade-select");
     if (!select) return;
-    
-    select.innerHTML = '<option value="">Selecione uma Cidade...</option>' + 
-        cidades.map(c => `<option value="${c.id}">${c.nome} (${c.uf})</option>`).join("");
+
+    select.innerHTML = '<option value="">Selecione uma Cidade previamente cadastrada...</option>' +
+        cidades.map(c => `<option value="${c.id}">${c.nome} - ${c.uf}</option>`).join("");
 }
 
-function renderOlimpiadas() {
-    const listCont = document.getElementById("lista-olimpiadas");
-    if (!listCont) return;
+function updateCounters() {
+    const cidades = JSON.parse(localStorage.getItem("cidades")) || [];
+    const escolas = JSON.parse(localStorage.getItem("escolas")) || [];
     
-    listCont.innerHTML = CALENDAR_DATA.map(o => `
-        <div class="bg-gray-800 p-3 rounded border border-gray-700 flex justify-between items-center">
-            <span class="text-sm font-medium text-gray-200">${o.nome}</span>
-            <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">2026 Ativo</span>
-        </div>
-    `).join("");
+    const countCid = document.getElementById("dash-tot-cidades");
+    const countEsc = document.getElementById("dash-tot-escolas");
+
+    if (countCid) countCid.innerText = `${cidades.length} Polos`;
+    if (countEsc) countEsc.innerText = `${escolas.length} Conveniadas`;
 }
