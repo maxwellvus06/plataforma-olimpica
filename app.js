@@ -9,6 +9,21 @@ let firebaseDB = null;
 let monitoriaListenerAtivo = null;
 let salaMoniAtual = null;
 
+// WebRTC — chamada de voz/vídeo na monitoria
+let rtcPeerConnection = null;
+let localMediaStream = null;
+let remoteMediaStream = null;
+let rtcListenersAtivos = [];
+let rtcCandidatosProcessados = new Set();
+let chamadaMonitoriaAtiva = false;
+
+const RTC_CONFIG = {
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" }
+    ]
+};
+
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
@@ -1683,6 +1698,7 @@ function abrirChatMonitoria(sala, salaId) {
     msgs.innerHTML = `<div class="text-center text-gray-600 text-xs py-4">Conectando à sala...</div>`;
     modal.classList.remove("hidden");
     modal.classList.add("flex");
+    resetarInterfaceChamadaMonitoria();
 
     // Registrar presença
     const meuRef = firebaseDB.ref(`monitoria/${salaId}/participantes/${usuarioLogado.id}`);
@@ -1740,9 +1756,238 @@ function enviarMensagemMonitoria() {
     input.value = "";
 }
 
+
+// ==================== MONITORIA — VOZ E VÍDEO VIA WEBRTC ====================
+function adicionarRtcListener(ref, evento, handler) {
+    ref.on(evento, handler);
+    rtcListenersAtivos.push(() => ref.off(evento, handler));
+}
+
+function limparRtcListeners() {
+    rtcListenersAtivos.forEach(off => {
+        try { off(); } catch (e) { console.warn("Falha ao remover listener RTC", e); }
+    });
+    rtcListenersAtivos = [];
+}
+
+function setStatusChamadaMonitoria(texto, classe = "text-gray-400") {
+    const el = document.getElementById("monitoriaCallStatus");
+    if (!el) return;
+    el.className = `text-[11px] font-semibold ${classe}`;
+    el.textContent = texto;
+}
+
+function resetarInterfaceChamadaMonitoria() {
+    const area = document.getElementById("monitoriaVideoArea");
+    const btnIniciar = document.getElementById("btnIniciarChamadaMonitoria");
+    const btnMic = document.getElementById("btnAlternarMicMonitoria");
+    const btnCam = document.getElementById("btnAlternarCamMonitoria");
+    const btnSair = document.getElementById("btnEncerrarChamadaMonitoria");
+
+    if (area) area.classList.add("hidden");
+    if (btnIniciar) btnIniciar.classList.remove("hidden");
+    if (btnMic) btnMic.classList.add("hidden");
+    if (btnCam) btnCam.classList.add("hidden");
+    if (btnSair) btnSair.classList.add("hidden");
+    setStatusChamadaMonitoria("Chamada não iniciada.", "text-gray-500");
+}
+
+function atualizarInterfaceChamadaMonitoria(ativa) {
+    const area = document.getElementById("monitoriaVideoArea");
+    const btnIniciar = document.getElementById("btnIniciarChamadaMonitoria");
+    const btnMic = document.getElementById("btnAlternarMicMonitoria");
+    const btnCam = document.getElementById("btnAlternarCamMonitoria");
+    const btnSair = document.getElementById("btnEncerrarChamadaMonitoria");
+
+    if (area) area.classList.toggle("hidden", !ativa);
+    if (btnIniciar) btnIniciar.classList.toggle("hidden", ativa);
+    if (btnMic) btnMic.classList.toggle("hidden", !ativa);
+    if (btnCam) btnCam.classList.toggle("hidden", !ativa);
+    if (btnSair) btnSair.classList.toggle("hidden", !ativa);
+}
+
+async function obterMidiaLocalMonitoria() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Seu navegador não liberou acesso a câmera/microfone. Use Chrome/Edge/Firefox em HTTPS ou localhost.");
+    }
+
+    try {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    } catch (erroVideo) {
+        console.warn("Falha ao abrir câmera. Tentando apenas áudio.", erroVideo);
+        const somenteAudio = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        alert("Não consegui abrir a câmera, mas o microfone foi liberado. A chamada seguirá apenas com áudio neste dispositivo.");
+        return somenteAudio;
+    }
+}
+
+function configurarVideosMonitoria() {
+    const localVideo = document.getElementById("monitoriaLocalVideo");
+    const remotoVideo = document.getElementById("monitoriaRemoteVideo");
+
+    if (localVideo && localMediaStream) {
+        localVideo.srcObject = localMediaStream;
+        localVideo.muted = true;
+        localVideo.play?.().catch(() => {});
+    }
+    if (remotoVideo) {
+        remotoVideo.srcObject = remoteMediaStream || null;
+        remotoVideo.play?.().catch(() => {});
+    }
+}
+
+function criarPeerConnectionMonitoria() {
+    rtcPeerConnection = new RTCPeerConnection(RTC_CONFIG);
+    remoteMediaStream = new MediaStream();
+    rtcCandidatosProcessados = new Set();
+
+    localMediaStream.getTracks().forEach(track => rtcPeerConnection.addTrack(track, localMediaStream));
+
+    rtcPeerConnection.ontrack = (event) => {
+        event.streams[0].getTracks().forEach(track => remoteMediaStream.addTrack(track));
+        configurarVideosMonitoria();
+        setStatusChamadaMonitoria("Conectado com áudio/vídeo.", "text-emerald-400");
+    };
+
+    rtcPeerConnection.onconnectionstatechange = () => {
+        const estado = rtcPeerConnection?.connectionState;
+        if (estado === "connected") setStatusChamadaMonitoria("Conectado com áudio/vídeo.", "text-emerald-400");
+        else if (estado === "connecting") setStatusChamadaMonitoria("Conectando chamada...", "text-amber-400");
+        else if (["failed", "disconnected"].includes(estado)) setStatusChamadaMonitoria("Conexão instável. Se não voltar, saia e entre novamente.", "text-red-400");
+        else if (estado === "closed") setStatusChamadaMonitoria("Chamada encerrada.", "text-gray-500");
+    };
+
+    rtcPeerConnection.onicecandidate = (event) => {
+        if (!event.candidate || !firebaseDB || !salaMoniAtual || !usuarioLogado) return;
+        firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada/candidatos/${usuarioLogado.id}`).push(event.candidate.toJSON());
+    };
+}
+
+async function iniciarChamadaMonitoria() {
+    if (!firebaseDB || !salaMoniAtual || !usuarioLogado) return alert("Entre em uma sala de monitoria antes de iniciar a chamada.");
+    if (chamadaMonitoriaAtiva) return;
+
+    setStatusChamadaMonitoria("Solicitando câmera e microfone...", "text-amber-400");
+
+    try {
+        localMediaStream = await obterMidiaLocalMonitoria();
+        chamadaMonitoriaAtiva = true;
+        atualizarInterfaceChamadaMonitoria(true);
+        criarPeerConnectionMonitoria();
+        configurarVideosMonitoria();
+
+        const chamadaRef = firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada`);
+        const offerRef = chamadaRef.child("offer");
+        const answerRef = chamadaRef.child("answer");
+        const candidatosRef = chamadaRef.child("candidatos");
+
+        adicionarRtcListener(candidatosRef, "child_added", snapUsuario => {
+            const autorId = snapUsuario.key;
+            if (!autorId || autorId === usuarioLogado.id) return;
+            snapUsuario.ref.on("child_added", async snapCand => {
+                const chave = `${autorId}:${snapCand.key}`;
+                if (rtcCandidatosProcessados.has(chave)) return;
+                rtcCandidatosProcessados.add(chave);
+                const cand = snapCand.val();
+                if (!cand || !rtcPeerConnection) return;
+                try { await rtcPeerConnection.addIceCandidate(new RTCIceCandidate(cand)); }
+                catch (e) { console.warn("ICE candidate ainda não pôde ser aplicado", e); }
+            });
+            rtcListenersAtivos.push(() => snapUsuario.ref.off("child_added"));
+        });
+
+        offerRef.once("value", async snap => {
+            const offerExistente = snap.val();
+
+            if (!offerExistente) {
+                setStatusChamadaMonitoria("Criando chamada. Aguarde o outro participante entrar...", "text-amber-400");
+                const offer = await rtcPeerConnection.createOffer();
+                await rtcPeerConnection.setLocalDescription(offer);
+                await offerRef.set({ type: offer.type, sdp: offer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
+
+                adicionarRtcListener(answerRef, "value", async answerSnap => {
+                    const answer = answerSnap.val();
+                    if (!answer || answer.autorId === usuarioLogado.id || rtcPeerConnection.currentRemoteDescription) return;
+                    await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription({ type: answer.type, sdp: answer.sdp }));
+                    setStatusChamadaMonitoria("Conectando chamada...", "text-amber-400");
+                });
+            } else {
+                if (offerExistente.autorId === usuarioLogado.id) {
+                    setStatusChamadaMonitoria("Você já criou esta chamada. Aguarde outro participante.", "text-amber-400");
+                    return;
+                }
+
+                setStatusChamadaMonitoria("Entrando na chamada existente...", "text-amber-400");
+                await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription({ type: offerExistente.type, sdp: offerExistente.sdp }));
+                const answer = await rtcPeerConnection.createAnswer();
+                await rtcPeerConnection.setLocalDescription(answer);
+                await answerRef.set({ type: answer.type, sdp: answer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
+            }
+        });
+    } catch (e) {
+        console.error("Erro ao iniciar chamada", e);
+        encerrarChamadaMonitoria(false);
+        alert(`Não foi possível iniciar a chamada.\n\n${e.message || e}`);
+    }
+}
+
+function alternarMicrofoneMonitoria() {
+    if (!localMediaStream) return;
+    const tracks = localMediaStream.getAudioTracks();
+    tracks.forEach(t => t.enabled = !t.enabled);
+    const ativo = tracks.some(t => t.enabled);
+    const btn = document.getElementById("btnAlternarMicMonitoria");
+    if (btn) btn.innerHTML = ativo ? '<i class="fa-solid fa-microphone mr-1"></i>Mic' : '<i class="fa-solid fa-microphone-slash mr-1"></i>Mic';
+}
+
+function alternarCameraMonitoria() {
+    if (!localMediaStream) return;
+    const tracks = localMediaStream.getVideoTracks();
+    tracks.forEach(t => t.enabled = !t.enabled);
+    const ativa = tracks.some(t => t.enabled);
+    const btn = document.getElementById("btnAlternarCamMonitoria");
+    if (btn) btn.innerHTML = ativa ? '<i class="fa-solid fa-video mr-1"></i>Câmera' : '<i class="fa-solid fa-video-slash mr-1"></i>Câmera';
+}
+
+function encerrarChamadaMonitoria(limparFirebase = true) {
+    limparRtcListeners();
+
+    if (rtcPeerConnection) {
+        try { rtcPeerConnection.close(); } catch (e) { console.warn("Falha ao fechar conexão RTC", e); }
+    }
+    rtcPeerConnection = null;
+
+    if (localMediaStream) {
+        localMediaStream.getTracks().forEach(track => track.stop());
+    }
+    localMediaStream = null;
+    remoteMediaStream = null;
+    chamadaMonitoriaAtiva = false;
+    rtcCandidatosProcessados = new Set();
+
+    const localVideo = document.getElementById("monitoriaLocalVideo");
+    const remotoVideo = document.getElementById("monitoriaRemoteVideo");
+    if (localVideo) localVideo.srcObject = null;
+    if (remotoVideo) remotoVideo.srcObject = null;
+
+    if (limparFirebase && firebaseDB && salaMoniAtual && usuarioLogado) {
+        firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada/candidatos/${usuarioLogado.id}`).remove();
+        firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada`).once("value", snap => {
+            const chamada = snap.val() || {};
+            if (chamada.offer?.autorId === usuarioLogado.id || chamada.answer?.autorId === usuarioLogado.id) {
+                firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada`).remove();
+            }
+        });
+    }
+
+    resetarInterfaceChamadaMonitoria();
+}
+
 function fecharModalMonitoria() {
     const modal = document.getElementById("modalMonitoria");
     if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+
+    encerrarChamadaMonitoria(true);
 
     if (monitoriaListenerAtivo) { monitoriaListenerAtivo(); monitoriaListenerAtivo = null; }
 
@@ -1773,6 +2018,10 @@ window.ajustarCamposFormMaterial = ajustarCamposFormMaterial;
 window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
 window.fecharModalMonitoria = fecharModalMonitoria;
+window.iniciarChamadaMonitoria = iniciarChamadaMonitoria;
+window.alternarMicrofoneMonitoria = alternarMicrofoneMonitoria;
+window.alternarCameraMonitoria = alternarCameraMonitoria;
+window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
 window.downloadTemplate = downloadTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
 window.ajustarCamposFormUsuario = ajustarCamposFormUsuario;
