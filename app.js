@@ -3730,7 +3730,7 @@ async function carregarMateriaisPlataforma() {
     initFirebase();
 
     // A Plataforma usa Cloud Firestore para a lista de materiais.
-    // Os arquivos PDF ficam no Google Drive via Apps Script.
+    // Os arquivos ficam no Firebase Storage; os metadados ficam no Cloud Firestore.
     if (!firebaseFirestore) return getStorage("app_plataforma");
 
     try {
@@ -3950,92 +3950,70 @@ function converterUrlYoutube(url) {
     return null;
 }
 
-function arquivoParaDataURL(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = () => reject(new Error("Não foi possível ler o arquivo selecionado."));
-        leitor.readAsDataURL(arquivo);
-    });
+function nomeSeguroStorage(nome) {
+    return String(nome || "arquivo")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 120) || "arquivo";
 }
 
-function postParaAppsScript(payload, timeoutMs = 60000) {
-    if (!DRIVE_UPLOAD_WEBAPP_URL || DRIVE_UPLOAD_WEBAPP_URL.includes("COLE_AQUI")) {
-        return Promise.reject(new Error("URL do Apps Script não configurada."));
+function caminhoArquivoStorage(pasta, arquivo) {
+    const ano = typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : new Date().getFullYear();
+    const id = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    return `plataforma/${ano}/${pasta}/${id}_${nomeSeguroStorage(arquivo.name)}`;
+}
+
+async function enviarArquivoParaFirebaseStorage(arquivo, pasta = "materiais") {
+    initFirebase();
+    if (!firebaseStorage) {
+        throw new Error("Firebase Storage não inicializado. Verifique se firebase-storage-compat.js está carregado e se o Storage foi ativado no Firebase.");
     }
 
-    return new Promise((resolve, reject) => {
-        const requestId = `req_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-        const iframeName = `iframe_upload_${requestId}`;
-        const iframe = document.createElement("iframe");
-        iframe.name = iframeName;
-        iframe.style.display = "none";
-
-        const form = document.createElement("form");
-        form.method = "POST";
-        form.action = DRIVE_UPLOAD_WEBAPP_URL;
-        form.target = iframeName;
-        form.style.display = "none";
-
-        const input = document.createElement("textarea");
-        input.name = "payload";
-        input.value = JSON.stringify({ ...payload, requestId });
-        form.appendChild(input);
-
-        let finalizado = false;
-        const limpar = () => {
-            window.removeEventListener("message", onMessage);
-            setTimeout(() => { iframe.remove(); form.remove(); }, 200);
-        };
-
-        const timer = setTimeout(() => {
-            if (finalizado) return;
-            finalizado = true;
-            limpar();
-            reject(new Error("O Apps Script demorou demais para responder. Confira se ele foi reimplantado como App da Web e se a pasta do Drive está correta."));
-        }, timeoutMs);
-
-        function onMessage(event) {
-            const data = event.data || {};
-            if (!data || data.origem !== "avance-drive" || data.requestId !== requestId) return;
-            if (finalizado) return;
-            finalizado = true;
-            clearTimeout(timer);
-            limpar();
-            if (data.success) resolve(data);
-            else reject(new Error(data.error || "Falha no Apps Script."));
-        }
-
-        window.addEventListener("message", onMessage);
-        document.body.appendChild(iframe);
-        document.body.appendChild(form);
-        form.submit();
-    });
-}
-
-async function enviarArquivoParaGoogleDrive(arquivo) {
     const tamanhoMb = arquivo.size / (1024 * 1024);
     if (tamanhoMb > LIMITE_ARQUIVO_DRIVE_MB) {
-        throw new Error(`Arquivo muito grande para este modo de teste. Use arquivo com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
+        throw new Error(`Arquivo muito grande. Use arquivo com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
     }
 
-    const fileBase64 = await arquivoParaDataURL(arquivo);
-    return postParaAppsScript({
-        action: "upload",
-        token: DRIVE_UPLOAD_TOKEN,
+    const storagePath = caminhoArquivoStorage(pasta, arquivo);
+    const ref = firebaseStorage.ref().child(storagePath);
+    const metadata = {
+        contentType: arquivo.type || "application/octet-stream",
+        customMetadata: {
+            ano: String(typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : ""),
+            enviadoPorId: String(usuarioLogado?.id || ""),
+            enviadoPorNome: String(usuarioLogado?.nome || "")
+        }
+    };
+
+    await ref.put(arquivo, metadata);
+    const fileUrl = await ref.getDownloadURL();
+
+    return {
+        success: true,
+        fileUrl,
+        storagePath,
         fileName: arquivo.name,
         mimeType: arquivo.type || "application/octet-stream",
-        fileBase64
-    }, 90000);
+        size: arquivo.size
+    };
 }
 
-async function excluirArquivoGoogleDrive(fileId) {
-    if (!fileId) return { success: true };
-    return postParaAppsScript({
-        action: "delete",
-        token: DRIVE_UPLOAD_TOKEN,
-        fileId
-    }, 30000);
+async function excluirArquivoFirebaseStorage(storagePath) {
+    if (!storagePath) return { success: true };
+    initFirebase();
+    if (!firebaseStorage) return { success: false };
+    await firebaseStorage.ref().child(storagePath).delete();
+    return { success: true };
+}
+
+// Mantém os nomes antigos para não quebrar outras chamadas do app.
+async function enviarArquivoParaGoogleDrive(arquivo) {
+    return enviarArquivoParaFirebaseStorage(arquivo, "materiais");
+}
+
+async function excluirArquivoGoogleDrive(storagePath) {
+    return excluirArquivoFirebaseStorage(storagePath);
 }
 
 async function salvarNovoMaterial(event) {
@@ -4079,14 +4057,15 @@ async function salvarNovoMaterial(event) {
             criadoEm: Date.now(),
             atualizadoEm: Date.now(),
             interacoes: [],
-            hospedagem: tipo === "arquivo" ? "google_drive" : "link_externo"
+            hospedagem: tipo === "arquivo" ? "firebase_storage" : "link_externo"
         };
 
         if (tipo === "arquivo") {
             const arquivo = fileInput.files[0];
             const upload = await enviarArquivoParaGoogleDrive(arquivo);
             material.arquivoUrl = upload.fileUrl;
-            material.driveFileId = upload.fileId;
+            material.storagePath = upload.storagePath;
+            material.driveFileId = upload.storagePath; // compatibilidade com versões antigas
             material.nomeArquivo = upload.fileName || arquivo.name;
             material.mimeType = arquivo.type || "application/octet-stream";
             material.tamanhoBytes = arquivo.size;
@@ -4145,9 +4124,10 @@ async function publicarInteracaoMaterial(materialId, event) {
             const imagem = imagemEl.files[0];
             if (!String(imagem.type || "").startsWith("image/")) throw new Error("Anexe apenas imagens nas interações do fórum.");
             if (imagem.size / (1024 * 1024) > LIMITE_ANEXO_MONITORIA_MB) throw new Error(`Imagem muito grande. Use até ${LIMITE_ANEXO_MONITORIA_MB} MB.`);
-            const upload = await enviarArquivoParaGoogleDrive(imagem);
+            const upload = await enviarArquivoParaFirebaseStorage(imagem, "forum");
             interacao.imagemUrl = upload.fileUrl;
-            interacao.driveFileId = upload.fileId;
+            interacao.storagePath = upload.storagePath;
+            interacao.driveFileId = upload.storagePath; // compatibilidade com versões antigas
             interacao.nomeArquivo = upload.fileName || imagem.name;
             interacao.mimeType = imagem.type;
             interacao.tamanhoBytes = imagem.size;
@@ -4181,8 +4161,8 @@ async function excluirMaterial(id) {
         const snap = await docRef.get();
         const material = snap.exists ? snap.data() : null;
 
-        if (material?.driveFileId) {
-            await excluirArquivoGoogleDrive(material.driveFileId);
+        if (material?.storagePath || material?.driveFileId) {
+            await excluirArquivoGoogleDrive(material.storagePath || material.driveFileId);
         }
 
         await docRef.delete();
@@ -4190,10 +4170,10 @@ async function excluirMaterial(id) {
         await carregarChaveFirebase("app_plataforma", []);
 
         await renderizarPlataformaEnsino();
-        alert("Material removido da plataforma e arquivo enviado para a lixeira do Google Drive.");
+        alert("Material removido da plataforma e arquivo removido do Firebase Storage.");
     } catch (erro) {
         console.error("Erro ao apagar material:", erro);
-        alert(`Erro ao apagar material.\n\n${erro.message || erro}\n\nSe você ainda não atualizou o Apps Script com a função de exclusão, faça essa atualização e reimplante o App da Web.`);
+        alert(`Erro ao apagar material.\n\n${erro.message || erro}\n\nVerifique as regras do Firebase Storage se a exclusão for bloqueada.`);
     }
 }
 
