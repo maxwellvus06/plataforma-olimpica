@@ -1431,13 +1431,13 @@ function initFirebase() {
 
     // Configuração Firebase — substitua pelos dados do seu projeto
     const firebaseConfig = {
-        apiKey: "COLE_SUA_API_KEY_AQUI",
-        authDomain: "COLE_SEU_AUTH_DOMAIN",
-        databaseURL: "COLE_SUA_DATABASE_URL",
-        projectId: "COLE_SEU_PROJECT_ID",
-        storageBucket: "COLE_SEU_STORAGE_BUCKET",
-        messagingSenderId: "COLE_SEU_MESSAGING_SENDER_ID",
-        appId: "COLE_SEU_APP_ID"
+        apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
+        authDomain: "avanceolimpico.firebaseapp.com",
+        databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
+        projectId: "avanceolimpico",
+        storageBucket: "avanceolimpico.firebasestorage.app",
+        messagingSenderId: "895771266102",
+        appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97"
     };
 
     try {
