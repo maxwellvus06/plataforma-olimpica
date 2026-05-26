@@ -1,29 +1,27 @@
-// Gerenciador e Inteligência do Sistema Olímpico 2026
+// Gerenciador de Escopo da Plataforma Olímpica 2026
 let chartInstance = null;
 let dadosTrabalho = [];
+let usuarioLogadoAtualmente = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Carrega dados iniciais do banco local
     dadosTrabalho = [...DATABASE.premiados];
     
-    // Inicializa escutas de login e formulários
     initLogin();
     initFormularios();
     initDragAndDrop();
+    initCriadorDeContas(); // Inicializa o novo formulário de criação de contas
     
     // Configura os seletores de filtros superiores da dashboard
     document.getElementById("filterMunicipio").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterEscola").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterOlimpiada").addEventListener("change", renderizarPlataforma);
     
-    // Botão de Logout
     document.getElementById("btnLogout").addEventListener("click", logout);
     
-    // Recupera sessão se o usuário já tiver logado antes
     verificarSessao();
 });
 
-// ==================== SISTEMA DE AUTENTICAÇÃO ====================
+// ==================== SISTEMA DE AUTENTICAÇÃO E SESSÃO ====================
 function initLogin() {
     const form = document.getElementById("loginForm");
     if (!form) return;
@@ -31,18 +29,16 @@ function initLogin() {
     form.addEventListener("submit", (e) => {
         e.preventDefault();
         
-        // Captura exata dos IDs ajustados no HTML
         const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
         const passInput = document.getElementById("auth-pass").value.trim();
         
-        // Procura correspondência no banco de dados
-        const contaEncontrada = DATABASE.usuarios.find(u => u.login === userInput && u.senha === passInput);
+        const contaEncontrada = DATABASE.usuarios.find(u => u.login.toLowerCase() === userInput && u.senha === passInput);
         
         if (contaEncontrada) {
             localStorage.setItem("usuarioLogado", JSON.stringify(contaEncontrada));
             aplicarLogin(contaEncontrada);
         } else {
-            alert("Acesso Negado! Usuário ou senha incorretos.");
+            alert("Acesso Negado! Credenciais incorretas.");
         }
     });
 }
@@ -55,51 +51,135 @@ function verificarSessao() {
 }
 
 function aplicarLogin(user) {
-    // Transiciona as telas ocultando o Login e exibindo o Painel
+    usuarioLogadoAtualmente = user;
+    
     document.getElementById("loginScreen").classList.add("hidden");
     document.getElementById("mainContent").classList.remove("hidden");
     
-    // Atualiza cabeçalho com os dados do operador logado
-    document.getElementById("userPanelTitle").innerText = `Painel de - ${user.nome}`;
-    document.getElementById("userBadge").innerText = `Nível de Acesso: ${user.nivel}`;
+    document.getElementById("userPanelTitle").innerText = `Painel - ${user.nome}`;
+    document.getElementById("userBadge").innerText = `Nível: ${user.nivel}`;
     
-    // Aplica as travas visuais dependendo do cargo
-    restringirAbasPorNivel(user.nivel);
+    // Executa as travas de nível solicitadas por você
+    configurarAbasPorNivel(user);
     
-    // Alimenta filtros e plota os gráficos
     popularSeletores();
     renderizarPlataforma();
 }
 
 function logout() {
     localStorage.removeItem("usuarioLogado");
+    usuarioLogadoAtualmente = null;
     document.getElementById("mainContent").classList.add("hidden");
     document.getElementById("loginScreen").classList.remove("hidden");
     document.getElementById("auth-user").value = "";
     document.getElementById("auth-pass").value = "";
 }
 
-function Wood() {}
-
-function restringirAbasPorNivel(nivel) {
+// ==================== TRAVAS DE SEGURANÇA POR NÍVEL ====================
+function configurarAbasPorNivel(user) {
+    const btnDashboard = document.getElementById("btn-tab-dashboard");
     const btnLancamento = document.getElementById("btn-tab-lancamento");
     const btnUsuarios = document.getElementById("btn-tab-usuarios");
-    
-    if (nivel === "Escola") {
+    const metricCardsArea = document.getElementById("metricCardsArea");
+    const chartContainerArea = document.getElementById("chartContainerArea");
+    const selectNivelForm = document.getElementById("newUserNivel");
+
+    // Reseta exibições padrão
+    if (btnLancamento) btnLancamento.style.display = "flex";
+    if (btnUsuarios) btnUsuarios.style.display = "flex";
+    if (metricCardsArea) metricCardsArea.style.display = "grid";
+    if (chartContainerArea) chartContainerArea.style.display = "block";
+
+    // Regra 4: Nível Aluno (Apenas seus dados e calendário)
+    if (user.nivel === "Aluno") {
         if (btnLancamento) btnLancamento.style.display = "none";
         if (btnUsuarios) btnUsuarios.style.display = "none";
+        if (metricCardsArea) metricCardsArea.style.display = "none"; // Oculta cards macro
+        if (chartContainerArea) chartContainerArea.style.display = "none"; // Oculta gráficos
         switchTab("dashboard");
-    } else if (nivel === "Coordenador Municipal") {
+        return;
+    }
+
+    // Regra 3: Nível Escola (Pode ver dados da sua escola e criar contas alunos)
+    if (user.nivel === "Escola") {
         if (btnLancamento) btnLancamento.style.display = "flex";
-        if (btnUsuarios) btnUsuarios.style.display = "none";
+        if (btnUsuarios) btnUsuarios.style.display = "flex"; // Abre aba para criar contas alunos
+        
+        // Configura o formulário de criação para aceitar APENAS novas contas Aluno
+        if (selectNivelForm) {
+            selectNivelForm.innerHTML = '<option value="Aluno">Aluno</option>';
+        }
         switchTab("dashboard");
-    } else {
+        return;
+    }
+
+    // Regra 2: Nível Gestor (Contas Escolas, Alunos e dados da cidade)
+    if (user.nivel === "Gestor") {
         if (btnLancamento) btnLancamento.style.display = "flex";
         if (btnUsuarios) btnUsuarios.style.display = "flex";
+        
+        // Configura o formulário de criação para aceitar apenas Escola e Aluno
+        if (selectNivelForm) {
+            selectNivelForm.innerHTML = `
+                <option value="Escola">Escola</option>
+                <option value="Aluno">Aluno</option>
+            `;
+        }
+        switchTab("dashboard");
+        return;
+    }
+
+    // Regra 1: Adm (Pode fazer tudo)
+    if (user.nivel === "Adm") {
+        if (selectNivelForm) {
+            selectNivelForm.innerHTML = `
+                <option value="Adm">Adm</option>
+                <option value="Gestor">Gestor</option>
+                <option value="Escola">Escola</option>
+                <option value="Aluno">Aluno</option>
+            `;
+        }
+        switchTab("dashboard");
     }
 }
 
-// ==================== INTERFACE E NAVEGAÇÃO ====================
+// ==================== NOVO SISTEMA DE CRIAÇÃO DE CONTAS ====================
+function initCriadorDeContas() {
+    const formUser = document.getElementById("formCreateUser");
+    if (!formUser) return;
+
+    formUser.addEventListener("submit", (e) => {
+        e.preventDefault();
+        
+        const loginName = document.getElementById("newUserLogin").value.trim().toLowerCase();
+        const nameVal = document.getElementById("newUserName").value.trim();
+        const passVal = document.getElementById("newUserPassword").value.trim();
+        const nivelVal = document.getElementById("newUserNivel").value;
+
+        // Verifica se o login já existe no sistema
+        const loginExiste = DATABASE.usuarios.some(u => u.login.toLowerCase() === loginName);
+        if (loginExiste) {
+            alert("Este nome de login já está em uso! Escolha outro.");
+            return;
+        }
+
+        // Adiciona a nova conta diretamente no banco em memória
+        DATABASE.usuarios.push({
+            login: loginName,
+            senha: passVal,
+            nivel: nivelVal,
+            nome: nameVal,
+            cidade: usuarioLogadoAtualmente.nivel === "Adm" ? "Todas" : usuarioLogadoAtualmente.cidade,
+            escola: nivelVal === "Aluno" ? usuarioLogadoAtualmente.escola : "Todas"
+        });
+
+        alert(`Sucesso! Conta do tipo [${nivelVal}] criada com o login: ${loginName}`);
+        formUser.reset();
+        renderizarUsuarios();
+    });
+}
+
+// ==================== INTERFACE E FILTRAGEM ====================
 function switchTab(tabId) {
     document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
     document.querySelectorAll(".tab-btn").forEach(el => {
@@ -132,16 +212,34 @@ function popularSeletores() {
     });
 }
 
-// ==================== FILTROS E RENDERIZAÇÃO DA DASHBOARD ====================
 function renderizarPlataforma() {
-    const fMuni = document.getElementById("filterMunicipio").value;
-    const fEsco = document.getElementById("filterEscola").value;
+    let fMuni = document.getElementById("filterMunicipio").value;
+    let fEsco = document.getElementById("filterEscola").value;
     const fOlim = document.getElementById("filterOlimpiada").value;
     
+    // Força amarração de escopo nos filtros superiores se o usuário não for Administrador
+    if (usuarioLogadoAtualmente) {
+        if (usuarioLogadoAtualmente.nivel === "Gestor") {
+            document.getElementById("filterMunicipio").value = usuarioLogadoAtualmente.cidade;
+            fMuni = usuarioLogadoAtualmente.cidade;
+        } else if (usuarioLogadoAtualmente.nivel === "Escola" || usuarioLogadoAtualmente.nivel === "Aluno") {
+            document.getElementById("filterMunicipio").value = usuarioLogadoAtualmente.cidade;
+            document.getElementById("filterEscola").value = usuarioLogadoAtualmente.escola;
+            fMuni = usuarioLogadoAtualmente.cidade;
+            fEsco = usuarioLogadoAtualmente.escola;
+        }
+    }
+
+    // Regra de Filtragem Lógica por Visibilidade
     const dadosFiltrados = dadosTrabalho.filter(d => {
         const matchMuni = (fMuni === "Todos" || d.municipio === fMuni);
         const matchEsco = (fEsco === "Todas" || d.escola === fEsco);
         const matchOlim = (fOlim === "Todas" || d.olimpiada === fOlim);
+        
+        // Se for o Aluno logado, ele só vê a sua linha específica de nota
+        if (usuarioLogadoAtualmente && usuarioLogadoAtualmente.nivel === "Aluno") {
+            return d.aluno === usuarioLogadoAtualmente.nome;
+        }
         return matchMuni && matchEsco && matchOlim;
     });
 
@@ -162,7 +260,7 @@ function renderizarPlataforma() {
     const tCorpo = document.getElementById("tableAlunosCorpo");
     tCorpo.innerHTML = "";
     if (dadosFiltrados.length === 0) {
-        tCorpo.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum medalhista encontrado para estes filtros.</td></tr>`;
+        tCorpo.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum registo encontrado para os filtros atuais.</td></tr>`;
     } else {
         dadosFiltrados.forEach(d => {
             let badgeColor = "bg-purple-500/20 text-purple-400 border-purple-500/30";
@@ -199,7 +297,7 @@ function renderizarCalendario() {
                 <td class="p-4 text-gray-200">${c.etapa}</td>
                 <td class="p-4 font-medium text-yellow-500">${c.data}</td>
                 <td class="p-4 text-gray-400 text-xs">${c.segmento}</td>
-                <td class="p-4 text-xs italic text-gray-400 border-l-2 border-red-500/40 pl-3 bg-red-500/5">${c.acao}</td>
+                <td class="p-4 text-xs italic text-gray-400 border-l-2 border-blue-500/40 pl-3 bg-blue-500/5">${c.acao}</td>
             </tr>`;
     });
 }
@@ -208,21 +306,31 @@ function renderizarUsuarios() {
     const tUser = document.getElementById("tableUsersCorpo");
     if (!tUser) return;
     tUser.innerHTML = "";
+    
     DATABASE.usuarios.forEach(u => {
+        // Regra de privacidade de listagem
+        if (usuarioLogadoAtualmente) {
+            if (usuarioLogadoAtualmente.nivel === "Gestor" && u.nivel === "Adm") return; 
+            if (usuarioLogadoAtualmente.nivel === "Escola" && (u.nivel === "Adm" || u.nivel === "Gestor")) return;
+        }
+
         tUser.innerHTML += `
             <tr class="hover:bg-gray-800/30 transition">
                 <td class="p-4 font-semibold text-gray-200">${u.nome}</td>
-                <td class="p-4 text-gray-400">${u.login}</td>
-                <td class="p-4"><span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-xs">${u.nivel}</span></td>
-                <td class="p-4"><span class="text-green-400 flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span> Ativo</span></td>
-                <td class="p-4 text-gray-500 text-xs"><i class="fa-solid fa-lock mr-1"></i> Protegido</td>
+                <td class="p-4 text-gray-400 font-mono">${u.login}</td>
+                <td class="p-4">
+                    <span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-0.5 rounded text-xs font-bold">${u.nivel}</span>
+                </td>
+                <td class="p-4">
+                    <span class="text-green-400 flex items-center gap-1.5 text-xs"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span> Ativo</span>
+                </td>
             </tr>`;
     });
 }
 
 function renderizarGrafico(dados) {
     const ctx = document.getElementById("chartMedalhas");
-    if (!ctx) return;
+    if (!ctx || (usuarioLogadoAtualmente && usuarioLogadoAtualmente.nivel === "Aluno")) return;
 
     const escolas = [...new Set(dados.map(d => d.escola))];
     const dataOuro = [], dataPrata = [], dataBronze = [], dataMencao = [];
@@ -242,7 +350,7 @@ function renderizarGrafico(dados) {
     chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: escolas.length ? escolas : ["Nenhuma Escola"],
+            labels: escolas.length ? escolas : ["Nenhum Registro"],
             datasets: [
                 { label: 'Ouro', data: dataOuro, backgroundColor: '#eab308' },
                 { label: 'Prata', data: dataPrata, backgroundColor: '#94a3b8' },
@@ -254,17 +362,17 @@ function renderizarGrafico(dados) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: { stacked: true, grid: { display: false }, ticks: { color: '#9ca3af' } },
+                x: { stacked: true, ticks: { color: '#9ca3af' }, grid: { display: false } },
                 y: { stacked: true, ticks: { color: '#9ca3af', stepSize: 1 } }
             },
             plugins: {
-                legend: { position: 'bottom', labels: { color: '#f3f4f6', boxWidth: 12 } }
+                legend: { position: 'bottom', labels: { color: '#f3f4f6', boxWidth: 10 } }
             }
         }
     });
 }
 
-// ==================== FORMULÁRIO MANUAL E PLANILHAS ====================
+// ==================== PROCESSAMENTO DE ARQUIVOS ====================
 function initFormularios() {
     const form = document.getElementById("formManualResult");
     if (!form) return;
@@ -281,7 +389,7 @@ function initFormularios() {
         };
 
         dadosTrabalho.push(novoResult);
-        alert("Resultado individual computado com sucesso!");
+        alert("Resultado adicionado ao painel!");
         form.reset();
         popularSeletores();
         renderizarPlataforma();
@@ -326,38 +434,32 @@ function processarArquivoPlanilha(arquivo) {
             const primeiraAba = livro.SheetNames[0];
             const linhas = XLSX.utils.sheet_to_json(livro.Sheets[primeiraAba]);
 
-            if (linhas.length === 0) {
-                alert("A planilha está vazia!");
-                return;
-            }
-
             linhas.forEach(linha => {
                 dadosTrabalho.push({
                     aluno: linha.Aluno || linha.aluno || "Desconhecido",
                     escola: linha.Escola || linha.escola || "Não Informada",
                     municipio: linha.Municipio || linha.municipio || "São Braz - PI",
-                    olimpiada: inline || linha.Olimpiada || linha.olimpiada || "Geral",
+                    olimpiada: linha.Olimpiada || linha.olimpiada || "Geral",
                     premio: linha.Premio || linha.premio || "Menção Honrosa"
                 });
             });
 
-            alert(`${linhas.length} novos registros importados com sucesso para o Painel!`);
+            alert(`${linhas.length} registros importados via Excel!`);
             popularSeletores();
             renderizarPlataforma();
         } catch (erro) {
-            console.error(erro);
-            alert("Erro ao ler o arquivo! Certifique-se de que é uma tabela válida.");
+            alert("Erro ao decodificar a planilha. Verifique a formatação do arquivo.");
         }
     };
     leitor.readAsArrayBuffer(arquivo);
 }
 
 function downloadCSVTemplate() {
-    const cabecalho = "Aluno,Escola,Municipio,Olimpiada,Premio\nCarlos Silva,Unidade Escolar Sao Braz,Sao Braz - PI,OBMEP,Ouro\nMaria Oliveira,Colegio Alberto Silva,Sao Braz - PI,Canguru de Matematica Brasil,Prata";
+    const cabecalho = "Aluno,Escola,Municipio,Olimpiada,Premio\nCarlos Silva,U. E. Sao Braz,Sao Braz - PI,OBMEP,Ouro";
     const blob = new Blob([cabecalho], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", "modelo_importacao_olimpiadas.csv");
+    link.setAttribute("download", "modelo_olimpiadas.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
