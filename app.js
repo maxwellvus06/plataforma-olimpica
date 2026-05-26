@@ -259,6 +259,7 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-relatorios": "relatorios",
         "btnNav-plataforma": "plataforma",
         "btnNav-monitoria": "monitoria",
+        "btnNav-meusresultados": "meusresultados",
         "btnNavAlunos": "alunos",
         "btnNavUsuarios": "usuarios",
         "btnNavOlimpiadas": "olimpiadas",
@@ -371,7 +372,7 @@ function ativarPrimeiraAbaPermitida() {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
@@ -379,6 +380,7 @@ function ativarPrimeiraAbaPermitida() {
     const titulo = document.getElementById("pageTitleDisplay");
     if (titulo) titulo.innerText = titulos[aba] || "Painel Operacional";
 
+    if (aba === "meusresultados") renderizarDashboardAluno();
     if (aba === "plataforma") renderizarPlataformaEnsino();
     if (aba === "monitoria") renderizarSalasMonitoria();
     if (aba === "importar") renderizarResultadosImportacao();
@@ -594,6 +596,7 @@ Os dados exibidos serão recarregados do banco deste ano.`)) {
         renderizarAlunos();
         renderizarResultadosImportacao();
         renderizarPlataformaEnsino();
+        renderizarDashboardAluno();
         if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
         alert(`Ano ${anoDadosAtivo} carregado com sucesso.`);
     }
@@ -1710,7 +1713,7 @@ function navegarAba(abaId, botaoTarget) {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
@@ -1729,6 +1732,9 @@ function navegarAba(abaId, botaoTarget) {
     }
     if (abaId === "relatorios") {
         prepararTelaRelatoriosComparativos();
+    }
+    if (abaId === "meusresultados") {
+        renderizarDashboardAluno();
     }
     if (abaId === "alunos") {
         popularSeletoresAlunos();
@@ -2381,6 +2387,146 @@ function preencherResultadoPorAlunoSelecionado() {
     });
 }
 
+
+// ==================== USUÁRIO DE ALUNO E SENHA ====================
+function alunoJaTemUsuario(aluno) {
+    const cpf = cpfLimpo(aluno?.cpf || "");
+    const usuarios = getStorage("app_usuarios", []);
+    return usuarios.some(u => (u.alunoId && u.alunoId === aluno?.id) || cpfLimpo(u.login) === cpf);
+}
+
+function textoAlunoParaUsuario(aluno) {
+    const escola = escolaDoAluno(aluno);
+    const cpf = aluno?.cpf || "sem CPF";
+    const serie = aluno?.serie || "sem série";
+    const escolaNome = escola?.nome || aluno?.escolaNome || "sem escola";
+    const status = alunoJaTemUsuario(aluno) ? " — usuário já existe" : "";
+    return `${aluno?.nome || "Aluno sem nome"} — CPF: ${cpf} — ${escolaNome} — ${serie}${status}`;
+}
+
+function popularSelectAlunoParaUsuario() {
+    const select = document.getElementById("selectAlunoParaUsuario");
+    if (!select) return;
+    const valorAtual = select.value;
+    const alunos = alunosPermitidosParaUsuario().slice().sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    select.innerHTML = '<option value="">Selecione um aluno cadastrado...</option>' + alunos.map(a => `<option value="${textoSeguro(a.id)}">${textoSeguro(textoAlunoParaUsuario(a))}</option>`).join("");
+    if ([...select.options].some(opt => opt.value === valorAtual)) select.value = valorAtual;
+}
+
+function criarUsuarioAlunoSelecionado() {
+    if (!permissao("usuarios.podeGerenciar")) return alert("Sem permissão para criar usuários.");
+    const alunoId = document.getElementById("selectAlunoParaUsuario")?.value || "";
+    if (!alunoId) return alert("Selecione um aluno cadastrado.");
+    const aluno = alunosPermitidosParaUsuario().find(a => a.id === alunoId);
+    if (!aluno) return alert("Aluno não encontrado ou fora do seu escopo.");
+    const cpf = cpfLimpo(aluno.cpf);
+    if (!cpf) return alert("Este aluno não tem CPF válido cadastrado.");
+
+    const usuarios = getStorage("app_usuarios", []);
+    if (usuarios.some(u => (u.alunoId && u.alunoId === aluno.id) || cpfLimpo(u.login) === cpf)) {
+        return alert("Este aluno já possui usuário criado ou já existe um login com este CPF.");
+    }
+
+    const escola = escolaDoAluno(aluno);
+    const cidade = cidadeDaEscola(escola);
+    if (!escola) return alert("O aluno precisa estar vinculado a uma escola para criar usuário.");
+
+    const novoUsuario = {
+        id: novoId(),
+        login: cpf,
+        senha: "alunoavance@2026",
+        nivel: "Aluno",
+        nome: aluno.nome,
+        email: aluno.emailInstitucional || aluno.emailPessoal || "",
+        telefone: aluno.contatoAluno || aluno.contatoResponsavel || "",
+        vinculoId: escola.id,
+        escolaId: escola.id,
+        cidadeId: cidade?.id || aluno.cidadeId || "",
+        alunoId: aluno.id,
+        alunoCpf: aluno.cpf || "",
+        criadoEm: new Date().toISOString(),
+        origem: "cadastro_aluno"
+    };
+
+    usuarios.push(novoUsuario);
+    setStorage("app_usuarios", usuarios);
+    renderizarTabelasGerenciais();
+    alert(`Usuário criado com sucesso.\n\nLogin: ${cpf}\nSenha padrão: alunoavance@2026`);
+}
+
+function abrirModalMinhaSenha() {
+    if (!usuarioLogado) return alert("Faça login para alterar sua senha.");
+    abrirModalEdicao({
+        titulo: "Alterar minha senha",
+        campos: [
+            { nome: "senhaAtual", label: "Senha atual", tipo: "password", valor: "" },
+            { nome: "novaSenha", label: "Nova senha", tipo: "password", valor: "" },
+            { nome: "confirmarSenha", label: "Confirmar nova senha", tipo: "password", valor: "" }
+        ],
+        onSalvar: (d) => {
+            if (!d.senhaAtual || !d.novaSenha || !d.confirmarSenha) return alert("Preencha todos os campos."), false;
+            if (String(d.senhaAtual) !== String(usuarioLogado.senha)) return alert("Senha atual incorreta."), false;
+            if (String(d.novaSenha).length < 6) return alert("A nova senha precisa ter pelo menos 6 caracteres."), false;
+            if (String(d.novaSenha) !== String(d.confirmarSenha)) return alert("A confirmação não confere com a nova senha."), false;
+            const usuarios = getStorage("app_usuarios", []);
+            const idx = usuarios.findIndex(u => u.id === usuarioLogado.id);
+            if (idx === -1) return alert("Usuário não encontrado no banco."), false;
+            usuarios[idx] = { ...usuarios[idx], senha: String(d.novaSenha), senhaAlteradaEm: new Date().toISOString() };
+            usuarioLogado = usuarios[idx];
+            setStorage("app_usuarios", usuarios);
+            alert("Senha alterada com sucesso.");
+        }
+    });
+}
+
+function resultadosDoAlunoLogado() {
+    if (!usuarioLogado || usuarioLogado.nivel !== "Aluno") return [];
+    const alunoId = usuarioLogado.alunoId || "";
+    const loginCpf = cpfLimpo(usuarioLogado.login || usuarioLogado.alunoCpf || "");
+    const alunoCadastro = alunoId ? getStorage("app_alunos", []).find(a => a.id === alunoId) : null;
+    const cpfCadastro = cpfLimpo(alunoCadastro?.cpf || "");
+    const escolaId = usuarioLogado.escolaId || usuarioLogado.vinculoId || alunoCadastro?.escolaId || "";
+    const escola = getStorage("app_escolas", []).find(e => e.id === escolaId);
+    const escolaNome = escola?.nome || alunoCadastro?.escolaNome || "";
+    return (dadosTrabalho || []).filter(r => {
+        if (alunoId && r.alunoId === alunoId) return true;
+        const cpfResultado = cpfLimpo(r.alunoCpf || "");
+        if (cpfResultado && (cpfResultado === loginCpf || cpfResultado === cpfCadastro)) return true;
+        if (alunoCadastro && normalizarTexto(r.aluno) === normalizarTexto(alunoCadastro.nome) && normalizarTexto(r.escola) === normalizarTexto(escolaNome)) return true;
+        return false;
+    });
+}
+
+function renderizarDashboardAluno() {
+    const tbody = document.getElementById("tableAlunoResultadosCorpo");
+    if (!tbody) return;
+    if (!usuarioLogado || usuarioLogado.nivel !== "Aluno") {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-500 text-sm">Este painel é exibido para usuários do nível Aluno.</td></tr>';
+        return;
+    }
+    const resultados = resultadosDoAlunoLogado().slice().sort((a, b) => String(a.olimpiada || "").localeCompare(String(b.olimpiada || ""), "pt-BR"));
+    const total = resultados.length;
+    const ouro = resultados.filter(r => normalizarTexto(r.premio).includes("ouro")).length;
+    const prataBronze = resultados.filter(r => ["prata", "bronze"].some(p => normalizarTexto(r.premio).includes(p))).length;
+    const olimpiadas = new Set(resultados.map(r => r.olimpiada).filter(Boolean)).size;
+    const setText = (id, valor) => { const el = document.getElementById(id); if (el) el.innerText = valor; };
+    setText("alunoDashTotal", total);
+    setText("alunoDashOuro", ouro);
+    setText("alunoDashPrataBronze", prataBronze);
+    setText("alunoDashOlimpiadas", olimpiadas);
+    const info = document.getElementById("alunoDashInfo");
+    if (info) info.innerText = `Ano ${anoDadosAtivo} · ${usuarioLogado.nome}`;
+    tbody.innerHTML = resultados.map(r => `
+        <tr class="hover:bg-gray-800/60 transition">
+            <td class="p-4 font-bold text-white">${textoSeguro(r.olimpiada)}</td>
+            <td class="p-4"><span class="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-bold">${textoSeguro(r.premio)}</span></td>
+            <td class="p-4 text-gray-300">${textoSeguro(r.serie || "—")}</td>
+            <td class="p-4 text-gray-300">${textoSeguro(r.escola || "—")}</td>
+            <td class="p-4 text-gray-400">${textoSeguro(r.municipio || "—")}</td>
+        </tr>
+    `).join("") || '<tr><td colspan="5" class="p-8 text-center text-gray-500 text-sm">Nenhum resultado vinculado ao seu cadastro neste ano.</td></tr>';
+}
+
 // ==================== RESULTADO MANUAL ====================
 function initResultadoManual() {
     const cidadeSelect = document.getElementById("addResCidadeSelect");
@@ -2420,6 +2566,7 @@ function initResultadoManual() {
             popularSeletores();
             renderizarPlataformaDashboard();
             renderizarResultadosImportacao();
+            renderizarDashboardAluno();
             formManual.reset();
             liberarResultadoManual();
             popularSeletoresResultadosManuais();
@@ -2667,6 +2814,7 @@ function renderizarTabelasGerenciais() {
         const escolasFiltradas = escolasPermitidasParaCadastroUsuario();
         document.getElementById("addUserEscolaSelect").innerHTML = '<option value="">Selecione a unidade escolar...</option>' + escolasFiltradas.map(e => `<option value="${e.id}">${e.nome}</option>`).join("");
     }
+    popularSelectAlunoParaUsuario();
 }
 
 function montarOptions(placeholder, itens, getValor, getTexto) {
@@ -4482,6 +4630,9 @@ window.downloadOlimpiadasTemplate = downloadOlimpiadasTemplate;
 window.downloadAlunosTemplate = downloadAlunosTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
 window.ajustarCamposFormUsuario = ajustarCamposFormUsuario;
+window.abrirModalMinhaSenha = abrirModalMinhaSenha;
+window.criarUsuarioAlunoSelecionado = criarUsuarioAlunoSelecionado;
+window.renderizarDashboardAluno = renderizarDashboardAluno;
 window.salvarNovoUsuario = salvarNovoUsuario;
 window.salvarNovoAluno = salvarNovoAluno;
 window.editarAluno = editarAluno;

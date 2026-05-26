@@ -74,7 +74,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Aluno: {
-        abas: ["plataforma", "monitoria"],
+        abas: ["meusresultados", "plataforma", "monitoria"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
