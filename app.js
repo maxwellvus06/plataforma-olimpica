@@ -31,6 +31,36 @@ const RTC_CONFIG = {
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
+// Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
+let anoDadosAtivo = "2026";
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma"];
+const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
+
+const OPCOES_OLIMPIADA = {
+    anos: ANOS_REFERENCIA_PADRAO,
+    areas: ["Matemática", "Física", "Química", "Biologia", "Ciências Integradas", "Astronomia", "Tecnologia / Robótica", "Idiomas", "Multidisciplinar", "Outro"],
+    abrangencias: ["Municipal", "Estadual", "Regional (Norte-Nordeste, etc.)", "Nacional", "Internacional"],
+    status: ["Ativa", "Aguardando edital", "Suspensa", "Encerrada"],
+    tiposEscola: ["Somente pública", "Somente privada", "Pública e privada"],
+    inscricaoIndividual: ["Sim", "Não", "Sim, somente se a escola não participar"],
+    escolaInscricao: ["Sim, obrigatório", "Não, inscrição automática", "Opcional"],
+    seriesAtendidas: ["1º ao 9º Ano EF", "1ª a 3ª Série EM", "Técnico", "EJA", "Universitário"],
+    segmentos: ["EF I (1º–5º)", "EF II (6º–9º)", "Ensino Médio", "Misto EF+EM"],
+    simNao: ["Sim", "Não"],
+    numeroFases: ["1 fase", "2 fases", "3 fases", "4 ou mais fases"],
+    tiposQuestao: ["Múltipla escolha", "Dissertativa / Aberta", "Mista (obj. + dissertativa)", "Experimental / Prática", "Verdadeiro ou Falso", "Online assíncrona"],
+    modalidadesAplicacao: ["Presencial na escola", "Presencial em centro regional", "Online síncrona", "Online assíncrona", "Misto"],
+    duracoes: ["Até 1h", "1h30", "2h", "2h30", "3h", "3h30", "4h ou mais"],
+    materiaisProva: ["PDF download no site", "PDF enviado por e-mail", "Plataforma online", "Correios", "A definir"],
+    correcoes: ["Escola lança acertos no sistema", "Upload de cartão/folha", "Correção automática online", "Correção centralizada pelo organizador"],
+    gratuitaPublica: ["Sim", "Não", "Parcialmente"],
+    formasPagamento: ["Boleto bancário", "Hotmart", "PIX", "Cartão de crédito", "Isento"],
+    premios: ["Medalha física", "Certificado digital", "Troféu", "Bolsa (ex: PIC Jr/CNPq)", "Premiação em dinheiro", "Reconhecimento em vestibulares"],
+    categoriasPremiacao: ["Ouro", "Prata", "Bronze", "Menção Honrosa", "Participação"],
+    internacionais: ["Nenhuma", "IJSO", "IPhO", "IChO", "IBO", "IMO", "IOI", "IOAA", "Outra"],
+    niveisFunil: ["Porta de entrada (fase única acessível)", "Intermediária (2 fases, regional)", "Avançada (nacional)", "Seletiva Internacional"]
+};
+
 const TAXONOMIA_ETAPAS = [
     {
         grupoCodigo: "G1",
@@ -116,8 +146,10 @@ document.addEventListener("DOMContentLoaded", () => {
         initLogin();
         initDragAndDrop();
         initDragAndDropCronograma();
+        initDragAndDropOlimpiadas();
         initResultadoManual();
         initFormularioOlimpiadaCompleto();
+        initSeletorAnoDados();
 
         document.getElementById("filterMunicipio")?.addEventListener("change", renderizarPlataformaDashboard);
         document.getElementById("filterEscola")?.addEventListener("change", renderizarPlataformaDashboard);
@@ -500,9 +532,61 @@ function normalizarListaFirebase(valor) {
     return [];
 }
 
-function getFirebaseCollectionName(chave) {
+function getFirebaseCollectionBaseName(chave) {
     if (typeof FIREBASE_COLLECTIONS !== "undefined" && FIREBASE_COLLECTIONS[chave]) return FIREBASE_COLLECTIONS[chave];
     return chave.replace(/^app_/, "sistema_");
+}
+
+function getFirebaseCollectionName(chave) {
+    const base = getFirebaseCollectionBaseName(chave);
+    // Usuários são globais para não travar o login ao trocar de ano.
+    // As demais informações administrativas ficam separadas por ano no Firestore.
+    if (chave === "app_usuarios") return base;
+    if (CHAVES_ANUAIS_FIRESTORE.includes(chave)) return `anos/${anoDadosAtivo}/${base}`;
+    return base;
+}
+
+function atualizarRotuloAnoDados() {
+    const select = document.getElementById("selectAnoDados");
+    if (select && select.value !== anoDadosAtivo) select.value = anoDadosAtivo;
+    const label = document.getElementById("labelCicloOperacional");
+    if (label) label.innerText = `Ciclo Operacional ${anoDadosAtivo}`;
+    const anoForm = document.getElementById("addOliAnoReferencia");
+    if (anoForm && Array.from(anoForm.options).some(opt => opt.value === anoDadosAtivo)) anoForm.value = anoDadosAtivo;
+}
+
+async function trocarAnoDados(novoAno) {
+    novoAno = String(novoAno || "").trim();
+    if (!novoAno || novoAno === anoDadosAtivo) return;
+    if (usuarioLogado && !confirm(`Trocar para o ano ${novoAno}?
+
+Os dados exibidos serão recarregados do banco deste ano.`)) {
+        atualizarRotuloAnoDados();
+        return;
+    }
+    anoDadosAtivo = novoAno;
+    atualizarRotuloAnoDados();
+    CHAVES_ANUAIS_FIRESTORE.forEach(chave => { delete memoriaDadosSistema[chave]; });
+    dadosTrabalho = [];
+
+    if (usuarioLogado) {
+        await carregarDadosPosLogin();
+        popularSeletores();
+        renderizarPlataformaDashboard();
+        renderizarCronograma();
+        renderizarTabelasGerenciais();
+        renderizarResultadosImportacao();
+        renderizarPlataformaEnsino();
+        alert(`Ano ${anoDadosAtivo} carregado com sucesso.`);
+    }
+}
+
+function initSeletorAnoDados() {
+    const select = document.getElementById("selectAnoDados");
+    if (!select) return;
+    select.value = anoDadosAtivo;
+    select.addEventListener("change", () => trocarAnoDados(select.value));
+    atualizarRotuloAnoDados();
 }
 
 function prepararListaParaFirestore(lista) {
@@ -557,7 +641,12 @@ ${erro.message || erro}`);
 
 async function carregarChaveFirebase(chave, fallback = []) {
     initFirebase();
-    const seed = Array.isArray(fallback) && fallback.length ? fallback : dadosSementePorChave(chave);
+    let seed = Array.isArray(fallback) && fallback.length ? fallback : dadosSementePorChave(chave);
+    // Para anos diferentes de 2026, não semeia automaticamente cidades/escolas/olimpíadas/resultados.
+    // Assim cada ciclo anual começa limpo e recebe apenas os dados cadastrados/importados naquele ano.
+    if (chave !== "app_usuarios" && CHAVES_ANUAIS_FIRESTORE.includes(chave) && anoDadosAtivo !== "2026" && !(Array.isArray(fallback) && fallback.length)) {
+        seed = [];
+    }
 
     if (!firebaseFirestore) {
         console.error("Cloud Firestore não inicializado. Nada será gravado localmente.");
@@ -1410,7 +1499,7 @@ function montarDadosOlimpiadaFormulario() {
 
         // Cadastro completo
         edicao: valorCampo("addOliEdicao"),
-        anoReferencia: valorCampo("addOliAnoReferencia"),
+        anoReferencia: valorCampo("addOliAnoReferencia") || anoDadosAtivo,
         areas,
         abrangencia: valorCampo("addOliAbrangencia"),
         status: valorCampo("addOliStatus"),
@@ -1464,7 +1553,7 @@ function salvarNovaOlimpiada(event) {
     if (!novaOlimpiada.areas.length) return alert("Selecione pelo menos uma área/disciplina.");
 
     const olimpiadas = getStorage("app_olimpiadas");
-    if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(novaOlimpiada.nome))) return alert("Erro: esta olimpíada já está cadastrada.");
+    if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(novaOlimpiada.nome))) return alert(`Erro: esta olimpíada já está cadastrada no ano ${anoDadosAtivo}.`);
 
     olimpiadas.push(novaOlimpiada);
     setStorage("app_olimpiadas", olimpiadas);
@@ -2322,6 +2411,358 @@ async function downloadTemplate() {
     await baixarWorkbookExcelJS(workbook, "modelo_importacao_resultados_com_listas.xlsx");
 }
 
+
+
+// ==================== HOMOLOGAÇÃO DE OLIMPÍADAS EM LOTE ====================
+function initDragAndDropOlimpiadas() {
+    const dropZone = document.getElementById("dropZoneOlimpiadas");
+    const fileInput = document.getElementById("fileInputOlimpiadas");
+    if (!dropZone || !fileInput) return;
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("border-emerald-500"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("border-emerald-500"));
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("border-emerald-500");
+        if (e.dataTransfer.files.length) processarPlanilhaOlimpiadas(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", (e) => { if (e.target.files.length) processarPlanilhaOlimpiadas(e.target.files[0]); });
+}
+
+function lerLinhaPlanilha(linha, nomes, padrao = "") {
+    for (const nome of nomes) {
+        if (linha[nome] !== undefined && linha[nome] !== null && String(linha[nome]).trim() !== "") return String(linha[nome]).trim();
+    }
+    return padrao;
+}
+
+function lerMultiplosSlots(linha, prefixo, max = 3) {
+    const valores = [];
+    for (let i = 1; i <= max; i++) {
+        const v = lerLinhaPlanilha(linha, [`${prefixo} ${i}`, `${prefixo}${i}`], "");
+        if (v) valores.push(v);
+    }
+    return [...new Set(valores.map(v => v.trim()).filter(Boolean))];
+}
+
+function validarOpcaoLista(valor, lista, campo, erros, nl, obrigatorio = false) {
+    const v = String(valor || "").trim();
+    if (!v) {
+        if (obrigatorio) erros.push(`Linha ${nl}: campo obrigatório vazio (${campo}).`);
+        return v;
+    }
+    if (!lista.some(item => normalizarTexto(item) === normalizarTexto(v))) {
+        erros.push(`Linha ${nl}: valor inválido em ${campo}: ${v}`);
+    }
+    return v;
+}
+
+function validarListaMultiplos(valores, lista, campo, erros, nl, obrigatorio = false) {
+    const limpos = (valores || []).map(v => String(v || "").trim()).filter(Boolean);
+    if (obrigatorio && !limpos.length) erros.push(`Linha ${nl}: selecione pelo menos uma opção em ${campo}.`);
+    limpos.forEach(v => {
+        if (!lista.some(item => normalizarTexto(item) === normalizarTexto(v))) erros.push(`Linha ${nl}: valor inválido em ${campo}: ${v}`);
+    });
+    return limpos;
+}
+
+function montarOlimpiadaDaLinhaPlanilha(linha, nl, erros) {
+    const nome = lerLinhaPlanilha(linha, ["Nome completo da olimpíada", "Nome"], "");
+    const categoria = lerLinhaPlanilha(linha, ["Sigla / Frente", "Sigla", "Frente"], "").toUpperCase();
+    const edicao = lerLinhaPlanilha(linha, ["Edição / Número", "Edicao", "Edição"], "");
+    const anoReferencia = validarOpcaoLista(lerLinhaPlanilha(linha, ["Ano de referência", "Ano"], anoDadosAtivo), OPCOES_OLIMPIADA.anos, "Ano de referência", erros, nl, true) || anoDadosAtivo;
+
+    if (!nome) erros.push(`Linha ${nl}: Nome completo da olimpíada é obrigatório.`);
+    if (!categoria) erros.push(`Linha ${nl}: Sigla / Frente é obrigatória.`);
+    if (anoReferencia !== anoDadosAtivo) erros.push(`Linha ${nl}: ano da linha (${anoReferencia}) diferente do ano ativo da plataforma (${anoDadosAtivo}).`);
+
+    const areas = validarListaMultiplos(lerMultiplosSlots(linha, "Área", 3), OPCOES_OLIMPIADA.areas, "Área", erros, nl, true);
+    const seriesAtendidas = validarListaMultiplos(lerMultiplosSlots(linha, "Série atendida", 3), OPCOES_OLIMPIADA.seriesAtendidas, "Série atendida", erros, nl, true);
+    const tiposQuestao = validarListaMultiplos(lerMultiplosSlots(linha, "Tipo de questão", 3), OPCOES_OLIMPIADA.tiposQuestao, "Tipo de questão", erros, nl, false);
+    const formasPagamento = validarListaMultiplos(lerMultiplosSlots(linha, "Forma de pagamento", 3), OPCOES_OLIMPIADA.formasPagamento, "Forma de pagamento", erros, nl, false);
+    const premiosOferecidos = validarListaMultiplos(lerMultiplosSlots(linha, "Prêmio oferecido", 3), OPCOES_OLIMPIADA.premios, "Prêmio oferecido", erros, nl, false);
+    const categoriasPremiacao = validarListaMultiplos(lerMultiplosSlots(linha, "Categoria de premiação", 3), OPCOES_OLIMPIADA.categoriasPremiacao, "Categoria de premiação", erros, nl, false);
+
+    const abrangencia = validarOpcaoLista(lerLinhaPlanilha(linha, ["Abrangência geográfica"], "Nacional"), OPCOES_OLIMPIADA.abrangencias, "Abrangência geográfica", erros, nl, true);
+    const status = validarOpcaoLista(lerLinhaPlanilha(linha, ["Status"], "Ativa"), OPCOES_OLIMPIADA.status, "Status", erros, nl, true);
+    const tipoEscolaElegivel = validarOpcaoLista(lerLinhaPlanilha(linha, ["Tipo de escola elegível"], "Pública e privada"), OPCOES_OLIMPIADA.tiposEscola, "Tipo de escola elegível", erros, nl, false);
+    const inscricaoIndividual = validarOpcaoLista(lerLinhaPlanilha(linha, ["Inscrição individual?"], "Não"), OPCOES_OLIMPIADA.inscricaoIndividual, "Inscrição individual", erros, nl, false);
+    const escolaPrecisaInscrever = validarOpcaoLista(lerLinhaPlanilha(linha, ["Escola precisa se inscrever?"], "Sim, obrigatório"), OPCOES_OLIMPIADA.escolaInscricao, "Escola precisa se inscrever", erros, nl, false);
+    const segmentoPrincipal = validarOpcaoLista(lerLinhaPlanilha(linha, ["Segmento principal"], "Misto EF+EM"), OPCOES_OLIMPIADA.segmentos, "Segmento principal", erros, nl, false);
+    const possuiRestricaoIdade = validarOpcaoLista(lerLinhaPlanilha(linha, ["Possui restrição de idade?"], "Não"), OPCOES_OLIMPIADA.simNao, "Possui restrição de idade", erros, nl, false);
+    const possuiModalidades = validarOpcaoLista(lerLinhaPlanilha(linha, ["Possui modalidades/níveis internos?"], "Não"), OPCOES_OLIMPIADA.simNao, "Possui modalidades", erros, nl, false);
+    const numeroFases = validarOpcaoLista(lerLinhaPlanilha(linha, ["Número de fases"], "1 fase"), OPCOES_OLIMPIADA.numeroFases, "Número de fases", erros, nl, false);
+    const modalidadeAplicacao = validarOpcaoLista(lerLinhaPlanilha(linha, ["Modalidade de aplicação"], "Presencial na escola"), OPCOES_OLIMPIADA.modalidadesAplicacao, "Modalidade de aplicação", erros, nl, false);
+    const duracaoProvaPrincipal = validarOpcaoLista(lerLinhaPlanilha(linha, ["Duração da prova principal"], "2h"), OPCOES_OLIMPIADA.duracoes, "Duração da prova", erros, nl, false);
+    const materialProvaEnviadoComo = validarOpcaoLista(lerLinhaPlanilha(linha, ["Material de prova enviado como"], "A definir"), OPCOES_OLIMPIADA.materiaisProva, "Material de prova", erros, nl, false);
+    const correcaoRealizadaPor = validarOpcaoLista(lerLinhaPlanilha(linha, ["Correção realizada por"], "Correção centralizada pelo organizador"), OPCOES_OLIMPIADA.correcoes, "Correção", erros, nl, false);
+    const gratuitaParaEscolaPublica = validarOpcaoLista(lerLinhaPlanilha(linha, ["É gratuita para escola pública?"], "Sim"), OPCOES_OLIMPIADA.gratuitaPublica, "Gratuita para escola pública", erros, nl, false);
+    const premiaProfessores = validarOpcaoLista(lerLinhaPlanilha(linha, ["Premia professores?"], "Não"), OPCOES_OLIMPIADA.simNao, "Premia professores", erros, nl, false);
+    const premiaEscola = validarOpcaoLista(lerLinhaPlanilha(linha, ["Premia escola?"], "Não"), OPCOES_OLIMPIADA.simNao, "Premia escola", erros, nl, false);
+    const olimpiadaInternacionalAssociada = validarOpcaoLista(lerLinhaPlanilha(linha, ["Olimpíada internacional associada"], "Nenhuma"), OPCOES_OLIMPIADA.internacionais, "Olimpíada internacional associada", erros, nl, false);
+    const nivelFunil = validarOpcaoLista(lerLinhaPlanilha(linha, ["Nível de dificuldade / posição no funil"], "Porta de entrada (fase única acessível)"), OPCOES_OLIMPIADA.niveisFunil, "Nível no funil", erros, nl, false);
+
+    return {
+        id: novoId(),
+        nome,
+        categoria,
+        series: seriesAtendidas.join(", "),
+        edicao,
+        anoReferencia,
+        areas,
+        abrangencia,
+        status,
+        organizadorPrincipal: lerLinhaPlanilha(linha, ["Organizador principal"], ""),
+        siteOficial: lerLinhaPlanilha(linha, ["Site oficial"], ""),
+        tipoEscolaElegivel,
+        inscricaoIndividual,
+        escolaPrecisaInscrever,
+        seriesAtendidas,
+        segmentoPrincipal,
+        possuiRestricaoIdade,
+        idadeMaxima: possuiRestricaoIdade === "Sim" ? lerLinhaPlanilha(linha, ["Idade máxima do participante"], "") : "",
+        possuiModalidades,
+        modalidadesDescricao: possuiModalidades === "Sim" ? lerLinhaPlanilha(linha, ["Descrição das modalidades"], "") : "",
+        numeroFases,
+        tiposQuestao,
+        modalidadeAplicacao,
+        duracaoProvaPrincipal,
+        materialProvaEnviadoComo,
+        correcaoRealizadaPor,
+        gratuitaParaEscolaPublica,
+        custoEscolaPublica: lerLinhaPlanilha(linha, ["Custo para escola pública"], ""),
+        custoEscolaPrivada: lerLinhaPlanilha(linha, ["Custo para escola privada"], ""),
+        formasPagamento,
+        premiosOferecidos,
+        categoriasPremiacao,
+        premiaProfessores,
+        premiaEscola,
+        classificaPara: lerLinhaPlanilha(linha, ["Classifica para qual olimpíada?"], ""),
+        preRequisitoDe: lerLinhaPlanilha(linha, ["É pré-requisito de qual olimpíada?"], ""),
+        olimpiadaInternacionalAssociada,
+        nivelFunil,
+        criadoEm: new Date().toISOString(),
+        origemCadastro: "importacao_xlsx"
+    };
+}
+
+function processarPlanilhaOlimpiadas(arquivo) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem homologar olimpíadas em lote.");
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+            const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+            const erros = [];
+            const olimpiadas = getStorage("app_olimpiadas");
+            let inseridos = 0;
+            let substituidos = 0;
+
+            linhas.forEach((linha, idx) => {
+                const nl = idx + 2;
+                const nomeTeste = lerLinhaPlanilha(linha, ["Nome completo da olimpíada", "Nome"], "");
+                const siglaTeste = lerLinhaPlanilha(linha, ["Sigla / Frente", "Sigla", "Frente"], "");
+                if (!nomeTeste && !siglaTeste) return;
+
+                const antesErros = erros.length;
+                const item = montarOlimpiadaDaLinhaPlanilha(linha, nl, erros);
+                if (erros.length > antesErros) return;
+
+                const idxExistente = olimpiadas.findIndex(o => normalizarTexto(o.nome) === normalizarTexto(item.nome) || normalizarTexto(o.categoria) === normalizarTexto(item.categoria));
+                if (idxExistente >= 0) {
+                    item.id = olimpiadas[idxExistente].id || item.id;
+                    item.atualizadoEm = new Date().toISOString();
+                    olimpiadas[idxExistente] = { ...olimpiadas[idxExistente], ...item };
+                    substituidos++;
+                } else {
+                    olimpiadas.push(item);
+                    inseridos++;
+                }
+            });
+
+            setStorage("app_olimpiadas", olimpiadas);
+            popularSeletores();
+            renderizarTabelasGerenciais();
+            if (document.getElementById("fileInputOlimpiadas")) document.getElementById("fileInputOlimpiadas").value = "";
+
+            const resumo = `Importação concluída para o ano ${anoDadosAtivo}.\n✅ ${inseridos} inseridas\n🔁 ${substituidos} substituídas`;
+            if (erros.length) alert(`${resumo}\n⚠️ ${erros.length} erros:\n\n${erros.slice(0, 15).join("\n")}`);
+            else alert(`${resumo}\n\nDados salvos no Firestore do ano ${anoDadosAtivo}.`);
+        } catch (err) {
+            console.error("Erro ao importar olimpíadas", err);
+            alert(`Erro ao processar a planilha de olimpíadas.\n\n${err.message || err}`);
+        }
+    };
+    leitor.readAsArrayBuffer(arquivo);
+}
+
+function aplicarValidacaoColunas(ws, colunas, linhaInicial, linhaFinal, range, mensagem) {
+    colunas.forEach(col => aplicarListaSuspensa(ws, col, linhaInicial, linhaFinal, range, mensagem));
+}
+
+async function downloadOlimpiadasTemplate() {
+    if (!bibliotecaExcelJSPresente()) {
+        alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
+        return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico";
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet("HomologacaoOlimpiadas");
+
+    ws.columns = [
+        { header: "Nome completo da olimpíada", key: "nome", width: 42 },
+        { header: "Sigla / Frente", key: "sigla", width: 18 },
+        { header: "Edição / Número", key: "edicao", width: 16 },
+        { header: "Ano de referência", key: "ano", width: 18 },
+        { header: "Área 1", key: "area1", width: 22 },
+        { header: "Área 2", key: "area2", width: 22 },
+        { header: "Área 3", key: "area3", width: 22 },
+        { header: "Abrangência geográfica", key: "abrangencia", width: 28 },
+        { header: "Status", key: "status", width: 20 },
+        { header: "Organizador principal", key: "organizador", width: 34 },
+        { header: "Site oficial", key: "site", width: 34 },
+        { header: "Tipo de escola elegível", key: "tipoEscola", width: 28 },
+        { header: "Inscrição individual?", key: "inscricaoIndividual", width: 34 },
+        { header: "Escola precisa se inscrever?", key: "escolaInscricao", width: 30 },
+        { header: "Série atendida 1", key: "serie1", width: 24 },
+        { header: "Série atendida 2", key: "serie2", width: 24 },
+        { header: "Série atendida 3", key: "serie3", width: 24 },
+        { header: "Segmento principal", key: "segmento", width: 24 },
+        { header: "Possui restrição de idade?", key: "restricaoIdade", width: 26 },
+        { header: "Idade máxima do participante", key: "idadeMaxima", width: 26 },
+        { header: "Possui modalidades/níveis internos?", key: "possuiModalidades", width: 34 },
+        { header: "Descrição das modalidades", key: "modalidadesDescricao", width: 36 },
+        { header: "Número de fases", key: "fases", width: 18 },
+        { header: "Tipo de questão 1", key: "tipoQuestao1", width: 28 },
+        { header: "Tipo de questão 2", key: "tipoQuestao2", width: 28 },
+        { header: "Tipo de questão 3", key: "tipoQuestao3", width: 28 },
+        { header: "Modalidade de aplicação", key: "modalidade", width: 30 },
+        { header: "Duração da prova principal", key: "duracao", width: 24 },
+        { header: "Material de prova enviado como", key: "material", width: 30 },
+        { header: "Correção realizada por", key: "correcao", width: 36 },
+        { header: "É gratuita para escola pública?", key: "gratuita", width: 28 },
+        { header: "Custo para escola pública", key: "custoPublica", width: 24 },
+        { header: "Custo para escola privada", key: "custoPrivada", width: 24 },
+        { header: "Forma de pagamento 1", key: "pagamento1", width: 24 },
+        { header: "Forma de pagamento 2", key: "pagamento2", width: 24 },
+        { header: "Forma de pagamento 3", key: "pagamento3", width: 24 },
+        { header: "Prêmio oferecido 1", key: "premio1", width: 28 },
+        { header: "Prêmio oferecido 2", key: "premio2", width: 28 },
+        { header: "Prêmio oferecido 3", key: "premio3", width: 28 },
+        { header: "Categoria de premiação 1", key: "catPremio1", width: 24 },
+        { header: "Categoria de premiação 2", key: "catPremio2", width: 24 },
+        { header: "Categoria de premiação 3", key: "catPremio3", width: 24 },
+        { header: "Premia professores?", key: "premiaProf", width: 22 },
+        { header: "Premia escola?", key: "premiaEscola", width: 20 },
+        { header: "Classifica para qual olimpíada?", key: "classifica", width: 34 },
+        { header: "É pré-requisito de qual olimpíada?", key: "prerequisito", width: 36 },
+        { header: "Olimpíada internacional associada", key: "internacional", width: 32 },
+        { header: "Nível de dificuldade / posição no funil", key: "funil", width: 42 }
+    ];
+
+    ws.addRow({
+        nome: "Olimpíada Brasileira de Física",
+        sigla: "OBF",
+        edicao: "27",
+        ano: anoDadosAtivo,
+        area1: "Física",
+        abrangencia: "Nacional",
+        status: "Ativa",
+        organizador: "Sociedade Brasileira de Física",
+        site: "https://",
+        tipoEscola: "Pública e privada",
+        inscricaoIndividual: "Não",
+        escolaInscricao: "Sim, obrigatório",
+        serie1: "1ª a 3ª Série EM",
+        segmento: "Ensino Médio",
+        restricaoIdade: "Não",
+        possuiModalidades: "Sim",
+        modalidadesDescricao: "Nível 1, Nível 2 e Nível 3",
+        fases: "3 fases",
+        tipoQuestao1: "Múltipla escolha",
+        tipoQuestao2: "Dissertativa / Aberta",
+        modalidade: "Presencial na escola",
+        duracao: "3h",
+        material: "PDF download no site",
+        correcao: "Upload de cartão/folha",
+        gratuita: "Sim",
+        pagamento1: "Isento",
+        premio1: "Medalha física",
+        premio2: "Certificado digital",
+        catPremio1: "Ouro",
+        catPremio2: "Prata",
+        catPremio3: "Bronze",
+        premiaProf: "Não",
+        premiaEscola: "Não",
+        internacional: "IPhO",
+        funil: "Avançada (nacional)"
+    });
+    for (let i = 0; i < 149; i++) ws.addRow({ ano: anoDadosAtivo });
+
+    estilizarCabecalhoTemplate(ws, ws.columns.length);
+    ws.getRow(1).height = 36;
+    ws.eachRow((row, rowNumber) => {
+        if (rowNumber > 1) row.alignment = { vertical: "top", wrapText: true };
+    });
+
+    const listas = obterOuCriarAbaListas(workbook);
+    const ranges = {
+        anos: escreverListaValidacao(listas, "A", "Anos", OPCOES_OLIMPIADA.anos),
+        areas: escreverListaValidacao(listas, "B", "Áreas", OPCOES_OLIMPIADA.areas),
+        abrangencias: escreverListaValidacao(listas, "C", "Abrangências", OPCOES_OLIMPIADA.abrangencias),
+        status: escreverListaValidacao(listas, "D", "Status", OPCOES_OLIMPIADA.status),
+        tiposEscola: escreverListaValidacao(listas, "E", "Tipos de escola", OPCOES_OLIMPIADA.tiposEscola),
+        inscricaoIndividual: escreverListaValidacao(listas, "F", "Inscrição individual", OPCOES_OLIMPIADA.inscricaoIndividual),
+        escolaInscricao: escreverListaValidacao(listas, "G", "Escola inscrição", OPCOES_OLIMPIADA.escolaInscricao),
+        series: escreverListaValidacao(listas, "H", "Séries", OPCOES_OLIMPIADA.seriesAtendidas),
+        segmentos: escreverListaValidacao(listas, "I", "Segmentos", OPCOES_OLIMPIADA.segmentos),
+        simNao: escreverListaValidacao(listas, "J", "Sim Não", OPCOES_OLIMPIADA.simNao),
+        numeroFases: escreverListaValidacao(listas, "K", "Número de fases", OPCOES_OLIMPIADA.numeroFases),
+        tiposQuestao: escreverListaValidacao(listas, "L", "Tipos de questão", OPCOES_OLIMPIADA.tiposQuestao),
+        modalidades: escreverListaValidacao(listas, "M", "Modalidades de aplicação", OPCOES_OLIMPIADA.modalidadesAplicacao),
+        duracoes: escreverListaValidacao(listas, "N", "Durações", OPCOES_OLIMPIADA.duracoes),
+        materiais: escreverListaValidacao(listas, "O", "Materiais", OPCOES_OLIMPIADA.materiaisProva),
+        correcoes: escreverListaValidacao(listas, "P", "Correções", OPCOES_OLIMPIADA.correcoes),
+        gratuita: escreverListaValidacao(listas, "Q", "Gratuidade", OPCOES_OLIMPIADA.gratuitaPublica),
+        formasPagamento: escreverListaValidacao(listas, "R", "Formas pagamento", OPCOES_OLIMPIADA.formasPagamento),
+        premios: escreverListaValidacao(listas, "S", "Prêmios", OPCOES_OLIMPIADA.premios),
+        categorias: escreverListaValidacao(listas, "T", "Categorias premiação", OPCOES_OLIMPIADA.categoriasPremiacao),
+        internacionais: escreverListaValidacao(listas, "U", "Internacionais", OPCOES_OLIMPIADA.internacionais),
+        funil: escreverListaValidacao(listas, "V", "Funil", OPCOES_OLIMPIADA.niveisFunil)
+    };
+
+    aplicarListaSuspensa(ws, "D", 2, 151, ranges.anos, "Escolha o ano de referência.");
+    aplicarValidacaoColunas(ws, ["E", "F", "G"], 2, 151, ranges.areas, "Escolha uma área/disciplina.");
+    aplicarListaSuspensa(ws, "H", 2, 151, ranges.abrangencias, "Escolha a abrangência.");
+    aplicarListaSuspensa(ws, "I", 2, 151, ranges.status, "Escolha o status.");
+    aplicarListaSuspensa(ws, "L", 2, 151, ranges.tiposEscola, "Escolha o tipo de escola elegível.");
+    aplicarListaSuspensa(ws, "M", 2, 151, ranges.inscricaoIndividual, "Escolha uma opção.");
+    aplicarListaSuspensa(ws, "N", 2, 151, ranges.escolaInscricao, "Escolha uma opção.");
+    aplicarValidacaoColunas(ws, ["O", "P", "Q"], 2, 151, ranges.series, "Escolha uma série/segmento atendido.");
+    aplicarListaSuspensa(ws, "R", 2, 151, ranges.segmentos, "Escolha o segmento principal.");
+    aplicarListaSuspensa(ws, "S", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "U", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "W", 2, 151, ranges.numeroFases, "Escolha o número de fases.");
+    aplicarValidacaoColunas(ws, ["X", "Y", "Z"], 2, 151, ranges.tiposQuestao, "Escolha o tipo de questão.");
+    aplicarListaSuspensa(ws, "AA", 2, 151, ranges.modalidades, "Escolha a modalidade de aplicação.");
+    aplicarListaSuspensa(ws, "AB", 2, 151, ranges.duracoes, "Escolha a duração.");
+    aplicarListaSuspensa(ws, "AC", 2, 151, ranges.materiais, "Escolha como o material é enviado.");
+    aplicarListaSuspensa(ws, "AD", 2, 151, ranges.correcoes, "Escolha a forma de correção.");
+    aplicarListaSuspensa(ws, "AE", 2, 151, ranges.gratuita, "Escolha a gratuidade.");
+    aplicarValidacaoColunas(ws, ["AH", "AI", "AJ"], 2, 151, ranges.formasPagamento, "Escolha uma forma de pagamento.");
+    aplicarValidacaoColunas(ws, ["AK", "AL", "AM"], 2, 151, ranges.premios, "Escolha um prêmio oferecido.");
+    aplicarValidacaoColunas(ws, ["AN", "AO", "AP"], 2, 151, ranges.categorias, "Escolha uma categoria de premiação.");
+    aplicarListaSuspensa(ws, "AQ", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "AR", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "AU", 2, 151, ranges.internacionais, "Escolha uma opção.");
+    aplicarListaSuspensa(ws, "AV", 2, 151, ranges.funil, "Escolha o nível no funil.");
+
+    await baixarWorkbookExcelJS(workbook, `modelo_homologacao_olimpiadas_${anoDadosAtivo}_com_listas.xlsx`);
+}
+
 // ==================== PLATAFORMA DE ENSINO ====================
 const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
@@ -2335,8 +2776,8 @@ const FIREBASE_COLLECTIONS = {
     app_premiados: "sistema_premiados",
     app_plataforma: "sistema_plataforma"
 };
-const FIREBASE_MATERIAIS_COLLECTION = FIREBASE_COLLECTIONS.app_plataforma;
-const FIREBASE_USUARIOS_COLLECTION = FIREBASE_COLLECTIONS.app_usuarios;
+function getMateriaisCollectionName() { return getFirebaseCollectionName("app_plataforma"); }
+function getUsuariosCollectionName() { return getFirebaseCollectionName("app_usuarios"); }
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
 
@@ -2349,7 +2790,7 @@ async function carregarMateriaisPlataforma() {
 
     try {
         const snapshot = await firebaseFirestore
-            .collection(FIREBASE_MATERIAIS_COLLECTION)
+            .collection(getMateriaisCollectionName())
             .get();
 
         const materiais = [];
@@ -2571,7 +3012,7 @@ async function salvarNovoMaterial(event) {
             material.tamanhoBytes = arquivo.size;
         }
 
-        await firebaseFirestore.collection(FIREBASE_MATERIAIS_COLLECTION).doc(String(material.id)).set(material);
+        await firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(material.id)).set(material);
         await carregarChaveFirebase("app_plataforma", []);
 
         document.getElementById("formAddMaterial").reset();
@@ -2594,7 +3035,7 @@ async function excluirMaterial(id) {
 
     try {
         if (!firebaseFirestore) throw new Error("Cloud Firestore não inicializado");
-        const docRef = firebaseFirestore.collection(FIREBASE_MATERIAIS_COLLECTION).doc(String(id));
+        const docRef = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(id));
         const snap = await docRef.get();
         const material = snap.exists ? snap.data() : null;
 
@@ -3247,6 +3688,7 @@ window.alternarMicrofoneMonitoria = alternarMicrofoneMonitoria;
 window.alternarCameraMonitoria = alternarCameraMonitoria;
 window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
 window.downloadTemplate = downloadTemplate;
+window.downloadOlimpiadasTemplate = downloadOlimpiadasTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
 window.ajustarCamposFormUsuario = ajustarCamposFormUsuario;
 window.salvarNovoUsuario = salvarNovoUsuario;
