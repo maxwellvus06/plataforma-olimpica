@@ -410,25 +410,55 @@ function normalizarListaFirebase(valor) {
     return [];
 }
 
-function getFirebasePath(chave) {
-    if (typeof FIREBASE_DATA_PATHS !== "undefined" && FIREBASE_DATA_PATHS[chave]) return FIREBASE_DATA_PATHS[chave];
-    if (chave === "app_usuarios" && typeof FIREBASE_USUARIOS_PATH !== "undefined") return FIREBASE_USUARIOS_PATH;
-    return `avance_olimpico/${chave}`;
+function getFirebaseCollectionName(chave) {
+    if (typeof FIREBASE_COLLECTIONS !== "undefined" && FIREBASE_COLLECTIONS[chave]) return FIREBASE_COLLECTIONS[chave];
+    return chave.replace(/^app_/, "sistema_");
+}
+
+function prepararListaParaFirestore(lista) {
+    return normalizarListaFirebase(lista).map(item => {
+        const copia = { ...(item || {}) };
+        if (!copia.id) copia.id = novoId();
+        return copia;
+    });
+}
+
+async function substituirColecaoFirestore(nomeColecao, lista) {
+    const col = firebaseFirestore.collection(nomeColecao);
+    const atuais = await col.get();
+    const dados = prepararListaParaFirestore(lista);
+
+    let batch = firebaseFirestore.batch();
+    let ops = 0;
+
+    atuais.forEach(doc => {
+        batch.delete(doc.ref);
+        ops++;
+    });
+
+    dados.forEach(item => {
+        batch.set(col.doc(String(item.id)), item);
+        ops++;
+    });
+
+    if (ops > 0) await batch.commit();
+    return dados;
 }
 
 function salvarChaveFirebase(chave, valor) {
     initFirebase();
-    if (!firebaseDB) {
-        console.error(`${chave} NÃO foi salvo: Firebase Realtime Database não inicializado.`);
-        alert(`Firebase não inicializou. ${chave} não foi salvo no banco.`);
-        return Promise.reject(new Error("Firebase Realtime Database não inicializado"));
+    if (!firebaseFirestore) {
+        console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`);
+        alert(`Firebase/Firestore não inicializou. ${chave} não foi salvo no banco.`);
+        return Promise.reject(new Error("Cloud Firestore não inicializado"));
     }
-    const path = getFirebasePath(chave);
-    return firebaseDB.ref(path).set(valor).then(() => {
-        console.log(`Firebase OK: ${chave} salvo em ${path}`);
+    const colecao = getFirebaseCollectionName(chave);
+    return substituirColecaoFirestore(colecao, valor).then((dados) => {
+        setStorageLocal(chave, dados);
+        console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}`);
     }).catch(erro => {
-        console.error(`${chave} NÃO foi salvo no Firebase em ${path}.`, erro);
-        alert(`${chave} não foi salvo no Firebase. Verifique Rules/Realtime Database.
+        console.error(`${chave} NÃO foi salvo no Firestore na coleção ${colecao}.`, erro);
+        alert(`${chave} não foi salvo no Firestore. Verifique as Rules do Cloud Firestore.
 
 ${erro.message || erro}`);
         throw erro;
@@ -439,48 +469,58 @@ async function carregarChaveFirebase(chave, fallback = []) {
     initFirebase();
     const seed = Array.isArray(fallback) && fallback.length ? fallback : dadosSementePorChave(chave);
 
-    if (!firebaseDB) {
-        console.error("Firebase Realtime Database não inicializado. Nada será gravado localmente.");
+    if (!firebaseFirestore) {
+        console.error("Cloud Firestore não inicializado. Nada será gravado localmente.");
         setStorageLocal(chave, seed);
         return getStorage(chave, []);
     }
 
+    const colecao = getFirebaseCollectionName(chave);
+
     try {
-        const ref = firebaseDB.ref(getFirebasePath(chave));
-        const snap = await ref.once("value");
-        const remotoBruto = snap.val();
-        let remotos = normalizarListaFirebase(remotoBruto);
+        const snap = await firebaseFirestore.collection(colecao).get();
+        let remotos = [];
+        snap.forEach(doc => {
+            const data = doc.data() || {};
+            remotos.push({ id: data.id || doc.id, ...data });
+        });
 
         if (chave === "app_usuarios") {
             const sementesUsuarios = dadosSementePorChave("app_usuarios");
             const mapa = new Map();
-            remotos.forEach(item => mapa.set(item.id || item.login || novoId(), item));
+            remotos.forEach(item => mapa.set(String(item.id || item.login || novoId()), item));
             sementesUsuarios.forEach(item => {
-                const id = item.id || item.login || novoId();
+                const id = String(item.id || item.login || novoId());
                 const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(item.login));
                 if (!mapa.has(id) && !loginJaExiste) mapa.set(id, item);
             });
-            const finais = Array.from(mapa.values()).filter(Boolean);
-            if (JSON.stringify(finais) !== JSON.stringify(remotos)) await ref.set(finais);
+            const finais = prepararListaParaFirestore(Array.from(mapa.values()).filter(Boolean));
+            if (JSON.stringify(finais) !== JSON.stringify(prepararListaParaFirestore(remotos))) {
+                await substituirColecaoFirestore(colecao, finais);
+            }
             setStorageLocal(chave, finais);
             return finais;
         }
 
-        if (remotos.length > 0 || remotoBruto !== null) {
+        if (remotos.length > 0) {
             setStorageLocal(chave, remotos);
             return remotos;
         }
 
-        await ref.set(seed);
-        setStorageLocal(chave, seed);
-        return seed;
+        const dadosIniciais = prepararListaParaFirestore(seed);
+        if (dadosIniciais.length > 0) {
+            await substituirColecaoFirestore(colecao, dadosIniciais);
+            setStorageLocal(chave, dadosIniciais);
+        } else {
+            setStorageLocal(chave, []);
+        }
+        return getStorage(chave, []);
     } catch (erro) {
-        console.error(`Erro real no Firebase ao carregar ${chave}:`, erro);
-        alert(`Erro de Firebase ao carregar ${chave}. Verifique as Rules do Realtime Database.
+        console.error(`Erro de Firebase ao carregar ${chave} na coleção ${colecao}.`, erro);
+        alert(`Erro de Firebase ao carregar ${chave}. Verifique as Rules do Cloud Firestore.
 
 ${erro.message || erro}`);
-        setStorageLocal(chave, seed);
-        return seed;
+        throw erro;
     }
 }
 
@@ -1646,43 +1686,48 @@ function downloadTemplate() {
 // ==================== PLATAFORMA DE ENSINO ====================
 const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
-const FIREBASE_ROOT_PATH = "avance_olimpico";
-const FIREBASE_DATA_PATHS = {
-    app_usuarios: `${FIREBASE_ROOT_PATH}/app_usuarios`,
-    app_cidades: `${FIREBASE_ROOT_PATH}/app_cidades`,
-    app_escolas: `${FIREBASE_ROOT_PATH}/app_escolas`,
-    app_olimpiadas: `${FIREBASE_ROOT_PATH}/app_olimpiadas`,
-    app_cronograma: `${FIREBASE_ROOT_PATH}/app_cronograma`,
-    app_premiados: `${FIREBASE_ROOT_PATH}/app_premiados`,
-    app_plataforma: `${FIREBASE_ROOT_PATH}/app_plataforma`
+// Coleções do Cloud Firestore já existentes no seu projeto, como aparece no print.
+const FIREBASE_COLLECTIONS = {
+    app_usuarios: "sistema_usuarios",
+    app_cidades: "sistema_cidades",
+    app_escolas: "sistema_escolas",
+    app_olimpiadas: "sistema_olimpiadas",
+    app_cronograma: "sistema_cronograma",
+    app_premiados: "sistema_premiados",
+    app_plataforma: "sistema_plataforma"
 };
-const FIREBASE_MATERIAIS_PATH = FIREBASE_DATA_PATHS.app_plataforma;
-const FIREBASE_USUARIOS_PATH = FIREBASE_DATA_PATHS.app_usuarios;
+const FIREBASE_MATERIAIS_COLLECTION = FIREBASE_COLLECTIONS.app_plataforma;
+const FIREBASE_USUARIOS_COLLECTION = FIREBASE_COLLECTIONS.app_usuarios;
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
 
 async function carregarMateriaisPlataforma() {
     initFirebase();
 
-    // Agora a Plataforma usa Realtime Database para a lista de materiais.
+    // A Plataforma usa Cloud Firestore para a lista de materiais.
     // Os arquivos PDF ficam no Google Drive via Apps Script.
-    if (!firebaseDB) return getStorage("app_plataforma");
+    if (!firebaseFirestore) return getStorage("app_plataforma");
 
     try {
-        const snapshot = await firebaseDB
-            .ref(FIREBASE_MATERIAIS_PATH)
-            .orderByChild("criadoEm")
-            .once("value");
+        const snapshot = await firebaseFirestore
+            .collection(FIREBASE_MATERIAIS_COLLECTION)
+            .get();
 
         const materiais = [];
-        snapshot.forEach(child => {
-            materiais.push({ id: child.key, ...child.val() });
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            materiais.push({ id: data.id || doc.id, ...data });
         });
 
-        return materiais.reverse();
+        materiais.sort((a, b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
+        setStorageLocal("app_plataforma", materiais);
+        return materiais;
     } catch (erro) {
-        console.error("Falha ao carregar materiais do Firebase Realtime Database.", erro);
-        return getStorage("app_plataforma");
+        console.error("Falha ao carregar materiais do Cloud Firestore.", erro);
+        alert(`Erro ao carregar materiais no Firestore.
+
+${erro.message || erro}`);
+        throw erro;
     }
 }
 
@@ -1871,9 +1916,10 @@ async function salvarNovoMaterial(event) {
             area,
             tipo,
             url: tipo === "video" || tipo === "link" ? url : "",
+            id: novoId(),
             criadoPor: usuarioLogado?.nome || "Sistema",
             criadoPorId: usuarioLogado?.id || "",
-            criadoEm: firebase.database.ServerValue.TIMESTAMP,
+            criadoEm: Date.now(),
             hospedagem: tipo === "arquivo" ? "google_drive" : "link_externo"
         };
 
@@ -1886,7 +1932,7 @@ async function salvarNovoMaterial(event) {
             material.tamanhoBytes = arquivo.size;
         }
 
-        await firebaseDB.ref(FIREBASE_MATERIAIS_PATH).push(material);
+        await firebaseFirestore.collection(FIREBASE_MATERIAIS_COLLECTION).doc(String(material.id)).set(material);
         await carregarChaveFirebase("app_plataforma", []);
 
         document.getElementById("formAddMaterial").reset();
@@ -1908,21 +1954,16 @@ async function excluirMaterial(id) {
     initFirebase();
 
     try {
-        let material = null;
-        if (firebaseDB) {
-            const snap = await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).once("value");
-            material = snap.val();
-        } else {
-            material = getStorage("app_plataforma").find(m => m.id === id) || null;
-        }
+        if (!firebaseFirestore) throw new Error("Cloud Firestore não inicializado");
+        const docRef = firebaseFirestore.collection(FIREBASE_MATERIAIS_COLLECTION).doc(String(id));
+        const snap = await docRef.get();
+        const material = snap.exists ? snap.data() : null;
 
         if (material?.driveFileId) {
             await excluirArquivoGoogleDrive(material.driveFileId);
         }
 
-        if (firebaseDB) {
-            await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
-        }
+        await docRef.delete();
 
         await carregarChaveFirebase("app_plataforma", []);
 
@@ -1968,11 +2009,11 @@ function initFirebase() {
         if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
         if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
         if (firebase.analytics) { try { firebase.analytics(); } catch (_) {} }
-        if (firebaseDB) {
-            firebaseDB.ref(`${FIREBASE_ROOT_PATH}/_debug/ultimo_acesso`).set({
-                quando: firebase.database.ServerValue.TIMESTAMP,
-                origem: "app_sem_armazenamento_local"
-            }).catch(e => console.error("Debug Firebase falhou:", e));
+        if (firebaseFirestore) {
+            firebaseFirestore.collection("sistema_debug").doc("ultimo_acesso").set({
+                quando: firebase.firestore.FieldValue.serverTimestamp(),
+                origem: "app_firestore_sem_armazenamento_local"
+            }, { merge: true }).catch(e => console.error("Debug Firestore falhou:", e));
         }
     } catch(e) {
         console.warn("Firebase não configurado ainda:", e.message);
