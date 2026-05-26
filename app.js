@@ -5274,3 +5274,287 @@ window.salvarNovoCronograma = salvarNovoCronograma;
 window.salvarNovaCidade = salvarNovaCidade;
 window.salvarNovaEscola = salvarNovaEscola;
 window.fecharModalEdicao = fecharModalEdicao;
+
+// ==================== EDITOR VISUAL — LAYOUT POR ESCOPO ====================
+// Regras de precedência: usuário > escola > cidade > nível > global.
+function layoutDocIdPorEscopo(tipo = "global", alvo = "") {
+    const seguro = String(alvo || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (tipo === "nivel") return `nivel_${seguro}`;
+    if (tipo === "cidade") return `cidade_${seguro}`;
+    if (tipo === "escola") return `escola_${seguro}`;
+    if (tipo === "usuario") return `usuario_${seguro}`;
+    return "global";
+}
+
+function layoutCollectionRef(docId = "global") {
+    initFirebase();
+    if (!firebaseFirestore) return null;
+    return firebaseFirestore.collection("sistema_layout").doc(docId || "global");
+}
+
+async function lerDocLayout(docId) {
+    const ref = layoutCollectionRef(docId);
+    if (!ref) return null;
+    const snap = await ref.get();
+    return snap.exists ? (snap.data() || {}) : null;
+}
+
+function getEscoposLayoutParaUsuario(usuario = usuarioLogado) {
+    const escopos = ["global"];
+    if (!usuario) return escopos;
+
+    if (usuario.nivel) escopos.push(layoutDocIdPorEscopo("nivel", usuario.nivel));
+
+    let escolaId = "";
+    let cidadeId = "";
+
+    if (usuario.nivel === "Gestor" && usuario.vinculoId) {
+        cidadeId = usuario.vinculoId;
+    }
+
+    if ((usuario.nivel === "Escola" || usuario.nivel === "Aluno") && usuario.vinculoId) {
+        escolaId = usuario.vinculoId;
+        const escolas = getStorage("app_escolas", []);
+        const escola = escolas.find(e => String(e.id) === String(escolaId));
+        if (escola?.cidadeId) cidadeId = escola.cidadeId;
+    }
+
+    if (usuario.cidadeId && !cidadeId) cidadeId = usuario.cidadeId;
+    if (usuario.escolaId && !escolaId) escolaId = usuario.escolaId;
+
+    if (cidadeId) escopos.push(layoutDocIdPorEscopo("cidade", cidadeId));
+    if (escolaId) escopos.push(layoutDocIdPorEscopo("escola", escolaId));
+    if (usuario.id) escopos.push(layoutDocIdPorEscopo("usuario", usuario.id));
+
+    return [...new Set(escopos)];
+}
+
+async function carregarLayoutVisual() {
+    initFirebase();
+    if (!firebaseFirestore) {
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    }
+
+    try {
+        let final = { ...LAYOUT_PADRAO };
+
+        // Compatibilidade com a primeira versão do editor, que salvava em sistema_layout/config.
+        const legado = await lerDocLayout("config");
+        if (legado) final = { ...final, ...legado };
+
+        const escopos = getEscoposLayoutParaUsuario(usuarioLogado);
+        for (const docId of escopos) {
+            const dados = await lerDocLayout(docId);
+            if (dados) final = { ...final, ...dados };
+        }
+
+        layoutVisualAtual = { ...LAYOUT_PADRAO, ...final };
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    } catch (erro) {
+        console.warn("Não foi possível carregar layout visual por escopo.", erro);
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    }
+}
+
+function textoAlvoLayout(tipo, alvo) {
+    if (tipo === "nivel") return `nível ${alvo}`;
+    if (tipo === "cidade") {
+        const c = getStorage("app_cidades", []).find(x => String(x.id) === String(alvo));
+        return c ? `cidade ${c.nome} (${c.uf})` : `cidade ${alvo}`;
+    }
+    if (tipo === "escola") {
+        const e = getStorage("app_escolas", []).find(x => String(x.id) === String(alvo));
+        return e ? `escola ${e.nome}` : `escola ${alvo}`;
+    }
+    if (tipo === "usuario") {
+        const u = getStorage("app_usuarios", []).find(x => String(x.id) === String(alvo));
+        return u ? `usuário ${u.nome} (${u.nivel})` : `usuário ${alvo}`;
+    }
+    return "todos os usuários";
+}
+
+function getEscopoSelecionadoLayout() {
+    const tipo = document.getElementById("layoutEscopoTipo")?.value || "global";
+    const alvoSelect = document.getElementById("layoutEscopoAlvo");
+    const alvo = tipo === "global" ? "" : (alvoSelect?.value || "");
+    return { tipo, alvo, docId: layoutDocIdPorEscopo(tipo, alvo) };
+}
+
+function atualizarResumoEscopoLayout(existeConfig = null) {
+    const { tipo, alvo, docId } = getEscopoSelecionadoLayout();
+    const resumo = document.getElementById("layoutEscopoResumo");
+    if (!resumo) return;
+    const alvoTexto = textoAlvoLayout(tipo, alvo);
+    let status = "";
+    if (existeConfig === true) status = " Este escopo já possui configuração própria.";
+    if (existeConfig === false) status = " Este escopo ainda não possui configuração própria; a tela mostra o layout herdado.";
+    resumo.innerText = `Editando layout para ${alvoTexto}. ID interno: ${docId}.${status}`;
+}
+
+function atualizarAlvosLayoutEditor() {
+    const tipo = document.getElementById("layoutEscopoTipo")?.value || "global";
+    const alvo = document.getElementById("layoutEscopoAlvo");
+    if (!alvo) return;
+
+    alvo.innerHTML = "";
+    alvo.disabled = tipo === "global";
+
+    if (tipo === "global") {
+        alvo.innerHTML = '<option value="">Todos</option>';
+        atualizarResumoEscopoLayout(null);
+        return;
+    }
+
+    let opcoes = [];
+    if (tipo === "nivel") {
+        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor"].map(n => ({ value: n, text: n }));
+    } else if (tipo === "cidade") {
+        opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` }));
+    } else if (tipo === "escola") {
+        const cidades = getStorage("app_cidades", []);
+        opcoes = getStorage("app_escolas", []).map(e => {
+            const c = cidades.find(x => String(x.id) === String(e.cidadeId));
+            return { value: e.id, text: `${e.nome}${c ? ` — ${c.nome}/${c.uf}` : ""}` };
+        });
+    } else if (tipo === "usuario") {
+        opcoes = getStorage("app_usuarios", []).map(u => ({ value: u.id, text: `${u.nome} — ${u.nivel} — ${u.login}` }));
+    }
+
+    if (!opcoes.length) {
+        alvo.innerHTML = '<option value="">Nenhum alvo disponível</option>';
+        alvo.disabled = true;
+    } else {
+        alvo.innerHTML = opcoes.map(o => `<option value="${textoSeguro(o.value)}">${textoSeguro(o.text)}</option>`).join("");
+    }
+    atualizarResumoEscopoLayout(null);
+}
+
+async function carregarLayoutEscopoSelecionado(mostrarAviso = true) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    const { docId } = getEscopoSelecionadoLayout();
+    try {
+        let dados = await lerDocLayout(docId);
+        if (!dados && docId === "global") dados = await lerDocLayout("config");
+
+        if (dados) {
+            preencherFormularioLayout({ ...LAYOUT_PADRAO, ...dados });
+            atualizarResumoEscopoLayout(true);
+            if (mostrarAviso) alert("Configuração deste escopo carregada.");
+            return;
+        }
+
+        // Se não existir configuração específica, mostra o layout efetivo atual como ponto de partida.
+        preencherFormularioLayout(layoutVisualAtual);
+        atualizarResumoEscopoLayout(false);
+        if (mostrarAviso) alert("Este escopo ainda não tem layout próprio. A tela mostra o layout herdado; salve para criar uma configuração específica.");
+    } catch (erro) {
+        console.error("Erro ao carregar layout do escopo", erro);
+        alert(`Erro ao carregar layout do escopo.\n\n${erro.message || erro}`);
+    }
+}
+
+function prepararEditorLayout() {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    atualizarAlvosLayoutEditor();
+    preencherFormularioLayout(layoutVisualAtual);
+    atualizarResumoEscopoLayout(null);
+}
+
+async function salvarLayoutVisual(event) {
+    event?.preventDefault();
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    const btn = event?.target?.querySelector('button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const escopo = getEscopoSelecionadoLayout();
+        const config = lerLayoutDoFormulario();
+        const novaLogo = await uploadArquivoLayout("layoutLogoArquivo", "logo");
+        const novoBanner = await uploadArquivoLayout("layoutBannerArquivo", "banner");
+        if (novaLogo) config.logoUrl = novaLogo;
+        if (novoBanner) config.bannerUrl = novoBanner;
+        const ref = layoutCollectionRef(escopo.docId);
+        if (!ref) throw new Error("Firestore não inicializado.");
+        await ref.set({
+            ...config,
+            escopoTipo: escopo.tipo,
+            escopoAlvo: escopo.alvo,
+            escopoDocId: escopo.docId,
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            atualizadoPorId: usuarioLogado.id,
+            atualizadoPorNome: usuarioLogado.nome
+        }, { merge: true });
+
+        // Se for layout global, também atualiza a cópia legada para não quebrar versões antigas abertas em cache.
+        if (escopo.docId === "global") {
+            await layoutCollectionRef("config")?.set({ ...config, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+
+        await carregarLayoutVisual();
+        preencherFormularioLayout({ ...LAYOUT_PADRAO, ...config });
+        atualizarResumoEscopoLayout(true);
+        alert(`Layout salvo para ${textoAlvoLayout(escopo.tipo, escopo.alvo)}.`);
+    } catch (erro) {
+        console.error("Erro ao salvar layout", erro);
+        alert(`Erro ao salvar layout.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar layout'; }
+    }
+}
+
+async function resetarLayoutVisual() {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    const escopo = getEscopoSelecionadoLayout();
+    if (!confirm(`Restaurar o layout padrão para ${textoAlvoLayout(escopo.tipo, escopo.alvo)}?`)) return;
+    const ref = layoutCollectionRef(escopo.docId);
+    if (!ref) return alert("Firestore não inicializado.");
+    await ref.set({
+        ...LAYOUT_PADRAO,
+        escopoTipo: escopo.tipo,
+        escopoAlvo: escopo.alvo,
+        escopoDocId: escopo.docId,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        atualizadoPorId: usuarioLogado.id,
+        atualizadoPorNome: usuarioLogado.nome
+    }, { merge: true });
+    await carregarLayoutVisual();
+    preencherFormularioLayout(LAYOUT_PADRAO);
+    atualizarResumoEscopoLayout(true);
+    alert("Layout padrão restaurado para este escopo.");
+}
+
+async function removerLayoutEscopoSelecionado() {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    const escopo = getEscopoSelecionadoLayout();
+    if (escopo.docId === "global") return alert("O layout global não pode ser removido. Use Restaurar padrão.");
+    if (!confirm(`Remover a configuração própria de ${textoAlvoLayout(escopo.tipo, escopo.alvo)}?\n\nEsse alvo voltará a herdar o layout mais amplo.`)) return;
+    const ref = layoutCollectionRef(escopo.docId);
+    if (!ref) return alert("Firestore não inicializado.");
+    await ref.delete();
+    await carregarLayoutVisual();
+    preencherFormularioLayout(layoutVisualAtual);
+    atualizarResumoEscopoLayout(false);
+    alert("Configuração específica removida. Este alvo agora herdará outro layout.");
+}
+
+// Sobrescreve o sucesso do login para reaplicar o layout após carregar o escopo do usuário.
+function logarSucesso(usuario) {
+    document.getElementById("loginScreen").classList.add("hidden");
+    document.getElementById("mainPanel").classList.remove("hidden");
+    document.getElementById("userLoggedNome").innerText = usuario.nome;
+    document.getElementById("userLoggedNivel").innerText = usuario.nivel;
+
+    carregarLayoutVisual().catch(erro => console.warn("Layout por escopo não carregou após login:", erro));
+    aplicarPermissoesNavegacao(usuario);
+    popularSeletores();
+    renderizarPlataformaDashboard();
+    renderizarCronograma();
+    renderizarTabelasGerenciais();
+    renderizarResultadosImportacao();
+    ajustarCamposFormUsuario();
+    renderizarPlataformaEnsino();
+    prepararFiltrosRelatoriosComparativos();
+    ativarPrimeiraAbaPermitida();
+}
