@@ -394,7 +394,7 @@ function ativarPrimeiraAbaPermitida() {
 
 function getCidadeGestor() {
     if (!usuarioLogado) return null;
-    if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return null;
+    if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor" || usuarioLogado.nivel === "Visualizador") return null;
     if (usuarioLogado.nivel === "Gestor") {
         const cidades = getStorage("app_cidades");
         return cidades.find(c => c.id === usuarioLogado.vinculoId) || null;
@@ -422,6 +422,93 @@ function getEscolaVinculadaUsuario() {
         return escolas.find(e => e.id === usuarioLogado.vinculoId) || null;
     }
     return null;
+}
+
+function valoresSelectMultiplo(id) {
+    const el = document.getElementById(id);
+    if (!el) return [];
+    return Array.from(el.selectedOptions || []).map(opt => opt.value).filter(Boolean);
+}
+
+function escopoVisualizadorUsuario(usuario = usuarioLogado) {
+    if (!usuario || usuario.nivel !== "Visualizador") return null;
+    const escopo = usuario.escopoVisualizador || {};
+    return {
+        cidadesIds: Array.isArray(escopo.cidadesIds) ? escopo.cidadesIds : [],
+        escolasIds: Array.isArray(escopo.escolasIds) ? escopo.escolasIds : []
+    };
+}
+
+function cidadeNomeUfPorId(cidadeId) {
+    const c = getStorage("app_cidades").find(cid => cid.id === cidadeId);
+    return c ? `${c.nome} - ${c.uf}` : "";
+}
+
+function idsEscolasDoEscopoVisualizador(usuario = usuarioLogado) {
+    const escopo = escopoVisualizadorUsuario(usuario);
+    if (!escopo) return [];
+    const escolas = getStorage("app_escolas");
+    const ids = new Set(escopo.escolasIds || []);
+    escolas.forEach(e => {
+        if ((escopo.cidadesIds || []).includes(e.cidadeId)) ids.add(e.id);
+    });
+    return Array.from(ids);
+}
+
+function nomesEscolasDoEscopoVisualizador(usuario = usuarioLogado) {
+    const ids = idsEscolasDoEscopoVisualizador(usuario);
+    const escolas = getStorage("app_escolas");
+    return escolas.filter(e => ids.includes(e.id)).map(e => e.nome);
+}
+
+function nomesMunicipiosDoEscopoVisualizador(usuario = usuarioLogado) {
+    const escopo = escopoVisualizadorUsuario(usuario);
+    if (!escopo) return [];
+    const nomes = new Set();
+    (escopo.cidadesIds || []).forEach(cid => {
+        const nome = cidadeNomeUfPorId(cid);
+        if (nome) nomes.add(nome);
+    });
+    const escolas = getStorage("app_escolas");
+    const cidades = getStorage("app_cidades");
+    (escopo.escolasIds || []).forEach(eid => {
+        const esc = escolas.find(e => e.id === eid);
+        const cid = esc ? cidades.find(c => c.id === esc.cidadeId) : null;
+        if (cid) nomes.add(`${cid.nome} - ${cid.uf}`);
+    });
+    return Array.from(nomes);
+}
+
+function itemDentroDoEscopoVisualizador(item, usuario = usuarioLogado) {
+    if (!usuario || usuario.nivel !== "Visualizador") return true;
+    const municipios = nomesMunicipiosDoEscopoVisualizador(usuario).map(normalizarTexto);
+    const escolas = nomesEscolasDoEscopoVisualizador(usuario).map(normalizarTexto);
+    const escolaItem = normalizarTexto(item.escola || item.nomeEscola || item.escolaNome);
+    const municipioItem = normalizarTexto(item.municipio || item.cidade || item.cidadeNome);
+    if (escolaItem && escolas.includes(escolaItem)) return true;
+    if (municipioItem && municipios.includes(municipioItem)) return true;
+    return false;
+}
+
+function popularEscopoVisualizadorCadastro() {
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const selCidades = document.getElementById("addUserVisualizadorCidades");
+    const selEscolas = document.getElementById("addUserVisualizadorEscolas");
+    if (selCidades) {
+        const anteriores = valoresSelectMultiplo("addUserVisualizadorCidades");
+        selCidades.innerHTML = cidades.map(c => `<option value="${textoSeguro(c.id)}">${textoSeguro(c.nome)} (${textoSeguro(c.uf)})</option>`).join("");
+        anteriores.forEach(v => { const opt = Array.from(selCidades.options).find(o => o.value === v); if (opt) opt.selected = true; });
+    }
+    if (selEscolas) {
+        const anteriores = valoresSelectMultiplo("addUserVisualizadorEscolas");
+        selEscolas.innerHTML = escolas.map(e => {
+            const c = cidades.find(cid => cid.id === e.cidadeId);
+            const cidadeTxt = c ? ` — ${c.nome}/${c.uf}` : "";
+            return `<option value="${textoSeguro(e.id)}">${textoSeguro(e.nome)}${textoSeguro(cidadeTxt)}</option>`;
+        }).join("");
+        anteriores.forEach(v => { const opt = Array.from(selEscolas.options).find(o => o.value === v); if (opt) opt.selected = true; });
+    }
 }
 
 function usuarioPodeGerenciarUsuarioAlvo(usuarioAlvo) {
@@ -461,6 +548,7 @@ function opcoesVinculoUsuario(nivelUsuario) {
     if (usuarioLogado?.nivel === "ADM") {
         if (nivelUsuario === "Gestor") return cidades.map(c => ({ value: c.id, text: `Cidade: ${c.nome} (${c.uf})` }));
         if (nivelUsuario === "Escola" || nivelUsuario === "Aluno") return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
+        if (nivelUsuario === "Visualizador") return [{ value: "", text: "Escopo múltiplo definido no cadastro" }];
         return [{ value: "", text: "Acesso Global" }];
     }
 
@@ -480,6 +568,7 @@ function opcoesVinculoUsuario(nivelUsuario) {
 function resultadoDentroDoEscopoUsuario(resultado) {
     if (!usuarioLogado) return false;
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return true;
+    if (usuarioLogado.nivel === "Visualizador") return itemDentroDoEscopoVisualizador(resultado);
 
     const municipioTravado = getMunicipioFiltradoUsuario();
     if (municipioTravado !== "TODOS" && normalizarTexto(resultado.municipio) !== normalizarTexto(municipioTravado)) return false;
@@ -496,6 +585,7 @@ function resultadoDentroDoEscopoUsuario(resultado) {
 function resultadoDentroDoEscopoResultadosUsuario(resultado) {
     if (!usuarioLogado) return false;
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return true;
+    if (usuarioLogado.nivel === "Visualizador") return itemDentroDoEscopoVisualizador(resultado);
     const municipioTravado = getMunicipioFiltradoUsuario();
     return municipioTravado === "TODOS" || normalizarTexto(resultado.municipio) === normalizarTexto(municipioTravado);
 }
@@ -1205,6 +1295,14 @@ function editarUsuario(id) {
         { nome: "vinculoId", label: "Vínculo permitido", tipo: "select", valor: atual.vinculoId, options: opcoesVinculoUsuario(nivelInicial) }
     ];
 
+    if (atual.nivel === "Visualizador") {
+        const cidades = getStorage("app_cidades");
+        const escolas = getStorage("app_escolas");
+        const escopo = atual.escopoVisualizador || { cidadesIds: [], escolasIds: [] };
+        campos.push({ nome: "visualizadorCidadesIds", label: "Cidades permitidas ao visualizador", tipo: "multiselect", valor: escopo.cidadesIds || [], size: 5, options: cidades.map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` })) });
+        campos.push({ nome: "visualizadorEscolasIds", label: "Escolas permitidas ao visualizador", tipo: "multiselect", valor: escopo.escolasIds || [], size: 6, options: escolas.map(e => ({ value: e.id, text: e.nome })) });
+    }
+
     abrirModalEdicao({
         titulo: "Editar usuário",
         campos,
@@ -1230,6 +1328,14 @@ function editarUsuario(id) {
             const i = lista.findIndex(u => u.id === id);
             const senhaFinal = d.novaSenha ? d.novaSenha : lista[i].senha;
             lista[i] = { ...lista[i], nome: d.nome, login: d.login.toLowerCase(), senha: senhaFinal, nivel: d.nivel, email: d.email, telefone: d.telefone, vinculoId: precisaVinculo ? d.vinculoId : "" };
+            if (d.nivel === "Visualizador") {
+                const cidadesIds = Array.isArray(d.visualizadorCidadesIds) ? d.visualizadorCidadesIds : (lista[i].escopoVisualizador?.cidadesIds || []);
+                const escolasIds = Array.isArray(d.visualizadorEscolasIds) ? d.visualizadorEscolasIds : (lista[i].escopoVisualizador?.escolasIds || []);
+                if (!cidadesIds.length && !escolasIds.length) return alert("Visualizador precisa ter pelo menos uma cidade ou escola no escopo."), false;
+                lista[i].escopoVisualizador = { cidadesIds, escolasIds };
+            } else {
+                delete lista[i].escopoVisualizador;
+            }
             salvarUsuariosSistema(lista);
             atualizarSessaoUsuario(lista[i]);
             renderizarTabelasGerenciais();
@@ -1766,15 +1872,20 @@ function ajustarCamposFormUsuario() {
     const nivel = document.getElementById("addUserNivel")?.value;
     const divCidade = document.getElementById("divVinculoCidade");
     const divEscola = document.getElementById("divVinculoEscola");
+    const divVisualizador = document.getElementById("divEscopoVisualizador");
     if (!divCidade || !divEscola) return;
 
     divCidade.classList.add("hidden");
     divEscola.classList.add("hidden");
+    if (divVisualizador) divVisualizador.classList.add("hidden");
 
     if (nivel === "Gestor") {
         divCidade.classList.remove("hidden");
     } else if (nivel === "Escola" || nivel === "Aluno") {
         divEscola.classList.remove("hidden");
+    } else if (nivel === "Visualizador") {
+        if (divVisualizador) divVisualizador.classList.remove("hidden");
+        popularEscopoVisualizadorCadastro();
     }
 }
 
@@ -1806,13 +1917,26 @@ function salvarNovoUsuario(event) {
         if (!escolasPermitidas.includes(vinculoId)) return alert("Você só pode criar usuários vinculados ao seu próprio escopo.");
 
         if (nivel === "Escola" && nivelNovo !== "Aluno") return alert("A escola só pode criar usuários do nível Aluno.");
+    } else if (nivelNovo === "Visualizador") {
+        if (nivel !== "ADM") return alert("Apenas administradores podem criar usuários Visualizadores.");
+        const cidadesEscopo = valoresSelectMultiplo("addUserVisualizadorCidades");
+        const escolasEscopo = valoresSelectMultiplo("addUserVisualizadorEscolas");
+        if (!cidadesEscopo.length && !escolasEscopo.length) return alert("Defina pelo menos uma cidade ou escola para o escopo do Visualizador.");
+        vinculoId = "";
     } else if (nivelNovo === "ADM" || nivelNovo === "Monitor") {
         if (nivel !== "ADM") return alert("Apenas administradores podem criar esse nível de usuário.");
     }
 
     const usuarios = getStorage("app_usuarios");
     if (usuarios.some(u => normalizarTexto(u.login) === login)) return alert("Erro: já existe um usuário com esse login.");
-    usuarios.push({ id: novoId(), login, senha, nivel: nivelNovo, nome, email, telefone, vinculoId });
+    const novoUsuario = { id: novoId(), login, senha, nivel: nivelNovo, nome, email, telefone, vinculoId };
+    if (nivelNovo === "Visualizador") {
+        novoUsuario.escopoVisualizador = {
+            cidadesIds: valoresSelectMultiplo("addUserVisualizadorCidades"),
+            escolasIds: valoresSelectMultiplo("addUserVisualizadorEscolas")
+        };
+    }
+    usuarios.push(novoUsuario);
 
     salvarUsuariosSistema(usuarios);
     document.getElementById("formCadUsuario").reset();
@@ -1823,7 +1947,7 @@ function salvarNovoUsuario(event) {
 
 // ==================== RESET DE SENHAS EM LOTE ====================
 function niveisResetSenhaDisponiveis() {
-    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor"];
+    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Visualizador"];
 }
 
 function usuarioPertenceCidade(usuario, cidadeId) {
@@ -2199,6 +2323,10 @@ function alunosPermitidosParaUsuario() {
     const alunos = getStorage("app_alunos", []);
     if (!usuarioLogado) return [];
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return alunos;
+    if (usuarioLogado.nivel === "Visualizador") {
+        const escolaIds = idsEscolasDoEscopoVisualizador();
+        return alunos.filter(a => escolaIds.includes(a.escolaId));
+    }
     const escolasPermitidasIds = new Set(escolasPermitidasParaCadastroUsuario().map(e => e.id));
     return alunos.filter(a => escolasPermitidasIds.has(a.escolaId));
 }
@@ -2949,6 +3077,11 @@ function renderizarTabelasGerenciais() {
             } else if (u.nivel === "Escola" || u.nivel === "Aluno") {
                 const targetEsc = escolas.find(e => e.id === u.vinculoId);
                 descVinculo = targetEsc ? `Unidade: ${targetEsc.nome}` : "Falta Vincular";
+            } else if (u.nivel === "Visualizador") {
+                const escopo = u.escopoVisualizador || {};
+                const qtdCidades = Array.isArray(escopo.cidadesIds) ? escopo.cidadesIds.length : 0;
+                const qtdEscolas = Array.isArray(escopo.escolasIds) ? escopo.escolasIds.length : 0;
+                descVinculo = `Visualização: ${qtdCidades} cidade(s), ${qtdEscolas} escola(s)`;
             }
             const permsUser = PERMISSOES[usuarioLogado?.nivel];
             const podeEditar = permsUser?.usuarios.podeGerenciar;
@@ -2981,6 +3114,7 @@ function renderizarTabelasGerenciais() {
         document.getElementById("addUserEscolaSelect").innerHTML = '<option value="">Selecione a unidade escolar...</option>' + escolasFiltradas.map(e => `<option value="${e.id}">${e.nome}</option>`).join("");
     }
     popularSelectAlunoParaUsuario();
+    popularEscopoVisualizadorCadastro();
     prepararPainelResetSenhaLote();
 }
 
@@ -3052,6 +3186,11 @@ function preencherFiltrosResultadosImportacao() {
         const escolaUser = getEscolaVinculadaUsuario();
         escolas = escolaUser ? [escolaUser] : [];
         cidades = escolaUser ? cidades.filter(c => c.id === escolaUser.cidadeId) : [];
+    } else if (usuarioLogado?.nivel === "Visualizador") {
+        const escopo = escopoVisualizadorUsuario();
+        const escolaIds = idsEscolasDoEscopoVisualizador();
+        escolas = escolas.filter(e => escolaIds.includes(e.id));
+        cidades = cidades.filter(c => (escopo?.cidadesIds || []).includes(c.id) || escolas.some(e => e.cidadeId === c.id));
     }
     const filtroMuni = document.getElementById("filterResultadoCidade");
     const filtroEsc = document.getElementById("filterResultadoEscola");
@@ -3074,6 +3213,11 @@ function popularSeletores() {
         const escolaUser = getEscolaVinculadaUsuario();
         escolasDashboardBase = escolaUser ? [escolaUser] : [];
         cidadesDashboard = escolaUser ? cidades.filter(c => c.id === escolaUser.cidadeId) : [];
+    } else if (usuarioLogado?.nivel === "Visualizador") {
+        const escopo = escopoVisualizadorUsuario();
+        const escolaIds = idsEscolasDoEscopoVisualizador();
+        escolasDashboardBase = escolas.filter(e => escolaIds.includes(e.id));
+        cidadesDashboard = cidades.filter(c => (escopo?.cidadesIds || []).includes(c.id) || escolasDashboardBase.some(e => e.cidadeId === c.id));
     }
     const municipiosDashboard = cidadesDashboard.map(c => `${c.nome} - ${c.uf}`);
     const escolasDashboard = escolasDashboardBase.map(e => e.nome);
@@ -3130,6 +3274,11 @@ function renderizarPlataformaDashboard() {
         const escolaUser = getEscolaVinculadaUsuario();
         escolasVisiveis = escolaUser ? [escolaUser] : [];
         cidadesVisiveis = escolaUser ? cidadesVisiveis.filter(c => c.id === escolaUser.cidadeId) : [];
+    } else if (usuarioLogado?.nivel === "Visualizador") {
+        const escopo = escopoVisualizadorUsuario();
+        const escolaIds = idsEscolasDoEscopoVisualizador();
+        escolasVisiveis = escolasVisiveis.filter(e => escolaIds.includes(e.id));
+        cidadesVisiveis = cidadesVisiveis.filter(c => (escopo?.cidadesIds || []).includes(c.id) || escolasVisiveis.some(e => e.cidadeId === c.id));
     }
     const tCidades = cidadesVisiveis.length;
     const tEscolas = escolasVisiveis.length;
@@ -5410,7 +5559,7 @@ function atualizarAlvosLayoutEditor() {
 
     let opcoes = [];
     if (tipo === "nivel") {
-        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor"].map(n => ({ value: n, text: n }));
+        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Visualizador"].map(n => ({ value: n, text: n }));
     } else if (tipo === "cidade") {
         opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` }));
     } else if (tipo === "escola") {
