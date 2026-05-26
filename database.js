@@ -1,23 +1,18 @@
-// BANCO DE DADOS INICIAL - PLATAFORMA OLÍMPICA 2026
+// BANCO DE DADOS OFICIAL - PLATAFORMA OLÍMPICA 2026
 
-// Credenciais de Acesso Prévias
-const DEFAULT_USERS = [
+// Credenciais fixas de contingência para evitar travas de cache
+const CREDENCIAIS_PADRAO = [
     { username: "admin", password: "123", role: "ADM", name: "Administrador Master" },
     { username: "coordenador", password: "456", role: "Coordenador Municipal", name: "Coord. São Braz" },
     { username: "escola", password: "789", role: "Escola", name: "Escola Polo" }
 ];
 
-// Inicialização dos dados persistidos no LocalStorage
-if (!localStorage.getItem("usuarios")) {
-    localStorage.setItem("usuarios", JSON.stringify(DEFAULT_USERS));
-}
-
-// Novas tabelas controladas com dados iniciais de exemplo (São Braz - PI)
-const DEFAULT_CIDADES = [
+// Tabelas de controle de entidades
+const CIDADES_PADRAO = [
     { id: "1", nome: "São Braz", sigla: "SBZ", uf: "PI" }
 ];
 
-const DEFAULT_ESCOLAS = [
+const ESCOLAS_PADRAO = [
     { 
         id: "1", 
         nome: "Escola Municipal Polo", 
@@ -32,14 +27,7 @@ const DEFAULT_ESCOLAS = [
     }
 ];
 
-if (!localStorage.getItem("cidades")) {
-    localStorage.setItem("cidades", JSON.stringify(DEFAULT_CIDADES));
-}
-if (!localStorage.getItem("escolas")) {
-    localStorage.setItem("escolas", JSON.stringify(DEFAULT_ESCOLAS));
-}
-
-// Listagem de Olimpíadas Monitoradas (Resumo)
+// Listagem de Olimpíadas Monitoradas 2026
 const CALENDAR_DATA = [
     { id: "OBMEP", nome: "OBMEP - Olimpíada Brasileira de Matemática das Escolas Públicas" },
     { id: "CANGURU", nome: "Canguru de Matemática Brasil" },
