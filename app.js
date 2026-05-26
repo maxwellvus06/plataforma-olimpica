@@ -1,122 +1,3 @@
-
-// ============================================================================
-// CONFIGURAÇÕES DO SISTEMA
-// Este bloco substitui o antigo database.js.
-// NÃO É BANCO DE DADOS.
-// Mantém apenas permissões, salas e listas iniciais vazias/constantes.
-// A fonte real dos dados é Firebase Firestore/Storage.
-// ============================================================================
-// Banco de Dados Centralizado - Plataforma Olímpica 2026
-const DATABASE = {
-    // Lista de Credenciais Oficiais e Escopo de Permissões Iniciais
-    usuarios: [
-        { id: "1", login: "admin", senha: "123", nivel: "ADM", nome: "Administrador Master", email: "admin@avance.com", telefone: "(86) 99999-9999", vinculoId: "" },
-        { id: "2", login: "gestor", senha: "456", nivel: "Gestor", nome: "Coord. Regional São Braz", email: "gestor@saobraz.pi.gov.br", telefone: "(89) 98888-8888", vinculoId: "1" },
-        { id: "3", login: "escola", senha: "789", nivel: "Escola", nome: "Resp. Escola Polo", email: "polo@escola.com", telefone: "(89) 97777-7777", vinculoId: "1" },
-        { id: "4", login: "monitor", senha: "mon123", nivel: "Monitor", nome: "Monitor de Matemática", email: "monitor@avance.com", telefone: "(86) 98888-0001", vinculoId: "" }
-    ],
-
-    // Mapeamento Base Inicial das Olimpíadas Homologadas
-    olimpiadas: [
-        { id: "1", nome: "Canguru de Matemática Brasil", categoria: "MAT", series: "3º Ano EF ao 3º Ano EM" },
-        { id: "2", nome: "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)", categoria: "MAT", series: "6º Ano EF ao 3º Ano EM" },
-        { id: "3", nome: "OBA (Olimpíada Brasileira de Astronomia e Astronáutica)", categoria: "AST", series: "1º Ano EF ao 3º Ano EM" },
-        { id: "4", nome: "ONC (Olimpíada Nacional de Ciências)", categoria: "INTEG", series: "6º Ano EF ao 3º Ano EM" }
-    ],
-
-    // Cronograma Consolidado de Eventos Críticos Inicial
-    cronograma: [
-        { id: "1", olimpiadaId: "2", etapa: "Fase 1 - Escolar (prova objetiva)", data: "09/06/2026", segmento: "6º EF a 3ª EM", acao: "Imprimir provas; enviar cartões-resposta via aplicativo oficial." },
-        { id: "2", olimpiadaId: "1", etapa: "Prova Única (múltipla escolha)", data: "19/03 a 25/03/2026", segmento: "3º EF a 3ª EM", acao: "Aplicação presencial dos exames lógicos nas salas de aula." }
-    ],
-
-    // Registros Simulados de Medalhas do Dashboard
-    premiados: [
-        { aluno: "Carlos Eduardo Silva", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "OBMEP", serie: "6º Ano EF", premio: "Ouro" },
-        { aluno: "Ana Beatriz Rocha", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "Canguru de Matemática Brasil", serie: "7º Ano EF", premio: "Prata" }
-    ],
-
-    // Materiais da Plataforma de Ensino
-    plataforma: []
-};
-
-// ==================== TABELA DE PERMISSÕES POR NÍVEL ====================
-// Define exatamente o que cada nível pode ver e fazer
-const PERMISSOES = {
-    ADM: {
-        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas", "cidades", "escolas"],
-        dashboard: { filtroTravado: false },
-        calendario: { podeEditar: true },
-        resultados: { podeEditar: true },
-        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor"] },
-        plataforma: { podeGerenciar: true }
-    },
-    Gestor: {
-        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas"],
-        dashboard: { filtroTravado: true },
-        calendario: { podeEditar: false },
-        resultados: { podeEditar: false },
-        usuarios: { podeGerenciar: true, niveisPermitidos: ["Escola", "Aluno"] },
-        plataforma: { podeGerenciar: false }
-    },
-    Escola: {
-        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas"],
-        dashboard: { filtroTravado: true },
-        calendario: { podeEditar: false },
-        resultados: { podeEditar: false },
-        usuarios: { podeGerenciar: true, niveisPermitidos: ["Aluno"] },
-        plataforma: { podeGerenciar: false }
-    },
-    Aluno: {
-        abas: ["plataforma", "monitoria"],
-        dashboard: { filtroTravado: true },
-        calendario: { podeEditar: false },
-        resultados: { podeEditar: false },
-        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
-        plataforma: { podeGerenciar: false }
-    },
-    Monitor: {
-        abas: ["plataforma", "monitoria"],
-        dashboard: { filtroTravado: true },
-        calendario: { podeEditar: false },
-        resultados: { podeEditar: false },
-        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
-        plataforma: { podeGerenciar: false }
-    }
-};
-
-// Salas fixas de Monitoria
-const SALAS_MONITORIA = [
-    { id: "mat-1", nome: "Matemática — Sala 1", area: "matematica", icone: "fa-square-root-variable", cor: "blue" },
-    { id: "mat-2", nome: "Matemática — Sala 2", area: "matematica", icone: "fa-square-root-variable", cor: "blue" },
-    { id: "fis-1", nome: "Física — Sala 1", area: "fisica", icone: "fa-atom", cor: "purple" },
-    { id: "fis-2", nome: "Física — Sala 2", area: "fisica", icone: "fa-atom", cor: "purple" },
-    { id: "qui-1", nome: "Química — Sala 1", area: "quimica", icone: "fa-flask", cor: "emerald" },
-    { id: "qui-2", nome: "Química — Sala 2", area: "quimica", icone: "fa-flask", cor: "emerald" },
-    { id: "lin-1", nome: "Linguagem — Sala 1", area: "linguagem", icone: "fa-book-open", cor: "amber" },
-    { id: "lin-2", nome: "Linguagem — Sala 2", area: "linguagem", icone: "fa-book-open", cor: "amber" },
-    { id: "hum-1", nome: "Humanas — Sala 1", area: "humanas", icone: "fa-landmark", cor: "rose" },
-    { id: "hum-2", nome: "Humanas — Sala 2", area: "humanas", icone: "fa-landmark", cor: "rose" }
-];
-
-// Configurações e Valores iniciais de persistência segura
-const CONFIG_CIDADES_INICIAIS = [{ id: "1", nome: "São Braz", sigla: "SBZ", uf: "PI" }];
-const CONFIG_ESCOLAS_INICIAIS = [{ id: "1", nome: "U. E. São Braz", razaoSocial: "Unidade Escolar São Braz LTDA", cnpj: "12.345.678/0001-99", inep: "2201923", endereco: "Rua Central, 100", cep: "64.758-000", diretor: "Prof. Antônio Silva", email: "polo@saobraz.pi.gov.br", cidadeId: "1" }];
-
-// Impede uso de dados fake como banco.
-// As constantes acima existem apenas para compatibilidade de permissões/salas.
-// Dados reais são carregados pelo adaptador Firebase abaixo.
-if (typeof DATABASE !== "undefined") {
-    DATABASE.usuarios = [];
-    DATABASE.olimpiadas = [];
-    DATABASE.cronograma = [];
-    DATABASE.premiados = [];
-    DATABASE.plataforma = [];
-}
-if (typeof CONFIG_CIDADES_INICIAIS !== "undefined") CONFIG_CIDADES_INICIAIS.length = 0;
-if (typeof CONFIG_ESCOLAS_INICIAIS !== "undefined") CONFIG_ESCOLAS_INICIAIS.length = 0;
-
-
 // Gerenciador e Inteligência do Sistema Olímpico 2026
 let chartInstance = null;
 let dadosTrabalho = [];
@@ -153,6 +34,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initFirebase();
     garantirCadastrosBasicos();
     await sincronizarUsuariosFirebaseInicial();
+    await sincronizarColecoesFirebase();     // ← Carrega cidades/escolas/olimpiadas/cronograma/premiados do Firebase
     dadosTrabalho = carregarPremiados();
     initLogin();
     initDragAndDrop();
@@ -597,6 +479,7 @@ function carregarPremiados() {
 
 function salvarPremiados() {
     setStorage("app_premiados", dadosTrabalho);
+    fbSet(FIREBASE_PREMIADOS_PATH, dadosTrabalho);
 }
 
 function novoId() {
@@ -648,7 +531,8 @@ function excluirCidade(id) {
     if (usuarios.some(u => u.nivel === "Gestor" && u.vinculoId === id)) return alert("Segurança: não é possível apagar esta cidade porque existem gestores vinculados a ela.");
     if (existeResultadoParaCampo("municipio", nomeMunicipio)) return alert("Segurança: não é possível apagar esta cidade porque existem resultados vinculados a ela.");
     if (!confirmarExclusao("a cidade", nomeMunicipio)) return;
-    setStorage("app_cidades", cidades.filter(c => c.id !== id));
+    const nova = cidades.filter(c => c.id !== id);
+    fbSet(FIREBASE_CIDADES_PATH, nova);
     popularSeletores();
     renderizarTabelasGerenciais();
     renderizarPlataformaDashboard();
@@ -663,7 +547,7 @@ function excluirEscola(id) {
     if (usuarios.some(u => (u.nivel === "Escola" || u.nivel === "Aluno") && u.vinculoId === id)) return alert("Segurança: não é possível apagar esta escola porque existem usuários vinculados a ela.");
     if (existeResultadoParaCampo("escola", escola.nome)) return alert("Segurança: não é possível apagar esta escola porque existem resultados vinculados a ela.");
     if (!confirmarExclusao("a escola", escola.nome)) return;
-    setStorage("app_escolas", escolas.filter(e => e.id !== id));
+    fbSet(FIREBASE_ESCOLAS_PATH, escolas.filter(e => e.id !== id));
     popularSeletores();
     renderizarTabelasGerenciais();
     renderizarPlataformaDashboard();
@@ -678,11 +562,21 @@ function excluirOlimpiada(id) {
     if (existeResultadoParaCampo("olimpiada", olimpiada.nome) || existeResultadoParaCampo("olimpiada", olimpiada.categoria)) return alert("Segurança: não é possível apagar esta olimpíada porque existem resultados cadastrados para ela.");
     if (cronograma.some(c => c.olimpiadaId === id)) return alert("Segurança: não é possível apagar esta olimpíada porque existem etapas de cronograma vinculadas a ela.");
     if (!confirmarExclusao("a olimpíada", olimpiada.nome)) return;
-    setStorage("app_olimpiadas", olimpiadas.filter(o => o.id !== id));
+    fbSet(FIREBASE_OLIMPIADAS_PATH, olimpiadas.filter(o => o.id !== id));
     popularSeletores();
     renderizarTabelasGerenciais();
     renderizarCronograma();
     renderizarPlataformaDashboard();
+}
+
+function excluirCronograma(id) {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const cronograma = getStorage("app_cronograma");
+    const evento = cronograma.find(c => c.id === id);
+    if (!evento) return alert("Evento não encontrado.");
+    if (!confirmarExclusao("o evento", evento.etapa)) return;
+    fbSet(FIREBASE_CRONOGRAMA_PATH, cronograma.filter(c => c.id !== id));
+    renderizarCronograma();
 }
 
 // ==================== MODAIS DE EDIÇÃO ====================
@@ -894,7 +788,7 @@ function editarCidade(id) {
             const lista = getStorage("app_cidades");
             const i = lista.findIndex(c => c.id === id);
             lista[i] = { ...lista[i], nome: d.nome, sigla: d.sigla.toUpperCase(), uf: d.uf.toUpperCase() };
-            setStorage("app_cidades", lista);
+            fbSet(FIREBASE_CIDADES_PATH, lista);
             atualizarResultadosCampo("municipio", municipioAntigo, `${d.nome} - ${d.uf.toUpperCase()}`);
             popularSeletores(); renderizarTabelasGerenciais(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
             alert("Cidade atualizada com sucesso.");
@@ -931,7 +825,7 @@ function editarEscola(id) {
             if (lista.some(e => e.id !== id && normalizarTexto(e.nome) === normalizarTexto(d.nome))) return alert("Já existe outra escola com esse nome."), false;
             const i = lista.findIndex(e => e.id === id);
             lista[i] = { ...lista[i], nome: d.nome, razaoSocial: d.razaoSocial, cnpj: d.cnpj, inep: d.inep, endereco: d.endereco, cep: d.cep, diretor: d.diretor, email: d.email, cidadeId: d.cidadeId };
-            setStorage("app_escolas", lista);
+            fbSet(FIREBASE_ESCOLAS_PATH, lista);
             const cidade = getStorage("app_cidades").find(c => c.id === d.cidadeId);
             dadosTrabalho = dadosTrabalho.map(r => normalizarTexto(r.escola) === normalizarTexto(nomeAntigo) ? { ...r, escola: d.nome, municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : r.municipio } : r);
             salvarPremiados(); popularSeletores(); renderizarTabelasGerenciais(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
@@ -963,7 +857,7 @@ function editarOlimpiada(id) {
             if (lista.some(o => o.id !== id && normalizarTexto(o.nome) === normalizarTexto(d.nome))) return alert("Já existe outra olimpíada com esse nome."), false;
             const i = lista.findIndex(o => o.id === id);
             lista[i] = { ...lista[i], nome: d.nome, categoria: d.categoria.toUpperCase(), series: d.series };
-            setStorage("app_olimpiadas", lista);
+            fbSet(FIREBASE_OLIMPIADAS_PATH, lista);
             atualizarResultadosCampo("olimpiada", nomeAntigo, d.nome);
             atualizarResultadosCampo("olimpiada", categoriaAntiga, d.nome);
             popularSeletores(); renderizarTabelasGerenciais(); renderizarCronograma(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
@@ -994,7 +888,7 @@ function editarCronograma(id) {
             const lista = getStorage("app_cronograma");
             const i = lista.findIndex(c => c.id === id);
             lista[i] = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: d.etapa, data: d.data, segmento: d.segmento, acao: d.acao };
-            setStorage("app_cronograma", lista);
+            fbSet(FIREBASE_CRONOGRAMA_PATH, lista);
             renderizarCronograma();
             alert("Evento atualizado com sucesso.");
         },
@@ -1138,7 +1032,7 @@ function salvarNovoUsuario(event) {
 }
 
 // ==================== CADASTROS ADM ====================
-function salvarNovaOlimpiada(event) {
+async function salvarNovaOlimpiada(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
     const nome = document.getElementById("addOliNome").value.trim();
@@ -1147,13 +1041,13 @@ function salvarNovaOlimpiada(event) {
     const olimpiadas = getStorage("app_olimpiadas");
     if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(nome))) return alert("Erro: esta olimpíada já está cadastrada.");
     olimpiadas.push({ id: novoId(), nome, categoria, series });
-    setStorage("app_olimpiadas", olimpiadas);
+    await fbSet(FIREBASE_OLIMPIADAS_PATH, olimpiadas);
     document.getElementById("formCadOlimpiada").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
 }
 
-function salvarNovoCronograma(event) {
+async function salvarNovoCronograma(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
     const olimpiadaId = document.getElementById("addCroOlimpiadaSelect").value;
@@ -1163,12 +1057,12 @@ function salvarNovoCronograma(event) {
     const acao = document.getElementById("addCroAcao").value.trim();
     const cronograma = getStorage("app_cronograma");
     cronograma.push({ id: novoId(), olimpiadaId, etapa, data, segmento, acao });
-    setStorage("app_cronograma", cronograma);
+    await fbSet(FIREBASE_CRONOGRAMA_PATH, cronograma);
     document.getElementById("formCadCronograma").reset();
     renderizarCronograma();
 }
 
-function salvarNovaCidade(event) {
+async function salvarNovaCidade(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
     const nome = document.getElementById("addCidNome").value.trim();
@@ -1177,13 +1071,13 @@ function salvarNovaCidade(event) {
     const cidades = getStorage("app_cidades");
     if (cidades.some(c => normalizarTexto(c.nome) === normalizarTexto(nome) && normalizarTexto(c.uf) === normalizarTexto(uf))) return alert("Erro: esta cidade já está cadastrada.");
     cidades.push({ id: novoId(), nome, sigla, uf });
-    setStorage("app_cidades", cidades);
+    await fbSet(FIREBASE_CIDADES_PATH, cidades);
     document.getElementById("formCadCidade").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
 }
 
-function salvarNovaEscola(event) {
+async function salvarNovaEscola(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
     const nome = document.getElementById("addEscNome").value.trim();
@@ -1199,7 +1093,7 @@ function salvarNovaEscola(event) {
     if (escolas.some(e => normalizarTexto(e.inep) === normalizarTexto(inep))) return alert("Erro: já existe uma escola com esse INEP.");
     if (escolas.some(e => normalizarTexto(e.nome) === normalizarTexto(nome))) return alert("Erro: já existe uma escola com esse nome.");
     escolas.push({ id: novoId(), nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId });
-    setStorage("app_escolas", escolas);
+    await fbSet(FIREBASE_ESCOLAS_PATH, escolas);
     document.getElementById("formCadEscola").reset();
     popularSeletores();
     renderizarTabelasGerenciais();
@@ -1619,6 +1513,7 @@ function processarPlanilhaCronograma(arquivo) {
                 }
             });
             setStorage("app_cronograma", cronograma);
+            fbSet(FIREBASE_CRONOGRAMA_PATH, cronograma);
             alert(`${inseridos} etapas mapeadas com sucesso!`);
             renderizarCronograma();
         } catch (err) { alert("Erro ao processar planilha de cronograma."); }
@@ -1691,11 +1586,102 @@ function downloadTemplate() {
     XLSX.writeFile(wb, "modelo_importacao_resultados.xlsx");
 }
 
+// ==================== PATHS FIREBASE (todas as coleções) ====================
+const FIREBASE_USUARIOS_PATH   = "sistema_usuarios";
+const FIREBASE_CIDADES_PATH    = "sistema_cidades";
+const FIREBASE_ESCOLAS_PATH    = "sistema_escolas";
+const FIREBASE_OLIMPIADAS_PATH = "sistema_olimpiadas";
+const FIREBASE_CRONOGRAMA_PATH = "sistema_cronograma";
+const FIREBASE_PREMIADOS_PATH  = "sistema_premiados";
+const FIREBASE_MATERIAIS_PATH  = "plataforma_materiais";
+
+// Mapeamento path Firebase → chave localStorage (cache offline)
+const FIREBASE_PATH_CACHE = {
+    [FIREBASE_CIDADES_PATH]:    "app_cidades",
+    [FIREBASE_ESCOLAS_PATH]:    "app_escolas",
+    [FIREBASE_OLIMPIADAS_PATH]: "app_olimpiadas",
+    [FIREBASE_CRONOGRAMA_PATH]: "app_cronograma",
+    [FIREBASE_PREMIADOS_PATH]:  "app_premiados",
+    [FIREBASE_USUARIOS_PATH]:   "app_usuarios"
+};
+
+// ==================== FIREBASE HELPERS GENÉRICOS ====================
+
+// Lê lista do Firebase (com fallback para localStorage)
+async function fbGet(path) {
+    initFirebase();
+    if (!firebaseDB) return getStorage(FIREBASE_PATH_CACHE[path] || path);
+    try {
+        const snap = await firebaseDB.ref(path).once("value");
+        const val = snap.val();
+        const lista = val
+            ? (Array.isArray(val) ? val.filter(Boolean) : Object.values(val).filter(Boolean))
+            : [];
+        // Atualiza cache local
+        const cacheKey = FIREBASE_PATH_CACHE[path];
+        if (cacheKey) setStorage(cacheKey, lista);
+        return lista;
+    } catch (e) {
+        console.warn(`fbGet(${path}) falhou, usando cache local.`, e);
+        return getStorage(FIREBASE_PATH_CACHE[path] || path);
+    }
+}
+
+// Salva lista no Firebase E no localStorage (cache)
+async function fbSet(path, lista) {
+    // Salva cache imediatamente (UI não trava)
+    const cacheKey = FIREBASE_PATH_CACHE[path];
+    if (cacheKey) setStorage(cacheKey, lista);
+
+    initFirebase();
+    if (!firebaseDB) return;
+    try {
+        await firebaseDB.ref(path).set(lista);
+    } catch (e) {
+        console.warn(`fbSet(${path}) falhou. Dado salvo localmente como fallback.`, e);
+    }
+}
+
+// Carrega todas as coleções do Firebase para o localStorage (chamado no login)
+async function sincronizarColecoesFirebase() {
+    initFirebase();
+    if (!firebaseDB) return;
+
+    const paths = [
+        FIREBASE_CIDADES_PATH,
+        FIREBASE_ESCOLAS_PATH,
+        FIREBASE_OLIMPIADAS_PATH,
+        FIREBASE_CRONOGRAMA_PATH,
+        FIREBASE_PREMIADOS_PATH
+    ];
+
+    await Promise.allSettled(paths.map(async path => {
+        try {
+            const snap = await firebaseDB.ref(path).once("value");
+            const val = snap.val();
+            const cacheKey = FIREBASE_PATH_CACHE[path];
+            if (!cacheKey) return;
+
+            if (val) {
+                // Firebase tem dados → atualiza cache local
+                const lista = Array.isArray(val) ? val.filter(Boolean) : Object.values(val).filter(Boolean);
+                setStorage(cacheKey, lista);
+            } else {
+                // Firebase vazio → sobe os dados locais (seed inicial)
+                const locais = getStorage(cacheKey);
+                if (locais && locais.length > 0) {
+                    await firebaseDB.ref(path).set(locais);
+                }
+            }
+        } catch (e) {
+            console.warn(`Falha ao sincronizar ${path}`, e);
+        }
+    }));
+}
+
 // ==================== PLATAFORMA DE ENSINO ====================
 const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
-const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
-const FIREBASE_USUARIOS_PATH = "sistema_usuarios";
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
 
@@ -2611,635 +2597,3 @@ window.salvarNovoCronograma = salvarNovoCronograma;
 window.salvarNovaCidade = salvarNovaCidade;
 window.salvarNovaEscola = salvarNovaEscola;
 window.fecharModalEdicao = fecharModalEdicao;
-
-
-
-
-// ============================================================================
-// REGRA DE OURO — ADAPTADOR FIREBASE SEM database.js
-// Mantém layout e módulos originais. Firebase é a fonte real dos dados.
-// ============================================================================
-
-const FIREBASE_CONFIG_AVANCE = {
-    apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
-    authDomain: "avanceolimpico.firebaseapp.com",
-    databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
-    projectId: "avanceolimpico",
-    storageBucket: "avanceolimpico.firebasestorage.app",
-    messagingSenderId: "895771266102",
-    appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
-    measurementId: "G-FPETQTFRZN"
-};
-
-const AVANCE_FIRESTORE_KEYS = {
-    app_usuarios: "usuarios",
-    app_cidades: "cidades",
-    app_escolas: "escolas",
-    app_olimpiadas: "olimpiadas",
-    app_cronograma: "cronograma",
-    app_premiados: "resultados",
-    app_plataforma: "materiais"
-};
-
-const AVANCE_CACHE_FIREBASE = {
-    app_usuarios: [],
-    app_cidades: [],
-    app_escolas: [],
-    app_olimpiadas: [],
-    app_cronograma: [],
-    app_premiados: [],
-    app_plataforma: []
-};
-
-let AVANCE_BASE_FIREBASE_CARREGADA = false;
-let AVANCE_SYNC_TIMERS = {};
-
-function initFirebase() {
-    if (firebaseApp && firebaseFirestore && firebaseStorage) return;
-
-    if (typeof firebase === "undefined") {
-        console.error("Firebase SDK não carregou. Confira os scripts no index.html.");
-        return;
-    }
-
-    if (!firebase.apps.length) {
-        firebaseApp = firebase.initializeApp(FIREBASE_CONFIG_AVANCE);
-    } else {
-        firebaseApp = firebase.app();
-    }
-
-    firebaseFirestore = firebase.firestore();
-    firebaseStorage = firebase.storage();
-
-    // Mantém compatibilidade com partes antigas que ainda citam Realtime Database.
-    try {
-        firebaseDB = firebase.database();
-    } catch (e) {
-        firebaseDB = null;
-    }
-}
-
-function firebaseDisponivel() {
-    initFirebase();
-    return !!firebaseFirestore;
-}
-
-function idFirebaseSeguro(valor) {
-    return String(valor || novoId()).replace(/[\/#[\].]/g, "_");
-}
-
-function usuarioPadraoFirebase(id, u = {}) {
-    const login = String(u.login || u.username || "").trim().toLowerCase();
-    const senha = String(u.senha || u.password || "");
-    const nivel = String(u.nivel || u.role || "Aluno").trim();
-    const nome = String(u.nome || u.fullname || u.name || login || "Usuário").trim();
-
-    return {
-        id: String(u.id || id || login || novoId()),
-        login,
-        username: login,
-        senha,
-        password: senha,
-        nivel,
-        role: nivel,
-        nome,
-        fullname: nome,
-        email: u.email || "",
-        telefone: u.telefone || "",
-        vinculoId: u.vinculoId || u.vinculo || "",
-        vinculo: u.vinculoId || u.vinculo || "",
-        vinculoNome: u.vinculoNome || ""
-    };
-}
-
-function cidadePadraoFirebase(id, c = {}) {
-    return {
-        id: String(c.id || id || novoId()),
-        nome: c.nome || c.cidade || "",
-        sigla: c.sigla || "",
-        uf: String(c.uf || "PI").toUpperCase()
-    };
-}
-
-function escolaPadraoFirebase(id, e = {}) {
-    return {
-        id: String(e.id || id || novoId()),
-        nome: e.nome || e.razaoSocial || "",
-        razaoSocial: e.razaoSocial || e.nome || "",
-        cnpj: e.cnpj || "",
-        inep: e.inep || "",
-        endereco: e.endereco || "",
-        cep: e.cep || "",
-        diretor: e.diretor || "",
-        email: e.email || "",
-        cidadeId: e.cidadeId || ""
-    };
-}
-
-function olimpiadaPadraoFirebase(id, o = {}) {
-    return {
-        id: String(o.id || id || novoId()),
-        nome: o.nome || "",
-        categoria: o.categoria || o.sigla || "",
-        series: o.series || ""
-    };
-}
-
-function cronogramaPadraoFirebase(id, c = {}) {
-    return {
-        id: String(c.id || id || novoId()),
-        olimpiadaId: c.olimpiadaId || "",
-        etapa: c.etapa || c.fase || "",
-        data: c.data || c.periodo || "",
-        segmento: c.segmento || c.publico || "",
-        acao: c.acao || c.observacao || ""
-    };
-}
-
-function resultadoPadraoFirebase(id, r = {}) {
-    return {
-        id: String(r.id || id || novoId()),
-        aluno: r.aluno || r.estudante || "",
-        escola: r.escola || "",
-        municipio: r.municipio || r.cidade || "",
-        olimpiada: r.olimpiada || "",
-        serie: r.serie || "",
-        premio: r.premio || r.resultado || ""
-    };
-}
-
-function materialPadraoFirebase(id, m = {}) {
-    return {
-        id: String(m.id || id || novoId()),
-        titulo: m.titulo || "",
-        descricao: m.descricao || "",
-        area: m.area || "",
-        tipo: m.tipo || "link",
-        url: m.url || "",
-        arquivoUrl: m.arquivoUrl || m.urlArquivo || m.fileUrl || "",
-        storagePath: m.storagePath || "",
-        nomeArquivo: m.nomeArquivo || m.fileName || "",
-        tamanhoBytes: m.tamanhoBytes || m.size || 0,
-        criadoPor: m.criadoPor || "",
-        criadoPorId: m.criadoPorId || "",
-        criadoEm: m.criadoEm || Date.now(),
-        hospedagem: m.hospedagem || "firebase_storage"
-    };
-}
-
-function normalizarPorChaveFirebase(chave, id, data) {
-    if (chave === "app_usuarios") return usuarioPadraoFirebase(id, data);
-    if (chave === "app_cidades") return cidadePadraoFirebase(id, data);
-    if (chave === "app_escolas") return escolaPadraoFirebase(id, data);
-    if (chave === "app_olimpiadas") return olimpiadaPadraoFirebase(id, data);
-    if (chave === "app_cronograma") return cronogramaPadraoFirebase(id, data);
-    if (chave === "app_premiados") return resultadoPadraoFirebase(id, data);
-    if (chave === "app_plataforma") return materialPadraoFirebase(id, data);
-    return { id: String(data?.id || id || novoId()), ...(data || {}) };
-}
-
-async function carregarColecaoFirebase(chave) {
-    const colecao = AVANCE_FIRESTORE_KEYS[chave];
-    if (!colecao || !firebaseDisponivel()) return [];
-
-    const snap = await firebaseFirestore.collection(colecao).get();
-    const lista = [];
-    snap.forEach(docSnap => lista.push(normalizarPorChaveFirebase(chave, docSnap.id, docSnap.data() || {})));
-    return lista;
-}
-
-async function carregarBaseFirestoreInicial() {
-    initFirebase();
-
-    if (!firebaseFirestore) {
-        console.warn("Firestore indisponível.");
-        AVANCE_BASE_FIREBASE_CARREGADA = true;
-        return AVANCE_CACHE_FIREBASE;
-    }
-
-    const chaves = Object.keys(AVANCE_FIRESTORE_KEYS);
-
-    const resultados = await Promise.all(chaves.map(async chave => {
-        try {
-            return [chave, await carregarColecaoFirebase(chave)];
-        } catch (erro) {
-            console.error(`Erro ao carregar ${chave}`, erro);
-            return [chave, []];
-        }
-    }));
-
-    resultados.forEach(([chave, lista]) => {
-        AVANCE_CACHE_FIREBASE[chave] = Array.isArray(lista) ? lista : [];
-    });
-
-    AVANCE_BASE_FIREBASE_CARREGADA = true;
-    return AVANCE_CACHE_FIREBASE;
-}
-
-async function salvarColecaoFirebase(chave, lista) {
-    const colecao = AVANCE_FIRESTORE_KEYS[chave];
-    if (!colecao || !firebaseDisponivel()) return;
-
-    if (AVANCE_SYNC_TIMERS[chave]) clearTimeout(AVANCE_SYNC_TIMERS[chave]);
-
-    AVANCE_SYNC_TIMERS[chave] = setTimeout(async () => {
-        try {
-            const ref = firebaseFirestore.collection(colecao);
-            const snap = await ref.get();
-
-            const idsAtuais = new Set((lista || []).map(item => idFirebaseSeguro(item.id)));
-            const batch = firebaseFirestore.batch();
-
-            snap.forEach(docSnap => {
-                if (!idsAtuais.has(docSnap.id)) batch.delete(docSnap.ref);
-            });
-
-            (lista || []).forEach(item => {
-                const normalizado = normalizarPorChaveFirebase(chave, item.id, item);
-                const idDoc = idFirebaseSeguro(normalizado.id);
-                batch.set(ref.doc(idDoc), {
-                    ...normalizado,
-                    id: idDoc,
-                    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            });
-
-            await batch.commit();
-            console.log(`Firebase atualizado: ${colecao}`);
-        } catch (erro) {
-            console.error(`Erro ao salvar ${colecao}`, erro);
-            alert(`Erro ao salvar no Firebase (${colecao}). Veja o Console/F12.`);
-        }
-    }, 150);
-}
-
-// A interface antiga continua usando getStorage/setStorage.
-// Aqui essas funções passam a operar sobre cache do Firebase, não sobre banco local.
-function getStorage(chave, fallback = []) {
-    if (Object.prototype.hasOwnProperty.call(AVANCE_CACHE_FIREBASE, chave)) {
-        return Array.isArray(AVANCE_CACHE_FIREBASE[chave]) ? AVANCE_CACHE_FIREBASE[chave] : fallback;
-    }
-
-    try {
-        const salvo = localStorage.getItem(chave);
-        return salvo ? JSON.parse(salvo) : fallback;
-    } catch (e) {
-        console.warn(`Falha ao ler ${chave}`, e);
-        return fallback;
-    }
-}
-
-function setStorage(chave, valor) {
-    if (Object.prototype.hasOwnProperty.call(AVANCE_CACHE_FIREBASE, chave)) {
-        const lista = Array.isArray(valor) ? valor : [];
-        AVANCE_CACHE_FIREBASE[chave] = lista;
-        salvarColecaoFirebase(chave, lista);
-        return;
-    }
-
-    // Para dados temporários que não são banco principal.
-    localStorage.setItem(chave, JSON.stringify(valor));
-}
-
-// Sem sementes locais. Firebase é a fonte.
-function garantirCadastrosBasicos() {
-    return;
-}
-
-async function sincronizarUsuariosFirebaseInicial() {
-    await carregarBaseFirestoreInicial();
-    return getStorage("app_usuarios", []);
-}
-
-function salvarUsuariosFirebase(usuarios) {
-    setStorage("app_usuarios", usuarios);
-    return Promise.resolve();
-}
-
-function salvarUsuariosSistema(usuarios) {
-    setStorage("app_usuarios", usuarios);
-}
-
-function carregarPremiados() {
-    return getStorage("app_premiados", []);
-}
-
-function salvarPremiados() {
-    setStorage("app_premiados", dadosTrabalho);
-}
-
-function initLogin() {
-    const form = document.getElementById("loginForm");
-    if (!form || form.dataset.firebaseLogin === "true") return;
-
-    form.dataset.firebaseLogin = "true";
-
-    form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-
-        const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
-        const passInput = document.getElementById("auth-pass").value.trim();
-        const btn = form.querySelector('button[type="submit"]');
-
-        try {
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...';
-            }
-
-            await carregarBaseFirestoreInicial();
-
-            const contaEncontrada = getStorage("app_usuarios", []).find(u => {
-                const usuario = usuarioPadraoFirebase(u.id, u);
-                return normalizarTexto(usuario.login) === userInput && String(usuario.senha) === passInput;
-            });
-
-            if (!contaEncontrada) {
-                alert("Login inválido. Confira a coleção usuarios no Firestore.");
-                return;
-            }
-
-            usuarioLogado = usuarioPadraoFirebase(contaEncontrada.id, contaEncontrada);
-            sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
-            logarSucesso(usuarioLogado);
-        } catch (erro) {
-            console.error("Erro ao login Firebase:", erro);
-            alert(`Erro ao tentar login no Firebase.\n\n${erro.message || erro}`);
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = "Acessar Painel";
-            }
-        }
-    });
-}
-
-function verificarSessao() {
-    const sessaoGuardada = sessionStorage.getItem("avance_session");
-    if (!sessaoGuardada) return;
-
-    try {
-        usuarioLogado = usuarioPadraoFirebase(null, JSON.parse(sessaoGuardada));
-        sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
-    } catch (e) {
-        sessionStorage.removeItem("avance_session");
-        return;
-    }
-
-    (async () => {
-        await carregarBaseFirestoreInicial();
-        dadosTrabalho = carregarPremiados();
-        logarSucesso(usuarioLogado);
-    })();
-}
-
-// Storage: a plataforma e a monitoria continuam chamando as mesmas funções antigas,
-// mas agora elas sobem/removem arquivos no Firebase Storage.
-async function enviarArquivoParaGoogleDrive(arquivo) {
-    initFirebase();
-    if (!firebaseStorage) throw new Error("Firebase Storage não inicializado.");
-
-    const safeName = String(arquivo.name || "arquivo")
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9._-]/g, "_");
-
-    const path = `uploads/${Date.now()}-${safeName}`;
-    const ref = firebaseStorage.ref(path);
-    const snap = await ref.put(arquivo, { contentType: arquivo.type || "application/octet-stream" });
-    const url = await snap.ref.getDownloadURL();
-
-    return {
-        success: true,
-        fileUrl: url,
-        fileId: path,
-        fileName: arquivo.name,
-        storagePath: path
-    };
-}
-
-async function excluirArquivoGoogleDrive(fileId) {
-    initFirebase();
-    if (!fileId || !firebaseStorage) return { success: true };
-
-    try {
-        await firebaseStorage.ref(fileId).delete();
-    } catch (erro) {
-        console.warn("Arquivo não removido do Storage. Talvez já tenha sido removido.", erro);
-    }
-
-    return { success: true };
-}
-
-async function carregarMateriaisPlataforma() {
-    await carregarBaseFirestoreInicial();
-    return getStorage("app_plataforma", [])
-        .slice()
-        .sort((a, b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
-}
-
-// Garante que os onclicks antigos continuem achando funções globais.
-window.enviarArquivoParaGoogleDrive = enviarArquivoParaGoogleDrive;
-window.excluirArquivoGoogleDrive = excluirArquivoGoogleDrive;
-window.carregarMateriaisPlataforma = carregarMateriaisPlataforma;
-
-
-
-// ============================================================================
-// REGRA DE OURO — PATCH V3 LOGIN INDEPENDENTE
-// Não muda layout nem módulos.
-// Garante que o login Firebase funcione mesmo se alguma inicialização antiga falhar.
-// ============================================================================
-
-function statusLoginFirebaseV3(texto, ok = false) {
-    let el = document.getElementById("loginFirebaseStatus");
-    if (!el) {
-        const form = document.getElementById("loginForm");
-        el = document.createElement("p");
-        el.id = "loginFirebaseStatus";
-        el.className = "min-h-[18px] text-center text-xs font-bold";
-        form?.appendChild(el);
-    }
-
-    el.textContent = texto || "";
-    el.classList.toggle("text-red-400", !ok);
-    el.classList.toggle("text-emerald-400", ok);
-}
-
-function normalizarUsuarioLoginFirebaseV3(id, u = {}) {
-    const login = String(u.login || u.username || "").trim().toLowerCase();
-    const senha = String(u.senha || u.password || "");
-    const nivel = String(u.nivel || u.role || "Aluno").trim();
-    const nome = String(u.nome || u.fullname || u.name || login || "Usuário").trim();
-
-    return {
-        id: String(u.id || id || login || novoId()),
-        login,
-        username: login,
-        senha,
-        password: senha,
-        nivel,
-        role: nivel,
-        nome,
-        fullname: nome,
-        email: u.email || "",
-        telefone: u.telefone || "",
-        vinculoId: u.vinculoId || u.vinculo || "",
-        vinculo: u.vinculoId || u.vinculo || "",
-        vinculoNome: u.vinculoNome || ""
-    };
-}
-
-async function buscarUsuarioDiretoFirestoreV3(loginDigitado, senhaDigitada) {
-    initFirebase();
-
-    if (!firebaseFirestore) {
-        throw new Error("Firestore não inicializou. Confira os scripts Firebase e as regras do projeto.");
-    }
-
-    const loginAlvo = String(loginDigitado || "").trim().toLowerCase();
-    const senhaAlvo = String(senhaDigitada || "").trim();
-
-    // Busca direta e robusta: aceita login/senha ou username/password.
-    const snap = await firebaseFirestore.collection("usuarios").get();
-
-    let encontrado = null;
-
-    snap.forEach(docSnap => {
-        if (encontrado) return;
-
-        const usuario = normalizarUsuarioLoginFirebaseV3(docSnap.id, docSnap.data() || {});
-        const loginOK = usuario.login === loginAlvo || usuario.username === loginAlvo;
-        const senhaOK = String(usuario.senha) === senhaAlvo || String(usuario.password) === senhaAlvo;
-
-        if (loginOK && senhaOK) encontrado = usuario;
-    });
-
-    return encontrado;
-}
-
-async function abrirPainelDepoisDoLoginV3(usuario) {
-    usuarioLogado = normalizarUsuarioLoginFirebaseV3(usuario.id, usuario);
-    sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
-
-    // Carregar todas as coleções do Firebase para o cache usado pelo app antigo.
-    try {
-        await carregarBaseFirestoreInicial();
-        dadosTrabalho = carregarPremiados();
-    } catch (erro) {
-        console.warn("Login OK, mas falhou ao carregar alguma coleção. Vou abrir o painel mesmo assim.", erro);
-    }
-
-    document.getElementById("loginScreen")?.classList.add("hidden");
-    document.getElementById("mainPanel")?.classList.remove("hidden");
-
-    const nomeEl = document.getElementById("userLoggedNome");
-    const nivelEl = document.getElementById("userLoggedNivel");
-
-    if (nomeEl) nomeEl.innerText = usuarioLogado.nome;
-    if (nivelEl) nivelEl.innerText = usuarioLogado.nivel;
-
-    const chamadas = [
-        ["permissões", () => aplicarPermissoesNavegacao(usuarioLogado)],
-        ["seletores", () => popularSeletores()],
-        ["dashboard", () => renderizarPlataformaDashboard()],
-        ["cronograma", () => renderizarCronograma()],
-        ["tabelas gerenciais", () => renderizarTabelasGerenciais()],
-        ["resultados", () => renderizarResultadosImportacao()],
-        ["campos usuário", () => ajustarCamposFormUsuario()],
-        ["plataforma", () => renderizarPlataformaEnsino()],
-        ["aba inicial", () => ativarPrimeiraAbaPermitida()]
-    ];
-
-    chamadas.forEach(([nome, fn]) => {
-        try { fn(); } catch (erro) { console.warn("Falha parcial ao renderizar " + nome, erro); }
-    });
-
-    // Garantia: se nenhuma aba abriu, abre dashboard sem mexer no layout.
-    if (!document.querySelector(".tab-view:not(.hidden)")) {
-        document.querySelectorAll(".tab-view").forEach(v => v.classList.add("hidden"));
-        document.getElementById("view-dashboard")?.classList.remove("hidden");
-    }
-}
-
-async function submitLoginFirebaseV3(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    const form = document.getElementById("loginForm");
-    const btn = form?.querySelector('button[type="submit"]');
-    const userInput = document.getElementById("auth-user")?.value?.trim() || "";
-    const passInput = document.getElementById("auth-pass")?.value?.trim() || "";
-
-    if (!userInput || !passInput) {
-        statusLoginFirebaseV3("Digite usuário e senha.");
-        return false;
-    }
-
-    try {
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...';
-        }
-
-        statusLoginFirebaseV3("Consultando Firestore...", true);
-
-        const usuario = await buscarUsuarioDiretoFirestoreV3(userInput, passInput);
-
-        if (!usuario) {
-            statusLoginFirebaseV3("Usuário ou senha não encontrados na coleção usuarios.");
-            return false;
-        }
-
-        statusLoginFirebaseV3("Login confirmado. Abrindo painel...", true);
-        await abrirPainelDepoisDoLoginV3(usuario);
-        return false;
-    } catch (erro) {
-        console.error("Erro no login Firebase V3:", erro);
-        statusLoginFirebaseV3("Erro ao acessar Firebase. Veja o Console/F12.");
-        alert("Erro no login Firebase:\n\n" + (erro.message || erro));
-        return false;
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = "Acessar Painel";
-        }
-    }
-}
-
-function ativarLoginFirebaseIndependenteV3() {
-    const formAntigo = document.getElementById("loginForm");
-    if (!formAntigo || formAntigo.dataset.loginIndependenteV3 === "true") return;
-
-    const userVal = document.getElementById("auth-user")?.value || "";
-    const passVal = document.getElementById("auth-pass")?.value || "";
-
-    // Remove listeners antigos que podem estar travando.
-    const clone = formAntigo.cloneNode(true);
-    clone.dataset.loginIndependenteV3 = "true";
-    formAntigo.parentNode.replaceChild(clone, formAntigo);
-
-    const user = document.getElementById("auth-user");
-    const pass = document.getElementById("auth-pass");
-
-    if (user) user.value = userVal;
-    if (pass) pass.value = passVal;
-
-    clone.addEventListener("submit", submitLoginFirebaseV3, true);
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-    // Executa por último, sem depender da inicialização antiga.
-    setTimeout(ativarLoginFirebaseIndependenteV3, 0);
-
-    // Se já havia sessão, tenta abrir sem precisar logar de novo.
-    const sessao = sessionStorage.getItem("avance_session");
-    if (sessao) {
-        try {
-            const usuario = normalizarUsuarioLoginFirebaseV3(null, JSON.parse(sessao));
-            abrirPainelDepoisDoLoginV3(usuario);
-        } catch (e) {
-            sessionStorage.removeItem("avance_session");
-        }
-    }
-});
