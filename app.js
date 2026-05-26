@@ -1,15 +1,17 @@
-// Gerenciador e Inteligência do Sistema Olímpico
+// Gerenciador e Inteligência do Sistema Olímpico 2026
 let chartInstance = null;
 let dadosTrabalho = [];
 
 document.addEventListener("DOMContentLoaded", () => {
+    // Carrega dados iniciais do banco local
     dadosTrabalho = [...DATABASE.premiados];
     
+    // Inicializa escutas de login e formulários
     initLogin();
     initFormularios();
     initDragAndDrop();
     
-    // Configura os seletores de filtros superiores
+    // Configura os seletores de filtros superiores da dashboard
     document.getElementById("filterMunicipio").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterEscola").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterOlimpiada").addEventListener("change", renderizarPlataforma);
@@ -17,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Botão de Logout
     document.getElementById("btnLogout").addEventListener("click", logout);
     
-    // Verifica se já existia login salvo
+    // Recupera sessão se o usuário já tiver logado antes
     verificarSessao();
 });
 
@@ -29,10 +31,11 @@ function initLogin() {
     form.addEventListener("submit", (e) => {
         e.preventDefault();
         
-        const userInput = document.getElementById("username").value.trim();
-        const passInput = document.getElementById("password").value.trim();
+        // Captura exata dos IDs ajustados no HTML
+        const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
+        const passInput = document.getElementById("auth-pass").value.trim();
         
-        // Validação comparando com o arquivo database.js
+        // Procura correspondência no banco de dados
         const contaEncontrada = DATABASE.usuarios.find(u => u.login === userInput && u.senha === passInput);
         
         if (contaEncontrada) {
@@ -52,16 +55,18 @@ function verificarSessao() {
 }
 
 function aplicarLogin(user) {
+    // Transiciona as telas ocultando o Login e exibindo o Painel
     document.getElementById("loginScreen").classList.add("hidden");
     document.getElementById("mainContent").classList.remove("hidden");
     
+    // Atualiza cabeçalho com os dados do operador logado
     document.getElementById("userPanelTitle").innerText = `Painel de - ${user.nome}`;
     document.getElementById("userBadge").innerText = `Nível de Acesso: ${user.nivel}`;
     
-    // Controlar travas e permissões de telas baseadas no cargo
+    // Aplica as travas visuais dependendo do cargo
     restringirAbasPorNivel(user.nivel);
     
-    // Desenha as tabelas e dados na tela
+    // Alimenta filtros e plota os gráficos
     popularSeletores();
     renderizarPlataforma();
 }
@@ -70,16 +75,17 @@ function logout() {
     localStorage.removeItem("usuarioLogado");
     document.getElementById("mainContent").classList.add("hidden");
     document.getElementById("loginScreen").classList.remove("hidden");
-    document.getElementById("username").value = "";
-    document.getElementById("password").value = "";
+    document.getElementById("auth-user").value = "";
+    document.getElementById("auth-pass").value = "";
 }
+
+function Wood() {}
 
 function restringirAbasPorNivel(nivel) {
     const btnLancamento = document.getElementById("btn-tab-lancamento");
     const btnUsuarios = document.getElementById("btn-tab-usuarios");
     
     if (nivel === "Escola") {
-        // O nível escola não gerencia usuários nem faz lançamentos em lote
         if (btnLancamento) btnLancamento.style.display = "none";
         if (btnUsuarios) btnUsuarios.style.display = "none";
         switchTab("dashboard");
@@ -88,7 +94,6 @@ function restringirAbasPorNivel(nivel) {
         if (btnUsuarios) btnUsuarios.style.display = "none";
         switchTab("dashboard");
     } else {
-        // Administrador Master vê tudo
         if (btnLancamento) btnLancamento.style.display = "flex";
         if (btnUsuarios) btnUsuarios.style.display = "flex";
     }
@@ -112,7 +117,6 @@ function popularSeletores() {
     const selectAddOlimp = document.getElementById("addAlunoOlimpiada");
     const selectEscola = document.getElementById("filterEscola");
     
-    // Limpa opções antigas
     selectOlimp.innerHTML = '<option value="Todas">Todas as Olimpíadas</option>';
     selectAddOlimp.innerHTML = '';
     
@@ -121,7 +125,6 @@ function popularSeletores() {
         selectAddOlimp.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
     });
 
-    // Pega as escolas únicas dos dados atuais de premiação
     const escolasUnicas = [...new Set(dadosTrabalho.map(d => d.escola))];
     selectEscola.innerHTML = '<option value="Todas">Todas as Escolas</option>';
     escolasUnicas.forEach(e => {
@@ -129,13 +132,12 @@ function popularSeletores() {
     });
 }
 
-// ==================== MOTOR DE FILTROS E RENDERIZAÇÃO ====================
+// ==================== FILTROS E RENDERIZAÇÃO DA DASHBOARD ====================
 function renderizarPlataforma() {
     const fMuni = document.getElementById("filterMunicipio").value;
     const fEsco = document.getElementById("filterEscola").value;
     const fOlim = document.getElementById("filterOlimpiada").value;
     
-    // Filtragem Lógica
     const dadosFiltrados = dadosTrabalho.filter(d => {
         const matchMuni = (fMuni === "Todos" || d.municipio === fMuni);
         const matchEsco = (fEsco === "Todas" || d.escola === fEsco);
@@ -143,7 +145,6 @@ function renderizarPlataforma() {
         return matchMuni && matchEsco && matchOlim;
     });
 
-    // Atualização dos Cards
     let ouro = 0, prata = 0, bronze = 0, mencao = 0;
     dadosFiltrados.forEach(d => {
         if (d.premio === "Ouro") ouro++;
@@ -158,7 +159,6 @@ function renderizarPlataforma() {
     document.getElementById("cardMencao").innerText = mencao;
     document.getElementById("lblTotalPremiados").innerText = `Total: ${dadosFiltrados.length}`;
 
-    // Atualização da Tabela de Alunos
     const tCorpo = document.getElementById("tableAlunosCorpo");
     tCorpo.innerHTML = "";
     if (dadosFiltrados.length === 0) {
@@ -183,18 +183,14 @@ function renderizarPlataforma() {
         });
     }
 
-    // Atualização da Aba do Calendário
     renderizarCalendario();
-    
-    // Atualização da Aba de Gestão de Usuários
     renderizarUsuarios();
-
-    // Atualização do Gráfico
     renderizarGrafico(dadosFiltrados);
 }
 
 function renderizarCalendario() {
     const tCal = document.getElementById("tableCalendarioCorpo");
+    if (!tCal) return;
     tCal.innerHTML = "";
     DATABASE.calendario.forEach(c => {
         tCal.innerHTML += `
@@ -210,6 +206,7 @@ function renderizarCalendario() {
 
 function renderizarUsuarios() {
     const tUser = document.getElementById("tableUsersCorpo");
+    if (!tUser) return;
     tUser.innerHTML = "";
     DATABASE.usuarios.forEach(u => {
         tUser.innerHTML += `
@@ -227,7 +224,6 @@ function renderizarGrafico(dados) {
     const ctx = document.getElementById("chartMedalhas");
     if (!ctx) return;
 
-    // Agrupa dados por Escola
     const escolas = [...new Set(dados.map(d => d.escola))];
     const dataOuro = [], dataPrata = [], dataBronze = [], dataMencao = [];
 
@@ -268,7 +264,7 @@ function renderizarGrafico(dados) {
     });
 }
 
-// ==================== ENVIO MANUAL E IMPORTAÇÃO COMPLETA ====================
+// ==================== FORMULÁRIO MANUAL E PLANILHAS ====================
 function initFormularios() {
     const form = document.getElementById("formManualResult");
     if (!form) return;
@@ -278,7 +274,7 @@ function initFormularios() {
         
         const novoResult = {
             aluno: document.getElementById("addAlunoNome").value.trim(),
-            município: document.getElementById("addAlunoMunicipio").value,
+            municipio: document.getElementById("addAlunoMunicipio").value,
             escola: document.getElementById("addAlunoEscola").value.trim(),
             olimpiada: document.getElementById("addAlunoOlimpiada").value,
             premio: document.getElementById("addAlunoPremio").value
@@ -335,13 +331,12 @@ function processarArquivoPlanilha(arquivo) {
                 return;
             }
 
-            // Mapeamento e Ingestão de Dados
             linhas.forEach(linha => {
                 dadosTrabalho.push({
                     aluno: linha.Aluno || linha.aluno || "Desconhecido",
                     escola: linha.Escola || linha.escola || "Não Informada",
                     municipio: linha.Municipio || linha.municipio || "São Braz - PI",
-                    olimpiada: linha.Olimpiada || linha.olimpiada || "Geral",
+                    olimpiada: inline || linha.Olimpiada || linha.olimpiada || "Geral",
                     premio: linha.Premio || linha.premio || "Menção Honrosa"
                 });
             });
