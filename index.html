@@ -81,6 +81,9 @@
                 <button id="btnNav-importar" onclick="navegarAba('importar', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-file-import text-base w-5 text-center"></i> Importar Resultados
                 </button>
+                <button id="btnNav-relatorios" onclick="navegarAba('relatorios', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-chart-column text-base w-5 text-center"></i> Relatórios
+                </button>
                 <button id="btnNav-plataforma" onclick="navegarAba('plataforma', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-chalkboard-user text-base w-5 text-center"></i> Plataforma
                 </button>
@@ -183,6 +186,61 @@
                                 </table>
                             </div>
                         </div>
+                    </div>
+                </section>
+
+
+                <!-- ===================== RELATÓRIOS COMPARATIVOS ===================== -->
+                <section id="view-relatorios" class="tab-view hidden space-y-6">
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden">
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-chart-line text-blue-400 mr-2"></i>Relatórios Comparativos por Ano</h3>
+                                <p class="text-xs text-gray-400 mt-1">Compare medalhas por cidade, escola e crescimento anual usando os dados salvos no Firestore.</p>
+                            </div>
+                            <button id="btnAtualizarRelatorios" type="button" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-rotate mr-2"></i>Atualizar relatório</button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Ano inicial</label>
+                                <select id="relAnoInicio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Ano final</label>
+                                <select id="relAnoFim" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Cidade</label>
+                                <select id="relFiltroCidade" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODAS">Todas</option></select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Escola</label>
+                                <select id="relFiltroEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODAS">Todas</option></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total no período</span><h3 id="relCardTotal" class="text-2xl font-black text-white mt-2">0</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Melhor ano</span><h3 id="relCardMelhorAno" class="text-2xl font-black text-emerald-400 mt-2">—</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Crescimento final</span><h3 id="relCardCrescimento" class="text-2xl font-black text-blue-400 mt-2">—</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Anos analisados</span><h3 id="relCardAnos" class="text-2xl font-black text-purple-400 mt-2">0</h3></div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Evolução anual</h3></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Ano</th><th class="p-4">Total</th><th class="p-4">Ouro</th><th class="p-4">Prata</th><th class="p-4">Bronze</th><th class="p-4">Menção</th><th class="p-4">Crescimento</th></tr></thead><tbody id="tableRelEvolucao" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Ranking por cidade</h3></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Cidade</th><th class="p-4">Total</th><th class="p-4">Melhor ano</th><th class="p-4">Crescimento</th></tr></thead><tbody id="tableRelCidades" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Ranking por escola</h3></div>
+                        <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Escola</th><th class="p-4">Cidade</th><th class="p-4">Total</th><th class="p-4">Melhor ano</th><th class="p-4">Crescimento</th></tr></thead><tbody id="tableRelEscolas" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                     </div>
                 </section>
 

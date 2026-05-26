@@ -158,6 +158,11 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("filterResultadoCidade")?.addEventListener("change", renderizarResultadosImportacao);
         document.getElementById("filterResultadoEscola")?.addEventListener("change", renderizarResultadosImportacao);
         document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
+        document.getElementById("btnAtualizarRelatorios")?.addEventListener("click", gerarRelatoriosComparativos);
+        document.getElementById("relAnoInicio")?.addEventListener("change", gerarRelatoriosComparativos);
+        document.getElementById("relAnoFim")?.addEventListener("change", gerarRelatoriosComparativos);
+        document.getElementById("relFiltroCidade")?.addEventListener("change", () => { atualizarFiltroEscolasRelatorio(); gerarRelatoriosComparativos(); });
+        document.getElementById("relFiltroEscola")?.addEventListener("change", gerarRelatoriosComparativos);
         document.getElementById("filterCronogramaGrupoEtapa")?.addEventListener("change", () => { preencherFiltrosCronograma(); renderizarCronograma(); });
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaModoExibicao")?.addEventListener("change", renderizarCronograma);
@@ -224,6 +229,7 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    prepararFiltrosRelatoriosComparativos();
     ativarPrimeiraAbaPermitida();
 }
 
@@ -247,6 +253,7 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-dashboard": "dashboard",
         "btnNav-calendario": "calendario",
         "btnNav-importar": "importar",
+        "btnNav-relatorios": "relatorios",
         "btnNav-plataforma": "plataforma",
         "btnNav-monitoria": "monitoria",
         "btnNavUsuarios": "usuarios",
@@ -359,7 +366,8 @@ function ativarPrimeiraAbaPermitida() {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        importar: "Importar Resultados", usuarios: "Gerenciar Usuários e Permissões",
+        importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
     };
@@ -369,6 +377,7 @@ function ativarPrimeiraAbaPermitida() {
     if (aba === "plataforma") renderizarPlataformaEnsino();
     if (aba === "monitoria") renderizarSalasMonitoria();
     if (aba === "importar") renderizarResultadosImportacao();
+    if (aba === "relatorios") prepararTelaRelatoriosComparativos();
 }
 
 function getCidadeGestor() {
@@ -577,6 +586,7 @@ Os dados exibidos serão recarregados do banco deste ano.`)) {
         renderizarTabelasGerenciais();
         renderizarResultadosImportacao();
         renderizarPlataformaEnsino();
+        if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
         alert(`Ano ${anoDadosAtivo} carregado com sucesso.`);
     }
 }
@@ -1470,6 +1480,217 @@ function editarResultado(chaveCodificada) {
     });
 }
 
+
+// ==================== RELATÓRIOS COMPARATIVOS ====================
+function anosSelecionadosRelatorio() {
+    const inicio = Number(document.getElementById("relAnoInicio")?.value || anoDadosAtivo);
+    const fim = Number(document.getElementById("relAnoFim")?.value || anoDadosAtivo);
+    const a = Math.min(inicio, fim);
+    const b = Math.max(inicio, fim);
+    return ANOS_REFERENCIA_PADRAO.map(Number).filter(ano => ano >= a && ano <= b).map(String);
+}
+
+function prepararFiltrosRelatoriosComparativos() {
+    const anoInicio = document.getElementById("relAnoInicio");
+    const anoFim = document.getElementById("relAnoFim");
+    if (anoInicio && anoInicio.options.length === 0) {
+        anoInicio.innerHTML = ANOS_REFERENCIA_PADRAO.map(a => `<option value="${a}">${a}</option>`).join("");
+    }
+    if (anoFim && anoFim.options.length === 0) {
+        anoFim.innerHTML = ANOS_REFERENCIA_PADRAO.map(a => `<option value="${a}">${a}</option>`).join("");
+    }
+    if (anoInicio) anoInicio.value = ANOS_REFERENCIA_PADRAO.includes("2022") ? "2022" : ANOS_REFERENCIA_PADRAO[0];
+    if (anoFim) anoFim.value = anoDadosAtivo;
+}
+
+async function prepararTelaRelatoriosComparativos() {
+    prepararFiltrosRelatoriosComparativos();
+    await atualizarFiltrosEntidadesRelatorio();
+    await gerarRelatoriosComparativos();
+}
+
+function colecaoAnualFirestore(ano, chave) {
+    const base = getFirebaseCollectionBaseName(chave);
+    return `anos/${ano}/${base}`;
+}
+
+async function carregarColecaoAnualRelatorio(ano, chave) {
+    initFirebase();
+    if (!firebaseFirestore) throw new Error("Cloud Firestore não inicializado.");
+    const snap = await firebaseFirestore.collection(colecaoAnualFirestore(ano, chave)).get();
+    const lista = [];
+    snap.forEach(doc => lista.push({ id: doc.id, ...(doc.data() || {}) }));
+    return lista;
+}
+
+async function carregarPremiadosMultianual(anos) {
+    const pacotes = await Promise.all(anos.map(async ano => {
+        const premiados = await carregarColecaoAnualRelatorio(ano, "app_premiados");
+        return premiados.map(item => ({ ...item, ano }));
+    }));
+    return pacotes.flat();
+}
+
+function premiosPorAnoVazio(ano) {
+    return { ano, total: 0, ouro: 0, prata: 0, bronze: 0, mencao: 0 };
+}
+
+function classificarPremio(premio) {
+    const p = normalizarTexto(premio);
+    if (p.includes("ouro")) return "ouro";
+    if (p.includes("prata")) return "prata";
+    if (p.includes("bronze")) return "bronze";
+    if (p.includes("men")) return "mencao";
+    return "outros";
+}
+
+function aplicarFiltrosRelatorio(lista) {
+    const cidade = document.getElementById("relFiltroCidade")?.value || "TODAS";
+    const escola = document.getElementById("relFiltroEscola")?.value || "TODAS";
+    return lista.filter(item => {
+        if (!resultadoDentroDoEscopoUsuario(item)) return false;
+        if (cidade !== "TODAS" && normalizarTexto(item.municipio) !== normalizarTexto(cidade)) return false;
+        if (escola !== "TODAS" && normalizarTexto(item.escola) !== normalizarTexto(escola)) return false;
+        return true;
+    });
+}
+
+function agregarPorAno(lista, anos) {
+    const mapa = new Map(anos.map(ano => [ano, premiosPorAnoVazio(ano)]));
+    lista.forEach(item => {
+        const ano = String(item.ano || anoDadosAtivo);
+        if (!mapa.has(ano)) mapa.set(ano, premiosPorAnoVazio(ano));
+        const linha = mapa.get(ano);
+        linha.total++;
+        const tipo = classificarPremio(item.premio);
+        if (linha[tipo] !== undefined) linha[tipo]++;
+    });
+    return Array.from(mapa.values()).sort((a, b) => Number(a.ano) - Number(b.ano));
+}
+
+function calcularCrescimento(atual, anterior) {
+    if (anterior === null || anterior === undefined) return "—";
+    const delta = atual - anterior;
+    if (anterior === 0 && atual > 0) return `+${atual} novo(s)`;
+    if (anterior === 0 && atual === 0) return "0";
+    const perc = (delta / anterior) * 100;
+    const sinal = delta > 0 ? "+" : "";
+    return `${sinal}${delta} (${sinal}${perc.toFixed(1)}%)`;
+}
+
+function linhaCrescimentoClasse(texto) {
+    if (String(texto).startsWith("+")) return "text-emerald-400";
+    if (String(texto).startsWith("-")) return "text-red-400";
+    return "text-gray-400";
+}
+
+function agregarRanking(lista, campoPrincipal, campoSecundario = null) {
+    const mapa = new Map();
+    lista.forEach(item => {
+        const nome = item[campoPrincipal] || "Não informado";
+        const ano = String(item.ano || anoDadosAtivo);
+        if (!mapa.has(nome)) mapa.set(nome, { nome, secundario: item[campoSecundario] || "", total: 0, porAno: {} });
+        const reg = mapa.get(nome);
+        reg.total++;
+        if (!reg.secundario && campoSecundario) reg.secundario = item[campoSecundario] || "";
+        reg.porAno[ano] = (reg.porAno[ano] || 0) + 1;
+    });
+    return Array.from(mapa.values()).sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+}
+
+function melhorAnoTexto(porAno) {
+    const entries = Object.entries(porAno || {}).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]));
+    return entries.length ? `${entries[0][0]} (${entries[0][1]})` : "—";
+}
+
+function crescimentoEntidadeTexto(porAno, anos) {
+    if (!anos.length) return "—";
+    const primeiro = porAno?.[anos[0]] || 0;
+    const ultimo = porAno?.[anos[anos.length - 1]] || 0;
+    return calcularCrescimento(ultimo, primeiro);
+}
+
+async function atualizarFiltrosEntidadesRelatorio() {
+    const anos = anosSelecionadosRelatorio();
+    const lista = await carregarPremiadosMultianual(anos);
+    const cidadeSel = document.getElementById("relFiltroCidade");
+    const escolaSel = document.getElementById("relFiltroEscola");
+    if (!cidadeSel || !escolaSel) return;
+    const valorCidade = cidadeSel.value || "TODAS";
+    const valorEscola = escolaSel.value || "TODAS";
+    const cidades = Array.from(new Set(lista.map(i => i.municipio).filter(Boolean))).sort();
+    cidadeSel.innerHTML = `<option value="TODAS">Todas</option>` + cidades.map(c => `<option value="${textoSeguro(c)}">${textoSeguro(c)}</option>`).join("");
+    cidadeSel.value = cidades.includes(valorCidade) ? valorCidade : "TODAS";
+    atualizarFiltroEscolasRelatorio(lista, valorEscola);
+}
+
+function atualizarFiltroEscolasRelatorio(listaBase = null, valorAnterior = null) {
+    const escolaSel = document.getElementById("relFiltroEscola");
+    if (!escolaSel) return;
+    const cidade = document.getElementById("relFiltroCidade")?.value || "TODAS";
+    const lista = Array.isArray(listaBase) ? listaBase : memoriaRelatoriosUltimaLista || [];
+    const valor = valorAnterior || escolaSel.value || "TODAS";
+    const escolas = Array.from(new Set(lista.filter(i => cidade === "TODAS" || normalizarTexto(i.municipio) === normalizarTexto(cidade)).map(i => i.escola).filter(Boolean))).sort();
+    escolaSel.innerHTML = `<option value="TODAS">Todas</option>` + escolas.map(e => `<option value="${textoSeguro(e)}">${textoSeguro(e)}</option>`).join("");
+    escolaSel.value = escolas.includes(valor) ? valor : "TODAS";
+}
+
+let memoriaRelatoriosUltimaLista = [];
+
+async function gerarRelatoriosComparativos() {
+    const btn = document.getElementById("btnAtualizarRelatorios");
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando...'; }
+        const anos = anosSelecionadosRelatorio();
+        const todos = await carregarPremiadosMultianual(anos);
+        memoriaRelatoriosUltimaLista = todos;
+        if (document.activeElement?.id === "relAnoInicio" || document.activeElement?.id === "relAnoFim") await atualizarFiltrosEntidadesRelatorio();
+        const filtrados = aplicarFiltrosRelatorio(todos);
+        const porAno = agregarPorAno(filtrados, anos);
+        const total = filtrados.length;
+        const melhor = porAno.slice().sort((a, b) => b.total - a.total || Number(a.ano) - Number(b.ano))[0];
+        const crescimentoFinal = porAno.length ? calcularCrescimento(porAno[porAno.length - 1].total, porAno[0].total) : "—";
+
+        document.getElementById("relCardTotal").innerText = total;
+        document.getElementById("relCardMelhorAno").innerText = melhor && melhor.total > 0 ? `${melhor.ano} (${melhor.total})` : "—";
+        document.getElementById("relCardCrescimento").innerText = crescimentoFinal;
+        document.getElementById("relCardAnos").innerText = anos.length;
+
+        const tbodyAno = document.getElementById("tableRelEvolucao");
+        if (tbodyAno) {
+            let anterior = null;
+            tbodyAno.innerHTML = porAno.map(l => {
+                const cresc = calcularCrescimento(l.total, anterior);
+                anterior = l.total;
+                return `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${l.ano}</td><td class="p-4 font-bold">${l.total}</td><td class="p-4 text-amber-400">${l.ouro}</td><td class="p-4 text-gray-300">${l.prata}</td><td class="p-4 text-orange-300">${l.bronze}</td><td class="p-4 text-blue-300">${l.mencao}</td><td class="p-4 font-bold ${linhaCrescimentoClasse(cresc)}">${cresc}</td></tr>`;
+            }).join("") || `<tr><td colspan="7" class="p-6 text-center text-gray-500">Nenhum resultado encontrado no período.</td></tr>`;
+        }
+
+        const rankingCidades = agregarRanking(filtrados, "municipio").slice(0, 30);
+        const tbodyCid = document.getElementById("tableRelCidades");
+        if (tbodyCid) {
+            tbodyCid.innerHTML = rankingCidades.map(r => {
+                const cresc = crescimentoEntidadeTexto(r.porAno, anos);
+                return `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${textoSeguro(r.nome)}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4">${melhorAnoTexto(r.porAno)}</td><td class="p-4 font-bold ${linhaCrescimentoClasse(cresc)}">${cresc}</td></tr>`;
+            }).join("") || `<tr><td colspan="4" class="p-6 text-center text-gray-500">Nenhuma cidade com resultado no período.</td></tr>`;
+        }
+
+        const rankingEscolas = agregarRanking(filtrados, "escola", "municipio").slice(0, 50);
+        const tbodyEsc = document.getElementById("tableRelEscolas");
+        if (tbodyEsc) {
+            tbodyEsc.innerHTML = rankingEscolas.map(r => {
+                const cresc = crescimentoEntidadeTexto(r.porAno, anos);
+                return `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${textoSeguro(r.nome)}</td><td class="p-4 text-gray-400">${textoSeguro(r.secundario || "—")}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4">${melhorAnoTexto(r.porAno)}</td><td class="p-4 font-bold ${linhaCrescimentoClasse(cresc)}">${cresc}</td></tr>`;
+            }).join("") || `<tr><td colspan="5" class="p-6 text-center text-gray-500">Nenhuma escola com resultado no período.</td></tr>`;
+        }
+    } catch (erro) {
+        console.error("Erro ao gerar relatórios comparativos", erro);
+        alert(`Erro ao gerar relatórios comparativos.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate mr-2"></i>Atualizar relatório'; }
+    }
+}
+
 // ==================== NAVEGAÇÃO ENTRE ABAS ====================
 function navegarAba(abaId, botaoTarget) {
     if (!podeVerAba(abaId)) return;
@@ -1479,7 +1700,8 @@ function navegarAba(abaId, botaoTarget) {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        importar: "Importar Resultados", usuarios: "Gerenciar Usuários e Permissões",
+        importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
     };
@@ -1494,6 +1716,9 @@ function navegarAba(abaId, botaoTarget) {
     }
     if (abaId === "monitoria") {
         renderizarSalasMonitoria();
+    }
+    if (abaId === "relatorios") {
+        prepararTelaRelatoriosComparativos();
     }
 
     document.querySelectorAll(".nav-item").forEach(btn => {
