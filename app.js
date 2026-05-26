@@ -30,10 +30,11 @@ const RTC_CONFIG = {
 
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
+const SEXOS_ALUNO_PADRAO = ["Masculino", "Feminino"];
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
-const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma"];
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -147,6 +148,8 @@ document.addEventListener("DOMContentLoaded", () => {
         initDragAndDrop();
         initDragAndDropCronograma();
         initDragAndDropOlimpiadas();
+        initDragAndDropAlunos();
+        initAlunos();
         initResultadoManual();
         initFormularioOlimpiadaCompleto();
         initSeletorAnoDados();
@@ -256,6 +259,7 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-relatorios": "relatorios",
         "btnNav-plataforma": "plataforma",
         "btnNav-monitoria": "monitoria",
+        "btnNavAlunos": "alunos",
         "btnNavUsuarios": "usuarios",
         "btnNavOlimpiadas": "olimpiadas",
         "btnNavCidades": "cidades",
@@ -354,6 +358,7 @@ function ativarPrimeiraAbaPermitida() {
         btn.classList.add("text-gray-400");
     });
     const btn = document.getElementById(`btnNav-${aba}`) || ({
+        alunos: document.getElementById("btnNavAlunos"),
         usuarios: document.getElementById("btnNavUsuarios"),
         olimpiadas: document.getElementById("btnNavOlimpiadas"),
         cidades: document.getElementById("btnNavCidades"),
@@ -367,7 +372,7 @@ function ativarPrimeiraAbaPermitida() {
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
         importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
-        usuarios: "Gerenciar Usuários e Permissões",
+        alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
     };
@@ -378,6 +383,7 @@ function ativarPrimeiraAbaPermitida() {
     if (aba === "monitoria") renderizarSalasMonitoria();
     if (aba === "importar") renderizarResultadosImportacao();
     if (aba === "relatorios") prepararTelaRelatoriosComparativos();
+    if (aba === "alunos") { popularSeletoresAlunos(); renderizarAlunos(); }
 }
 
 function getCidadeGestor() {
@@ -526,6 +532,7 @@ function dadosSementePorChave(chave) {
         app_usuarios: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [],
         app_cidades: typeof CONFIG_CIDADES_INICIAIS !== "undefined" ? CONFIG_CIDADES_INICIAIS : [],
         app_escolas: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [],
+        app_alunos: [],
         app_olimpiadas: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [],
         app_cronograma: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [],
         app_premiados: typeof DATABASE !== "undefined" ? DATABASE.premiados : [],
@@ -584,6 +591,7 @@ Os dados exibidos serão recarregados do banco deste ano.`)) {
         renderizarPlataformaDashboard();
         renderizarCronograma();
         renderizarTabelasGerenciais();
+        renderizarAlunos();
         renderizarResultadosImportacao();
         renderizarPlataformaEnsino();
         if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
@@ -718,6 +726,7 @@ async function carregarDadosFirebaseInicial() {
         "app_usuarios",
         "app_cidades",
         "app_escolas",
+        "app_alunos",
         "app_olimpiadas",
         "app_cronograma",
         "app_premiados",
@@ -735,6 +744,7 @@ async function carregarDadosPosLogin() {
     const chaves = [
         "app_cidades",
         "app_escolas",
+        "app_alunos",
         "app_olimpiadas",
         "app_cronograma",
         "app_premiados",
@@ -1701,7 +1711,7 @@ function navegarAba(abaId, botaoTarget) {
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
         importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
-        usuarios: "Gerenciar Usuários e Permissões",
+        alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
     };
@@ -1719,6 +1729,10 @@ function navegarAba(abaId, botaoTarget) {
     }
     if (abaId === "relatorios") {
         prepararTelaRelatoriosComparativos();
+    }
+    if (abaId === "alunos") {
+        popularSeletoresAlunos();
+        renderizarAlunos();
     }
 
     document.querySelectorAll(".nav-item").forEach(btn => {
@@ -1964,10 +1978,415 @@ function salvarNovaEscola(event) {
     renderizarTabelasGerenciais();
 }
 
+
+// ==================== CADASTRO DE ALUNOS ====================
+function initAlunos() {
+    const nasc = document.getElementById("addAlunoNascimento");
+    if (nasc) nasc.addEventListener("change", () => atualizarIdadeAluno("addAlunoNascimento", "addAlunoIdade"));
+    popularSeletoresAlunos();
+}
+
+function calcularIdadePorData(dataNascimento) {
+    if (!dataNascimento) return "";
+    const nasc = new Date(`${dataNascimento}T00:00:00`);
+    if (Number.isNaN(nasc.getTime())) return "";
+    const hoje = new Date();
+    let idade = hoje.getFullYear() - nasc.getFullYear();
+    const m = hoje.getMonth() - nasc.getMonth();
+    if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
+    return idade >= 0 ? idade : "";
+}
+
+function atualizarIdadeAluno(inputId, outputId) {
+    const idade = calcularIdadePorData(document.getElementById(inputId)?.value || "");
+    const out = document.getElementById(outputId);
+    if (out) out.value = idade !== "" ? `${idade} anos` : "";
+}
+
+function cpfLimpo(valor) {
+    return String(valor || "").replace(/\D/g, "");
+}
+
+function formatarCpf(valor) {
+    const d = cpfLimpo(valor);
+    if (d.length !== 11) return valor || "";
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+}
+
+function escolaDoAluno(aluno) {
+    const escolas = getStorage("app_escolas");
+    return escolas.find(e => e.id === aluno.escolaId || normalizarTexto(e.nome) === normalizarTexto(aluno.escolaNome));
+}
+
+function cidadeDaEscola(escola) {
+    const cidades = getStorage("app_cidades");
+    return escola ? cidades.find(c => c.id === escola.cidadeId) : null;
+}
+
+function alunosPermitidosParaUsuario() {
+    const alunos = getStorage("app_alunos", []);
+    if (!usuarioLogado) return [];
+    if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return alunos;
+    const escolasPermitidasIds = new Set(escolasPermitidasParaCadastroUsuario().map(e => e.id));
+    return alunos.filter(a => escolasPermitidasIds.has(a.escolaId));
+}
+
+function validarDadosAluno(dados, idIgnorado = null) {
+    if (!dados.nome) return "Nome completo é obrigatório.";
+    if (!dados.emailInstitucional && !dados.emailPessoal) return "Preencha pelo menos um e-mail: institucional ou pessoal.";
+    if (!dados.cpf || cpfLimpo(dados.cpf).length !== 11) return "CPF do aluno é obrigatório e precisa ter 11 dígitos.";
+    if (!dados.dataNascimento) return "Data de nascimento é obrigatória.";
+    if (!dados.sexo) return "Sexo do aluno é obrigatório.";
+    if (!dados.escolaId) return "Escola é obrigatória.";
+    if (!dados.serie) return "Série é obrigatória.";
+    if (!dados.turnoTurma) return "Turno/turma é obrigatório.";
+    if (!dados.mae && !dados.pai && !dados.responsavelAcademico) return "Preencha pelo menos um responsável: mãe, pai ou responsável acadêmico.";
+
+    const alunos = getStorage("app_alunos", []);
+    const cpf = cpfLimpo(dados.cpf);
+    if (alunos.some(a => a.id !== idIgnorado && cpfLimpo(a.cpf) === cpf)) return "Já existe aluno cadastrado com este CPF.";
+
+    if (!escolasPermitidasParaCadastroUsuario().some(e => e.id === dados.escolaId)) return "Escola fora do seu escopo de permissão.";
+    return null;
+}
+
+function montarDadosAlunoDoFormulario(prefixo = "addAluno", idExistente = null) {
+    const escolaId = document.getElementById(`${prefixo}EscolaSelect`)?.value || "";
+    const escola = getStorage("app_escolas").find(e => e.id === escolaId);
+    const cidade = cidadeDaEscola(escola);
+    const dataNascimento = document.getElementById(`${prefixo}Nascimento`)?.value || "";
+    return {
+        id: idExistente || novoId(),
+        nome: document.getElementById(`${prefixo}Nome`)?.value.trim() || "",
+        emailInstitucional: document.getElementById(`${prefixo}EmailInstitucional`)?.value.trim() || "",
+        emailPessoal: document.getElementById(`${prefixo}EmailPessoal`)?.value.trim() || "",
+        cpf: formatarCpf(document.getElementById(`${prefixo}Cpf`)?.value.trim() || ""),
+        dataNascimento,
+        idade: calcularIdadePorData(dataNascimento),
+        sexo: document.getElementById(`${prefixo}Sexo`)?.value || "",
+        escolaId,
+        escolaNome: escola?.nome || "",
+        cidadeId: cidade?.id || "",
+        municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : "",
+        serie: document.getElementById(`${prefixo}Serie`)?.value || "",
+        turnoTurma: document.getElementById(`${prefixo}Turma`)?.value.trim() || "",
+        contatoAluno: document.getElementById(`${prefixo}Contato`)?.value.trim() || "",
+        mae: document.getElementById(`${prefixo}Mae`)?.value.trim() || "",
+        pai: document.getElementById(`${prefixo}Pai`)?.value.trim() || "",
+        responsavelAcademico: document.getElementById(`${prefixo}Responsavel`)?.value.trim() || "",
+        contatoResponsavel: document.getElementById(`${prefixo}ContatoResponsavel`)?.value.trim() || ""
+    };
+}
+
+function popularSeletoresAlunos() {
+    const escolaSelect = document.getElementById("addAlunoEscolaSelect");
+    const serieSelect = document.getElementById("addAlunoSerie");
+    if (escolaSelect) {
+        const atual = escolaSelect.value;
+        const escolas = escolasPermitidasParaCadastroUsuario();
+        escolaSelect.innerHTML = '<option value="">Selecione a escola...</option>' + escolas.map(e => `<option value="${textoSeguro(e.id)}">${textoSeguro(e.nome)}</option>`).join("");
+        if ([...escolaSelect.options].some(opt => opt.value === atual)) escolaSelect.value = atual;
+    }
+    if (serieSelect) {
+        const atual = serieSelect.value;
+        serieSelect.innerHTML = '<option value="">Selecione a série...</option>' + SERIES_PADRAO.map(s => `<option value="${textoSeguro(s)}">${textoSeguro(s)}</option>`).join("");
+        if ([...serieSelect.options].some(opt => opt.value === atual)) serieSelect.value = atual;
+    }
+}
+
+function salvarNovoAluno(event) {
+    event.preventDefault();
+    if (!permissao("usuarios.podeGerenciar")) return alert("Sem permissão para cadastrar alunos.");
+    const dados = montarDadosAlunoDoFormulario();
+    const erro = validarDadosAluno(dados);
+    if (erro) return alert(erro);
+    const alunos = getStorage("app_alunos", []);
+    alunos.push({ ...dados, criadoEm: new Date().toISOString() });
+    setStorage("app_alunos", alunos);
+    document.getElementById("formCadAluno")?.reset();
+    atualizarIdadeAluno("addAlunoNascimento", "addAlunoIdade");
+    popularSeletores();
+    renderizarAlunos();
+    alert("Aluno cadastrado com sucesso.");
+}
+
+function renderizarAlunos() {
+    const tbody = document.getElementById("tableAlunosCorpo");
+    if (!tbody) return;
+    const filtro = normalizarTexto(document.getElementById("filterAlunoNome")?.value || "");
+    let alunos = alunosPermitidosParaUsuario();
+    if (filtro) alunos = alunos.filter(a => normalizarTexto(`${a.nome} ${a.cpf} ${a.emailInstitucional} ${a.emailPessoal}`).includes(filtro));
+    alunos.sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+    tbody.innerHTML = alunos.map(a => {
+        const responsavel = a.mae || a.pai || a.responsavelAcademico || "—";
+        return `<tr class="hover:bg-gray-800/60 transition">
+            <td class="p-4"><div class="font-bold text-white">${textoSeguro(a.nome)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.emailInstitucional || a.emailPessoal || "sem e-mail")}</div></td>
+            <td class="p-4"><div class="font-mono text-xs text-gray-300">${textoSeguro(a.cpf)}</div><div class="text-[11px] text-blue-400 font-bold">${textoSeguro(a.idade || calcularIdadePorData(a.dataNascimento) || "—")} anos</div></td>
+            <td class="p-4"><div class="font-semibold text-gray-200">${textoSeguro(a.escolaNome)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.serie)} · ${textoSeguro(a.turnoTurma)} · ${textoSeguro(a.municipio)}</div></td>
+            <td class="p-4"><div class="text-gray-300">${textoSeguro(responsavel)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.contatoResponsavel || a.contatoAluno || "sem contato")}</div></td>
+            <td class="p-4 text-right"><button onclick="editarAluno('${textoSeguro(a.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td>
+        </tr>`;
+    }).join("") || '<tr><td colspan="5" class="p-8 text-center text-gray-500 text-sm">Nenhum aluno cadastrado neste ano.</td></tr>';
+}
+
+function editarAluno(id) {
+    const alunos = getStorage("app_alunos", []);
+    const atual = alunos.find(a => a.id === id);
+    if (!atual) return alert("Aluno não encontrado.");
+    if (!alunosPermitidosParaUsuario().some(a => a.id === id)) return alert("Você não tem permissão para editar este aluno.");
+    const escolas = escolasPermitidasParaCadastroUsuario().map(e => ({ value: e.id, text: e.nome }));
+    abrirModalEdicao({
+        titulo: "Editar aluno",
+        campos: [
+            { nome: "nome", label: "Nome completo", valor: atual.nome || "" },
+            { nome: "emailInstitucional", label: "E-mail institucional", tipo: "email", valor: atual.emailInstitucional || "" },
+            { nome: "emailPessoal", label: "E-mail pessoal", tipo: "email", valor: atual.emailPessoal || "" },
+            { nome: "cpf", label: "CPF do aluno", valor: atual.cpf || "" },
+            { nome: "dataNascimento", label: "Data de nascimento", tipo: "date", valor: atual.dataNascimento || "" },
+            { nome: "sexo", label: "Sexo", tipo: "select", valor: atual.sexo || "", options: SEXOS_ALUNO_PADRAO },
+            { nome: "escolaId", label: "Escola", tipo: "select", valor: atual.escolaId || "", options: escolas },
+            { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
+            { nome: "turnoTurma", label: "Turno / Turma", valor: atual.turnoTurma || "" },
+            { nome: "contatoAluno", label: "Contato do aluno", valor: atual.contatoAluno || "" },
+            { nome: "mae", label: "Nome completo da mãe", valor: atual.mae || "" },
+            { nome: "pai", label: "Nome completo do pai", valor: atual.pai || "" },
+            { nome: "responsavelAcademico", label: "Responsável acadêmico", valor: atual.responsavelAcademico || "" },
+            { nome: "contatoResponsavel", label: "Contato do pai / responsável", valor: atual.contatoResponsavel || "" }
+        ],
+        onSalvar: (d) => {
+            const escola = getStorage("app_escolas").find(e => e.id === d.escolaId);
+            const cidade = cidadeDaEscola(escola);
+            const dados = {
+                ...atual,
+                nome: d.nome.trim(),
+                emailInstitucional: d.emailInstitucional.trim(),
+                emailPessoal: d.emailPessoal.trim(),
+                cpf: formatarCpf(d.cpf),
+                dataNascimento: d.dataNascimento,
+                idade: calcularIdadePorData(d.dataNascimento),
+                sexo: d.sexo,
+                escolaId: d.escolaId,
+                escolaNome: escola?.nome || "",
+                cidadeId: cidade?.id || "",
+                municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : "",
+                serie: d.serie,
+                turnoTurma: d.turnoTurma.trim(),
+                contatoAluno: d.contatoAluno.trim(),
+                mae: d.mae.trim(),
+                pai: d.pai.trim(),
+                responsavelAcademico: d.responsavelAcademico.trim(),
+                contatoResponsavel: d.contatoResponsavel.trim(),
+                atualizadoEm: new Date().toISOString()
+            };
+            const erro = validarDadosAluno(dados, id);
+            if (erro) return alert(erro), false;
+            const lista = getStorage("app_alunos", []);
+            const idx = lista.findIndex(a => a.id === id);
+            lista[idx] = dados;
+            setStorage("app_alunos", lista);
+            popularSeletores();
+            renderizarAlunos();
+            renderizarResultadosImportacao();
+            alert("Aluno atualizado com sucesso.");
+        },
+        onApagar: () => excluirAluno(id)
+    });
+}
+
+function excluirAluno(id) {
+    const alunos = getStorage("app_alunos", []);
+    const aluno = alunos.find(a => a.id === id);
+    if (!aluno) return alert("Aluno não encontrado.");
+    if (!alunosPermitidosParaUsuario().some(a => a.id === id)) return alert("Você não tem permissão para apagar este aluno.");
+    if (!confirmarExclusao("o aluno", aluno.nome)) return;
+    setStorage("app_alunos", alunos.filter(a => a.id !== id));
+    popularSeletores();
+    renderizarAlunos();
+}
+
+function initDragAndDropAlunos() {
+    const dropZone = document.getElementById("dropZoneAlunos");
+    const fileInput = document.getElementById("fileInputAlunos");
+    if (!dropZone || !fileInput) return;
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("border-emerald-500"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("border-emerald-500"));
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("border-emerald-500");
+        if (e.dataTransfer.files.length) processarPlanilhaAlunos(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", (e) => { if (e.target.files.length) processarPlanilhaAlunos(e.target.files[0]); });
+}
+
+function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
+    const nome = lerLinhaPlanilha(linha, ["Nome completo", "Nome do aluno", "Aluno"], "");
+    const emailInstitucional = lerLinhaPlanilha(linha, ["Email institucional", "E-mail institucional"], "");
+    const emailPessoal = lerLinhaPlanilha(linha, ["Email pessoal", "E-mail pessoal"], "");
+    const cpf = formatarCpf(lerLinhaPlanilha(linha, ["CPF do aluno", "CPF"], ""));
+    const dataNascimentoRaw = lerLinhaPlanilha(linha, ["Data de nascimento", "Nascimento"], "");
+    const dataNascimento = normalizarDataPlanilha(dataNascimentoRaw);
+    const sexo = validarOpcaoLista(lerLinhaPlanilha(linha, ["Sexo"], ""), SEXOS_ALUNO_PADRAO, "Sexo", erros, nl, true);
+    const escolaNome = lerLinhaPlanilha(linha, ["Escola", "Qual escola estuda"], "");
+    const serie = validarOpcaoLista(lerLinhaPlanilha(linha, ["Série", "Serie"], ""), SERIES_PADRAO, "Série", erros, nl, true);
+    const turnoTurma = lerLinhaPlanilha(linha, ["Turno/Turma", "Turno / Turma", "Turma"], "");
+    const escola = escolasPermitidasParaCadastroUsuario().find(e => normalizarTexto(e.nome) === normalizarTexto(escolaNome));
+    const cidade = cidadeDaEscola(escola);
+    const aluno = {
+        id: novoId(), nome, emailInstitucional, emailPessoal, cpf, dataNascimento,
+        idade: calcularIdadePorData(dataNascimento), sexo,
+        escolaId: escola?.id || "", escolaNome: escola?.nome || escolaNome,
+        cidadeId: cidade?.id || "", municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : "",
+        serie, turnoTurma,
+        contatoAluno: lerLinhaPlanilha(linha, ["Contato do aluno"], ""),
+        mae: lerLinhaPlanilha(linha, ["Nome completo da mãe", "Nome da mãe", "Mãe"], ""),
+        pai: lerLinhaPlanilha(linha, ["Nome completo do pai", "Nome do pai", "Pai"], ""),
+        responsavelAcademico: lerLinhaPlanilha(linha, ["Responsável acadêmico", "Responsavel academico"], ""),
+        contatoResponsavel: lerLinhaPlanilha(linha, ["Contato do pai/responsável", "Contato do pai", "Contato do responsável"], ""),
+        origemCadastro: "importacao_xlsx", criadoEm: new Date().toISOString()
+    };
+    if (!nome) erros.push(`Linha ${nl}: Nome completo é obrigatório.`);
+    if (!emailInstitucional && !emailPessoal) erros.push(`Linha ${nl}: informe e-mail institucional ou pessoal.`);
+    if (!cpf || cpfLimpo(cpf).length !== 11) erros.push(`Linha ${nl}: CPF inválido ou vazio.`);
+    if (!dataNascimento) erros.push(`Linha ${nl}: Data de nascimento inválida ou vazia.`);
+    if (!escola) erros.push(`Linha ${nl}: escola não cadastrada ou fora do seu escopo (${escolaNome}).`);
+    if (!turnoTurma) erros.push(`Linha ${nl}: Turno/Turma é obrigatório.`);
+    if (!aluno.mae && !aluno.pai && !aluno.responsavelAcademico) erros.push(`Linha ${nl}: preencha mãe, pai ou responsável acadêmico.`);
+    return aluno;
+}
+
+function normalizarDataPlanilha(valor) {
+    if (!valor) return "";
+    if (typeof valor === "number") {
+        const parsed = XLSX.SSF.parse_date_code(valor);
+        if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    }
+    const s = String(valor).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    return "";
+}
+
+function processarPlanilhaAlunos(arquivo) {
+    if (!permissao("usuarios.podeGerenciar")) return alert("Sem permissão para importar alunos.");
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+            const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+            const erros = [];
+            const alunos = getStorage("app_alunos", []);
+            let inseridos = 0, substituidos = 0;
+            linhas.forEach((linha, idx) => {
+                const nl = idx + 2;
+                if (!lerLinhaPlanilha(linha, ["Nome completo", "Nome do aluno", "Aluno"], "") && !lerLinhaPlanilha(linha, ["CPF do aluno", "CPF"], "")) return;
+                const antes = erros.length;
+                const aluno = montarAlunoDaLinhaPlanilha(linha, nl, erros);
+                if (erros.length > antes) return;
+                const erroValidacao = validarDadosAluno(aluno, null);
+                if (erroValidacao && !erroValidacao.includes("Já existe")) { erros.push(`Linha ${nl}: ${erroValidacao}`); return; }
+                const idxExistente = alunos.findIndex(a => cpfLimpo(a.cpf) === cpfLimpo(aluno.cpf));
+                if (idxExistente >= 0) {
+                    aluno.id = alunos[idxExistente].id;
+                    aluno.atualizadoEm = new Date().toISOString();
+                    alunos[idxExistente] = { ...alunos[idxExistente], ...aluno };
+                    substituidos++;
+                } else {
+                    alunos.push(aluno);
+                    inseridos++;
+                }
+            });
+            setStorage("app_alunos", alunos);
+            popularSeletores();
+            renderizarAlunos();
+            if (document.getElementById("fileInputAlunos")) document.getElementById("fileInputAlunos").value = "";
+            const resumo = `Importação de alunos concluída para ${anoDadosAtivo}.\n✅ ${inseridos} inseridos\n🔁 ${substituidos} atualizados por CPF`;
+            if (erros.length) alert(`${resumo}\n⚠️ ${erros.length} erros:\n\n${erros.slice(0, 15).join("\n")}`);
+            else alert(`${resumo}\n\nDados salvos no Firestore.`);
+        } catch (err) {
+            console.error("Erro ao importar alunos", err);
+            alert(`Erro ao processar a planilha de alunos.\n\n${err.message || err}`);
+        }
+    };
+    leitor.readAsArrayBuffer(arquivo);
+}
+
+async function downloadAlunosTemplate() {
+    if (!bibliotecaExcelJSPresente()) return alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico";
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet("CadastroAlunos");
+    ws.columns = [
+        { header: "Nome completo", key: "nome", width: 36 },
+        { header: "Email institucional", key: "emailInst", width: 32 },
+        { header: "Email pessoal", key: "emailPessoal", width: 32 },
+        { header: "CPF do aluno", key: "cpf", width: 18 },
+        { header: "Data de nascimento", key: "nascimento", width: 18 },
+        { header: "Sexo", key: "sexo", width: 16 },
+        { header: "Escola", key: "escola", width: 42 },
+        { header: "Série", key: "serie", width: 20 },
+        { header: "Turno/Turma", key: "turma", width: 20 },
+        { header: "Contato do aluno", key: "contatoAluno", width: 22 },
+        { header: "Nome completo da mãe", key: "mae", width: 34 },
+        { header: "Nome completo do pai", key: "pai", width: 34 },
+        { header: "Responsável acadêmico", key: "responsavel", width: 34 },
+        { header: "Contato do pai/responsável", key: "contatoResp", width: 26 }
+    ];
+    const escolas = escolasPermitidasParaCadastroUsuario().map(e => e.nome);
+    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "000.000.000-00", nascimento: "2010-05-20", sexo: "Feminino", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
+    for (let i = 0; i < 199; i++) ws.addRow({});
+    estilizarCabecalhoTemplate(ws, ws.columns.length);
+    const listas = obterOuCriarAbaListas(workbook);
+    const rangeSexos = escreverListaValidacao(listas, "A", "Sexos", SEXOS_ALUNO_PADRAO);
+    const rangeEscolas = escreverListaValidacao(listas, "B", "Escolas", escolas);
+    const rangeSeries = escreverListaValidacao(listas, "C", "Séries", SERIES_PADRAO);
+    aplicarListaSuspensa(ws, "F", 2, 201, rangeSexos, "Escolha o sexo do aluno.");
+    aplicarListaSuspensa(ws, "G", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "H", 2, 201, rangeSeries, "Escolha a série da lista.");
+    ws.getColumn("E").numFmt = "yyyy-mm-dd";
+    await baixarWorkbookExcelJS(workbook, `modelo_cadastro_alunos_${anoDadosAtivo}.xlsx`);
+}
+
+function liberarResultadoManual() {
+    ["addResAluno", "addResCidadeSelect", "addResEscolaSelect", "addResSerieSelect"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = false;
+    });
+}
+
+function preencherResultadoPorAlunoSelecionado() {
+    const alunoId = document.getElementById("addResAlunoSelect")?.value || "";
+    liberarResultadoManual();
+    if (!alunoId) return;
+    const aluno = getStorage("app_alunos", []).find(a => a.id === alunoId);
+    if (!aluno) return;
+    const escola = escolaDoAluno(aluno);
+    const cidade = cidadeDaEscola(escola);
+    const inputAluno = document.getElementById("addResAluno");
+    const cidadeSelect = document.getElementById("addResCidadeSelect");
+    const escolaSelect = document.getElementById("addResEscolaSelect");
+    const serieSelect = document.getElementById("addResSerieSelect");
+    if (inputAluno) inputAluno.value = aluno.nome || "";
+    if (cidadeSelect && cidade) cidadeSelect.value = `${cidade.nome} - ${cidade.uf}`;
+    popularSeletoresResultadosManuais();
+    if (cidadeSelect && cidade) cidadeSelect.value = `${cidade.nome} - ${cidade.uf}`;
+    if (escolaSelect && escola) escolaSelect.value = escola.nome;
+    if (serieSelect && aluno.serie) serieSelect.value = aluno.serie;
+    ["addResAluno", "addResCidadeSelect", "addResEscolaSelect"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
+}
+
 // ==================== RESULTADO MANUAL ====================
 function initResultadoManual() {
     const cidadeSelect = document.getElementById("addResCidadeSelect");
     const escolaSelect = document.getElementById("addResEscolaSelect");
+    const alunoSelect = document.getElementById("addResAlunoSelect");
+    if (alunoSelect) alunoSelect.addEventListener("change", preencherResultadoPorAlunoSelecionado);
     if (cidadeSelect) cidadeSelect.addEventListener("change", popularSeletoresResultadosManuais);
     if (escolaSelect) escolaSelect.addEventListener("change", preencherCidadePelaEscolaManual);
 
@@ -1977,6 +2396,9 @@ function initResultadoManual() {
             e.preventDefault();
             if (!permissao("resultados.podeEditar")) return alert("Sem permissão para adicionar resultados.");
 
+            const alunoSelect = document.getElementById("addResAlunoSelect");
+            const alunoIdSelecionado = alunoSelect?.value || "";
+            const alunoObjSelecionado = alunoIdSelecionado ? getStorage("app_alunos").find(a => a.id === alunoIdSelecionado) : null;
             const aluno = document.getElementById("addResAluno").value.trim();
             const municipio = document.getElementById("addResCidadeSelect").value;
             const escola = document.getElementById("addResEscolaSelect").value;
@@ -1993,12 +2415,13 @@ function initResultadoManual() {
             if (!cidade || !escolaObj) return alert("Cidade ou escola inválida.");
             if (escolaObj.cidadeId !== cidade.id) return alert("A escola não pertence à cidade selecionada.");
 
-            gravarResultadoComSobrescrita({ aluno, escola, municipio, olimpiada, serie, premio });
+            gravarResultadoComSobrescrita({ aluno, alunoId: alunoObjSelecionado?.id || "", alunoCpf: alunoObjSelecionado?.cpf || "", escola, municipio, olimpiada, serie, premio });
             salvarPremiados();
             popularSeletores();
             renderizarPlataformaDashboard();
             renderizarResultadosImportacao();
             formManual.reset();
+            liberarResultadoManual();
             popularSeletoresResultadosManuais();
             alert("Resultado registrado com sucesso.");
         });
@@ -2014,6 +2437,16 @@ function preencherCidadePelaEscolaManual() {
     const cidade = cidades.find(c => c.id === escola.cidadeId);
     if (!cidade) return;
     const cidadeSelect = document.getElementById("addResCidadeSelect");
+
+    if (alunoSelect) {
+        const valorAtualAluno = alunoSelect.value;
+        const alunos = alunosPermitidosParaUsuario();
+        alunoSelect.innerHTML = '<option value="">Digitação manual / aluno não cadastrado</option>' + alunos
+            .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
+            .map(a => `<option value="${textoSeguro(a.id)}">${textoSeguro(a.nome)} — ${textoSeguro(a.cpf || "sem CPF")}</option>`).join("");
+        if ([...alunoSelect.options].some(opt => opt.value === valorAtualAluno)) alunoSelect.value = valorAtualAluno;
+    }
+
     if (cidadeSelect) {
         const val = `${cidade.nome} - ${cidade.uf}`;
         const opt = [...cidadeSelect.options].find(o => normalizarTexto(o.value) === normalizarTexto(val));
@@ -2260,6 +2693,17 @@ function popularSeletoresResultadosManuais() {
     const olimpiadaSelect = document.getElementById("addResOlimpiadaSelect");
     const serieSelect = document.getElementById("addResSerieSelect");
     const premioSelect = document.getElementById("addResPremioSelect");
+    const alunoSelect = document.getElementById("addResAlunoSelect");
+
+
+    if (alunoSelect) {
+        const valorAtualAluno = alunoSelect.value;
+        const alunos = alunosPermitidosParaUsuario();
+        alunoSelect.innerHTML = '<option value="">Digitação manual / aluno não cadastrado</option>' + alunos
+            .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
+            .map(a => `<option value="${textoSeguro(a.id)}">${textoSeguro(a.nome)} — ${textoSeguro(a.cpf || "sem CPF")}</option>`).join("");
+        if ([...alunoSelect.options].some(opt => opt.value === valorAtualAluno)) alunoSelect.value = valorAtualAluno;
+    }
 
     if (cidadeSelect) {
         const valorAtual = cidadeSelect.value;
@@ -2339,6 +2783,7 @@ function popularSeletores() {
     }
 
     popularSeletoresResultadosManuais();
+    popularSeletoresAlunos();
     preencherFiltrosResultadosImportacao();
 }
 
@@ -3115,6 +3560,7 @@ const FIREBASE_COLLECTIONS = {
     app_usuarios: "sistema_usuarios",
     app_cidades: "sistema_cidades",
     app_escolas: "sistema_escolas",
+    app_alunos: "sistema_alunos",
     app_olimpiadas: "sistema_olimpiadas",
     app_cronograma: "sistema_cronograma",
     app_premiados: "sistema_premiados",
@@ -4033,9 +4479,14 @@ window.alternarCameraMonitoria = alternarCameraMonitoria;
 window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
 window.downloadTemplate = downloadTemplate;
 window.downloadOlimpiadasTemplate = downloadOlimpiadasTemplate;
+window.downloadAlunosTemplate = downloadAlunosTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
 window.ajustarCamposFormUsuario = ajustarCamposFormUsuario;
 window.salvarNovoUsuario = salvarNovoUsuario;
+window.salvarNovoAluno = salvarNovoAluno;
+window.editarAluno = editarAluno;
+window.excluirAluno = excluirAluno;
+window.renderizarAlunos = renderizarAlunos;
 window.salvarNovaOlimpiada = salvarNovaOlimpiada;
 window.salvarNovoCronograma = salvarNovoCronograma;
 window.salvarNovaCidade = salvarNovaCidade;

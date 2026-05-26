@@ -92,6 +92,9 @@
                 </button>
 
                 <div class="pt-2 pb-1"><div class="border-t border-gray-800"></div></div>
+                <button id="btnNavAlunos" onclick="navegarAba('alunos', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-user-graduate text-base w-5 text-center"></i> Alunos
+                </button>
 
                 <!-- Abas ADM / Gestor (controladas por JS) -->
                 <button id="btnNavUsuarios" onclick="navegarAba('usuarios', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
@@ -303,6 +306,7 @@
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
                             <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-user-plus text-blue-400 mr-2"></i> Registrar Resultado Manual</h3>
                             <form id="formResultadoManual" class="space-y-3">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Aluno cadastrado</label><select id="addResAlunoSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select><p class="text-[10px] text-gray-500 mt-1">Selecione um aluno para preencher escola/cidade automaticamente, ou escolha digitação manual.</p></div>
                                 <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome do Aluno</label><input type="text" id="addResAluno" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade</label><select id="addResCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
                                 <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escola</label><select id="addResEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
@@ -421,6 +425,68 @@
                             </div>
                         </div>
                         <div id="gridSalasMonitoria" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+                    </div>
+                </section>
+
+
+                <!-- ===================== ALUNOS ===================== -->
+                <section id="view-alunos" class="tab-view hidden space-y-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div id="painelCadAluno" class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-user-graduate text-blue-400 mr-2"></i> Cadastrar Aluno</h3>
+                            <div class="rounded-2xl border border-blue-900/40 bg-blue-950/20 p-4 space-y-3">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-file-excel text-emerald-400 mt-0.5"></i>
+                                    <div>
+                                        <h4 class="text-[11px] font-black uppercase tracking-widest text-blue-200">Cadastro em lote</h4>
+                                        <p class="text-xs text-gray-400 mt-1 leading-relaxed">Baixe a planilha modelo com listas suspensas para escola, série e sexo. Os alunos serão salvos no ano selecionado.</p>
+                                    </div>
+                                </div>
+                                <div id="dropZoneAlunos" class="border-2 border-dashed border-blue-900/50 rounded-xl p-4 text-center cursor-pointer hover:border-emerald-500 transition">
+                                    <i class="fa-solid fa-cloud-arrow-up text-2xl text-gray-600 mb-2"></i>
+                                    <p class="text-xs text-gray-400 font-semibold">Arraste a planilha ou clique para importar alunos</p>
+                                    <p class="text-[10px] text-gray-600 mt-1">Formato: .xlsx ou .xls</p>
+                                    <input type="file" id="fileInputAlunos" accept=".xlsx,.xls" class="hidden">
+                                </div>
+                                <button type="button" onclick="downloadAlunosTemplate()" class="w-full py-2 bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 border border-emerald-800/40 font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-download mr-2"></i>Baixar modelo de alunos</button>
+                            </div>
+                            <form id="formCadAluno" class="space-y-3" onsubmit="salvarNovoAluno(event)">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome completo</label><input type="text" id="addAlunoNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail institucional</label><input type="email" id="addAlunoEmailInstitucional" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail pessoal</label><input type="email" id="addAlunoEmailPessoal" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">CPF do aluno</label><input type="text" id="addAlunoCpf" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="000.000.000-00" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Sexo</label><select id="addAlunoSexo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required><option value="">Selecione...</option><option value="Masculino">Masculino</option><option value="Feminino">Feminino</option></select></div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Data de nascimento</label><input type="date" id="addAlunoNascimento" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Idade calculada</label><input type="text" id="addAlunoIdade" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-800 text-sm text-gray-400 focus:outline-none" readonly placeholder="Automático"></div>
+                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escola em que estuda</label><select id="addAlunoEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Série</label><select id="addAlunoSerie" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Turno / Turma</label><input type="text" id="addAlunoTurma" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Manhã / 8º A" required></div>
+                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Contato do aluno</label><input type="text" id="addAlunoContato" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="(86) 99999-9999"></div>
+                                <div class="rounded-xl border border-gray-700 bg-gray-900/40 p-3 space-y-2">
+                                    <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Responsável acadêmico — preencha ao menos um</p>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome completo da mãe</label><input type="text" id="addAlunoMae" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome completo do pai</label><input type="text" id="addAlunoPai" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Responsável acadêmico</label><input type="text" id="addAlunoResponsavel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Contato do pai / responsável</label><input type="text" id="addAlunoContatoResponsavel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="(86) 99999-9999"></div>
+                                </div>
+                                <button type="submit" class="w-full py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow transition">Cadastrar Aluno</button>
+                            </form>
+                        </div>
+                        <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50 flex flex-wrap gap-3 items-center">
+                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider mr-auto"><i class="fa-solid fa-address-book text-blue-400 mr-2"></i>Alunos Cadastrados</h3>
+                                <input id="filterAlunoNome" type="text" oninput="renderizarAlunos()" class="w-full md:w-64 p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-white focus:outline-none" placeholder="Filtrar por nome ou CPF...">
+                            </div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse min-w-max"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Aluno</th><th class="p-4">CPF / Idade</th><th class="p-4">Escola / Série</th><th class="p-4">Responsável</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableAlunosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
                     </div>
                 </section>
 

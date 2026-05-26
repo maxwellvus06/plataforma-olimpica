@@ -1,38 +1,47 @@
-PLATAFORMA — RELATÓRIOS COMPARATIVOS POR ANO
+PLATAFORMA OLÍMPICA — CADASTRO DE ALUNOS + RESULTADOS VINCULADOS
 
-O que esta versão adiciona:
+Arquivos principais:
+- index.html
+- database.js
+- app.js
+- firestore.rules
 
-1. Nova aba: Relatórios
-   - Compara medalhas por ano.
-   - Mostra total no período, melhor ano, crescimento final e quantidade de anos analisados.
-   - Mostra evolução anual com Ouro, Prata, Bronze e Menção Honrosa.
-   - Mostra ranking por cidade.
-   - Mostra ranking por escola.
+O que foi adicionado nesta versão:
 
-2. Estrutura por ano mantida no Firestore
-   - Os dados continuam separados em:
-     anos/2022/sistema_premiados
-     anos/2023/sistema_premiados
-     anos/2024/sistema_premiados
-     anos/2025/sistema_premiados
-     anos/2026/sistema_premiados
-     etc.
+1) Nova aba: Alunos
+- Cadastro individual de aluno.
+- Importação em lote via XLSX.
+- Modelo XLSX com listas suspensas para escola, série e sexo.
+- Tabela de alunos cadastrados por ano.
+- Edição e exclusão de aluno.
 
-3. Usuários continuam globais
-   - sistema_usuarios fica fora dos anos para não travar login.
+2) Campos do aluno
+- Nome completo obrigatório.
+- E-mail institucional e e-mail pessoal: pelo menos um obrigatório.
+- CPF obrigatório.
+- Data de nascimento com idade calculada.
+- Sexo obrigatório via lista suspensa.
+- Escola puxada das escolas já cadastradas.
+- Série via lista suspensa.
+- Turno/turma obrigatório.
+- Contato do aluno.
+- Mãe, pai e responsável acadêmico: pelo menos um obrigatório.
+- Contato do pai/responsável.
 
-4. Nada é salvo no navegador
-   - Sem localStorage.
-   - Sem sessionStorage.
-   - Apenas memória temporária da aba enquanto o site está aberto.
+3) Firestore
+Os alunos ficam separados por ano, junto com os outros dados anuais:
 
-Como usar:
-1. Substitua index.html, database.js e app.js no GitHub.
-2. Abra o site com Ctrl + F5 ou aba anônima.
-3. Faça login.
-4. Vá na aba Relatórios.
-5. Escolha ano inicial, ano final, cidade e/ou escola.
-6. Clique em Atualizar relatório.
+anos/2026/sistema_alunos
+anos/2025/sistema_alunos
+anos/2024/sistema_alunos
+...
 
-Observação:
-Se um ano não tiver resultados importados/cadastrados, ele aparecerá com zero medalhas. Isso é esperado e ajuda a comparar crescimento real entre ciclos.
+4) Resultados
+Na aba de resultados, agora há um campo "Aluno cadastrado".
+- Se selecionar um aluno, nome, cidade, escola e série são preenchidos automaticamente.
+- Cidade e escola ficam travadas para evitar erro de vínculo.
+- Se escolher digitação manual, continua sendo possível digitar o nome e selecionar cidade/escola.
+
+5) Observação
+Usuários continuam globais em sistema_usuarios.
+Alunos são dados anuais, porque podem ser analisados junto aos resultados de cada ciclo.
