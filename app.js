@@ -117,6 +117,7 @@ document.addEventListener("DOMContentLoaded", () => {
         initDragAndDrop();
         initDragAndDropCronograma();
         initResultadoManual();
+        initFormularioOlimpiadaCompleto();
 
         document.getElementById("filterMunicipio")?.addEventListener("change", renderizarPlataformaDashboard);
         document.getElementById("filterEscola")?.addEventListener("change", renderizarPlataformaDashboard);
@@ -1362,19 +1363,118 @@ function salvarNovoUsuario(event) {
 }
 
 // ==================== CADASTROS ADM ====================
+function valoresMarcados(name) {
+    return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map(el => el.value);
+}
+
+function valorCampo(id, fallback = "") {
+    const el = document.getElementById(id);
+    return el ? String(el.value ?? "").trim() : fallback;
+}
+
+function alternarCampoCondicional(selectId, wrapperId, valorAtivo = "Sim") {
+    const select = document.getElementById(selectId);
+    const wrapper = document.getElementById(wrapperId);
+    if (!select || !wrapper) return;
+    const atualizar = () => {
+        if (select.value === valorAtivo) wrapper.classList.remove("hidden");
+        else wrapper.classList.add("hidden");
+    };
+    select.addEventListener("change", atualizar);
+    atualizar();
+}
+
+function initFormularioOlimpiadaCompleto() {
+    alternarCampoCondicional("addOliRestricaoIdade", "wrapOliIdadeMaxima", "Sim");
+    alternarCampoCondicional("addOliModalidades", "wrapOliModalidadesDescricao", "Sim");
+}
+
+function montarDadosOlimpiadaFormulario() {
+    const areas = valoresMarcados("addOliAreas");
+    const seriesAtendidas = valoresMarcados("addOliSeriesAtendidas");
+    const tiposQuestao = valoresMarcados("addOliTiposQuestao");
+    const formasPagamento = valoresMarcados("addOliFormasPagamento");
+    const premiosOferecidos = valoresMarcados("addOliPremios");
+    const categoriasPremiacao = valoresMarcados("addOliCategoriasPremiacao");
+
+    const possuiRestricaoIdade = valorCampo("addOliRestricaoIdade") === "Sim";
+    const possuiModalidades = valorCampo("addOliModalidades") === "Sim";
+
+    return {
+        id: novoId(),
+
+        // Campos legados usados pela plataforma atual
+        nome: valorCampo("addOliNome"),
+        categoria: valorCampo("addOliCategoria").toUpperCase(),
+        series: seriesAtendidas.join(", "),
+
+        // Cadastro completo
+        edicao: valorCampo("addOliEdicao"),
+        anoReferencia: valorCampo("addOliAnoReferencia"),
+        areas,
+        abrangencia: valorCampo("addOliAbrangencia"),
+        status: valorCampo("addOliStatus"),
+
+        organizadorPrincipal: valorCampo("addOliOrganizador"),
+        siteOficial: valorCampo("addOliSite"),
+        tipoEscolaElegivel: valorCampo("addOliTipoEscola"),
+        inscricaoIndividual: valorCampo("addOliInscricaoIndividual"),
+        escolaPrecisaInscrever: valorCampo("addOliEscolaInscricao"),
+
+        seriesAtendidas,
+        segmentoPrincipal: valorCampo("addOliSegmentoPrincipal"),
+        possuiRestricaoIdade: possuiRestricaoIdade ? "Sim" : "Não",
+        idadeMaxima: possuiRestricaoIdade ? valorCampo("addOliIdadeMaxima") : "",
+        possuiModalidades: possuiModalidades ? "Sim" : "Não",
+        modalidadesDescricao: possuiModalidades ? valorCampo("addOliModalidadesDescricao") : "",
+
+        numeroFases: valorCampo("addOliNumeroFases"),
+        tiposQuestao,
+        modalidadeAplicacao: valorCampo("addOliModalidadeAplicacao"),
+        duracaoProvaPrincipal: valorCampo("addOliDuracaoProva"),
+        materialProvaEnviadoComo: valorCampo("addOliMaterialProva"),
+        correcaoRealizadaPor: valorCampo("addOliCorrecao"),
+
+        gratuitaParaEscolaPublica: valorCampo("addOliGratuitaPublica"),
+        custoEscolaPublica: valorCampo("addOliCustoPublica"),
+        custoEscolaPrivada: valorCampo("addOliCustoPrivada"),
+        formasPagamento,
+
+        premiosOferecidos,
+        categoriasPremiacao,
+        premiaProfessores: valorCampo("addOliPremiaProfessores"),
+        premiaEscola: valorCampo("addOliPremiaEscola"),
+
+        classificaPara: valorCampo("addOliClassificaPara"),
+        preRequisitoDe: valorCampo("addOliPreRequisitoDe"),
+        olimpiadaInternacionalAssociada: valorCampo("addOliInternacionalAssociada"),
+        nivelFunil: valorCampo("addOliNivelFunil"),
+
+        criadoEm: new Date().toISOString()
+    };
+}
+
 function salvarNovaOlimpiada(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
-    const nome = document.getElementById("addOliNome").value.trim();
-    const categoria = document.getElementById("addOliCategoria").value.trim().toUpperCase();
-    const series = document.getElementById("addOliSeries").value.trim();
+
+    const novaOlimpiada = montarDadosOlimpiadaFormulario();
+    if (!novaOlimpiada.nome || !novaOlimpiada.categoria) return alert("Nome completo e sigla/frente são obrigatórios.");
+    if (!novaOlimpiada.seriesAtendidas.length) return alert("Selecione pelo menos uma série atendida.");
+    if (!novaOlimpiada.areas.length) return alert("Selecione pelo menos uma área/disciplina.");
+
     const olimpiadas = getStorage("app_olimpiadas");
-    if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(nome))) return alert("Erro: esta olimpíada já está cadastrada.");
-    olimpiadas.push({ id: novoId(), nome, categoria, series });
+    if (olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(novaOlimpiada.nome))) return alert("Erro: esta olimpíada já está cadastrada.");
+
+    olimpiadas.push(novaOlimpiada);
     setStorage("app_olimpiadas", olimpiadas);
-    document.getElementById("formCadOlimpiada").reset();
+
+    const form = document.getElementById("formCadOlimpiada");
+    if (form) form.reset();
+    initFormularioOlimpiadaCompleto();
     popularSeletores();
     renderizarTabelasGerenciais();
+    alert("Olimpíada homologada com cadastro completo.");
 }
 
 function salvarNovoCronograma(event) {
