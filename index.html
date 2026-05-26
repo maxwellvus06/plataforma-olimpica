@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Olimpíadas do Conhecimento</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>🎯 Painel de Olimpíadas do Conhecimento</h2>
+            <p>Plataforma Modular de Resultados Escolares — Ciclo 2026</p>
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+                <button class="tab-btn" onclick="switchTab('calendario')">📅 Calendário (45 Olimpíadas)</button>
+                <button class="tab-btn" onclick="switchTab('importacao')">📥 Importar Dados</button>
+            </div>
+        </div>
+
+        <div id="dashboard" class="tab-content active">
+            <div class="barra-filtros">
+                <div class="grupo-filtro">
+                    <label>Município</label>
+                    <select id="filtro-municipio" onchange="atualizarDashboard()">
+                        <option value="todos">Todos</option>
+                        <option value="São Braz - PI" selected>São Braz - PI</option>
+                    </select>
+                </div>
+                <div class="grupo-filtro">
+                    <label>Olimpíada</label>
+                    <select id="filtro-olimpiada" onchange="atualizarDashboard()">
+                        <option value="todas">Todas as 45 Olimpíadas</option>
+                        <option value="Olimpíada Canguru de Matemática">Canguru de Matemática</option>
+                        <option value="OLIMPÍADA BRASILEIRA DO SABER">Olimpíada Brasileira do Saber</option>
+                        <option value="Olimpíada Brasileira de Matemática Financeira">Matemática Financeira</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid-cards">
+                <div class="card card-ouro"><div class="card-title">🥇 Ouro</div><div class="card-value" id="card-ouro">0</div></div>
+                <div class="card card-prata"><div class="card-title">🥈 Prata</div><div class="card-value" id="card-prata">0</div></div>
+                <div class="card card-bronze"><div class="card-title">🥉 Bronze</div><div class="card-value" id="card-bronze">0</div></div>
+                <div class="card card-mencao"><div class="card-title">🏅 Menção H.</div><div class="card-value" id="card-mencao">0</div></div>
+                <div class="card card-total"><div class="card-title">✨ Total Prêmios</div><div class="card-value" id="card-total">0</div></div>
+                <div class="card card-medalhas"><div class="card-title">🏆 Total Medalhas</div><div class="card-value" id="card-medalhas">0</div></div>
+            </div>
+
+            <div class="layout-dashboard">
+                <div class="painel-branco">
+                    <div class="titulo-secao">📊 Gráfico de Rendimento Nacional</div>
+                    <div style="position: relative; height:220px;"><canvas id="chartReal"></canvas></div>
+                </div>
+                <div class="painel-branco">
+                    <div class="titulo-secao">🏆 Feed de Medalhistas Próximos</div>
+                    <table class="tabela-dados">
+                        <thead><tr><th>Aluno / Escola</th><th>Olimpíada</th><th>Resultado</th></tr></thead>
+                        <tbody id="tabela-feed"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="calendario" class="tab-content">
+            <div class="painel-branco">
+                <div class="titulo-secao">📅 Cronograma e Links das 45 Olimpíadas de 2026</div>
+                <table class="tabela-dados">
+                    <thead><tr><th>Competição / Olimpíada</th><th>Público Alvo</th><th style="text-align:center;">Data da Prova</th><th style="text-align:center;">Link Oficial</th></tr></thead>
+                    <tbody id="tabela-calendario-completo"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="importacao" class="tab-content">
+            <div class="painel-branco">
+                <div class="titulo-secao">📥 Upload de Resultados em Lote</div>
+                <div class="drop-zone" onclick="document.getElementById('csv-file').click()">
+                    📁 Clique aqui para selecionar a planilha de resultados (.csv)
+                    <input type="file" id="csv-file" accept=".csv" onchange="processarCSV(event)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="database.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
