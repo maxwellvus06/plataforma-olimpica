@@ -1,6 +1,6 @@
 // ==================== CONFIGURAÇÃO FIREBASE — AVANCE OLÍMPICO ====================
 // Este arquivo continua sendo a base local de segurança.
-// O app.js usa estes mesmos dados para semear/sincronizar o Realtime Database.
+// O app.js usa estes dados apenas como semente inicial do Cloud Firestore.
 const FIREBASE_CONFIG_AVANCE = {
     apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
     authDomain: "avanceolimpico.firebaseapp.com",
@@ -10,6 +10,19 @@ const FIREBASE_CONFIG_AVANCE = {
     messagingSenderId: "895771266102",
     appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
     measurementId: "G-FPETQTFRZN"
+};
+
+
+// Coleções oficiais do Cloud Firestore.
+// app.js converte cada chave interna para uma coleção externa.
+const FIREBASE_COLLECTIONS = {
+    app_usuarios: "sistema_usuarios",
+    app_cidades: "sistema_cidades",
+    app_escolas: "sistema_escolas",
+    app_olimpiadas: "sistema_olimpiadas",
+    app_cronograma: "sistema_cronograma",
+    app_premiados: "sistema_premiados",
+    app_plataforma: "sistema_plataforma"
 };
 
 // Banco de Dados Centralizado - Plataforma Olímpica 2026

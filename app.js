@@ -32,24 +32,31 @@ const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
 document.addEventListener("DOMContentLoaded", async () => {
-    initFirebase();
-    garantirCadastrosBasicos();
-    await carregarDadosFirebaseInicial();
-    dadosTrabalho = carregarPremiados();
-    initLogin();
-    initDragAndDrop();
-    initDragAndDropCronograma();
-    initResultadoManual();
+    try {
+        initFirebase();
+        await carregarDadosFirebaseInicial();
+        dadosTrabalho = carregarPremiados();
 
-    document.getElementById("filterMunicipio").addEventListener("change", renderizarPlataformaDashboard);
-    document.getElementById("filterEscola").addEventListener("change", renderizarPlataformaDashboard);
-    document.getElementById("filterOlimpiada").addEventListener("change", renderizarPlataformaDashboard);
-    document.getElementById("filterResultadoNome")?.addEventListener("input", renderizarResultadosImportacao);
-    document.getElementById("filterResultadoCidade")?.addEventListener("change", renderizarResultadosImportacao);
-    document.getElementById("filterResultadoEscola")?.addEventListener("change", renderizarResultadosImportacao);
-    document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
-    document.getElementById("btnLogout").addEventListener("click", logout);
-    verificarSessao();
+        initLogin();
+        initDragAndDrop();
+        initDragAndDropCronograma();
+        initResultadoManual();
+
+        document.getElementById("filterMunicipio")?.addEventListener("change", renderizarPlataformaDashboard);
+        document.getElementById("filterEscola")?.addEventListener("change", renderizarPlataformaDashboard);
+        document.getElementById("filterOlimpiada")?.addEventListener("change", renderizarPlataformaDashboard);
+        document.getElementById("filterResultadoNome")?.addEventListener("input", renderizarResultadosImportacao);
+        document.getElementById("filterResultadoCidade")?.addEventListener("change", renderizarResultadosImportacao);
+        document.getElementById("filterResultadoEscola")?.addEventListener("change", renderizarResultadosImportacao);
+        document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
+        document.getElementById("btnLogout")?.addEventListener("click", logout);
+
+        verificarSessao();
+        console.log("✅ Plataforma inicializada usando Cloud Firestore como banco principal.");
+    } catch (erro) {
+        console.error("Falha ao inicializar plataforma:", erro);
+        alert("Não foi possível carregar os dados do Cloud Firestore.\n\nVerifique se as Rules do Firestore estão liberadas para teste e se você publicou as regras.\n\nErro: " + (erro.message || erro));
+    }
 });
 
 // ==================== SISTEMA DE AUTENTICAÇÃO ====================
@@ -423,7 +430,7 @@ function prepararListaParaFirestore(lista) {
     });
 }
 
-async function substituirColecaoFirestore(nomeColecao, lista) {
+async async function substituirColecaoFirestore(nomeColecao, lista) {
     const col = firebaseFirestore.collection(nomeColecao);
     const atuais = await col.get();
     const dados = prepararListaParaFirestore(lista);
@@ -431,36 +438,47 @@ async function substituirColecaoFirestore(nomeColecao, lista) {
     let batch = firebaseFirestore.batch();
     let ops = 0;
 
-    atuais.forEach(doc => {
+    async function commitSeNecessario(forcar = false) {
+        if (ops >= 450 || (forcar && ops > 0)) {
+            await batch.commit();
+            batch = firebaseFirestore.batch();
+            ops = 0;
+        }
+    }
+
+    for (const doc of atuais.docs) {
         batch.delete(doc.ref);
         ops++;
-    });
+        await commitSeNecessario();
+    }
 
-    dados.forEach(item => {
+    for (const item of dados) {
         batch.set(col.doc(String(item.id)), item);
         ops++;
-    });
+        await commitSeNecessario();
+    }
 
-    if (ops > 0) await batch.commit();
+    await commitSeNecessario(true);
     return dados;
 }
 
 function salvarChaveFirebase(chave, valor) {
     initFirebase();
     if (!firebaseFirestore) {
-        console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`);
-        alert(`Firebase/Firestore não inicializou. ${chave} não foi salvo no banco.`);
-        return Promise.reject(new Error("Cloud Firestore não inicializado"));
+        const erro = new Error("Cloud Firestore não inicializado");
+        console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`, erro);
+        alert(`Firebase/Firestore não inicializou. ${chave} não foi salvo no banco externo.`);
+        return Promise.reject(erro);
     }
+
     const colecao = getFirebaseCollectionName(chave);
     return substituirColecaoFirestore(colecao, valor).then((dados) => {
         setStorageLocal(chave, dados);
-        console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}`);
+        console.log(`✅ Firestore OK: ${chave} salvo na coleção ${colecao}`);
+        return dados;
     }).catch(erro => {
-        console.error(`${chave} NÃO foi salvo no Firestore na coleção ${colecao}.`, erro);
-        alert(`${chave} não foi salvo no Firestore. Verifique as Rules do Cloud Firestore.
-
-${erro.message || erro}`);
+        console.error(`${chave} NÃO foi salvo no Cloud Firestore na coleção ${colecao}.`, erro);
+        alert(`${chave} não foi salvo no Cloud Firestore.\n\nColeção: ${colecao}\n\nVerifique se você publicou as Rules do Firestore, não do Realtime Database.\n\nErro: ${erro.message || erro}`);
         throw erro;
     });
 }
@@ -553,39 +571,16 @@ function salvarUsuariosSistema(usuarios) {
 }
 
 function garantirCadastrosBasicos() {
-    const sementes = [
-        { chave: "app_usuarios", dados: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [] },
-        { chave: "app_cidades", dados: typeof CONFIG_CIDADES_INICIAIS !== "undefined" ? CONFIG_CIDADES_INICIAIS : [] },
-        { chave: "app_escolas", dados: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [] },
-        { chave: "app_olimpiadas", dados: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [] },
-        { chave: "app_cronograma", dados: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [] },
-        { chave: "app_plataforma", dados: [] }
-    ];
-
-    sementes.forEach(({ chave, dados }) => {
-        const atual = getStorage(chave, null);
-        if (!Array.isArray(atual) || atual.length === 0) {
-            setStorage(chave, Array.isArray(dados) ? [...dados] : []);
-        }
-    });
-
-    // Garantir que novo usuário Monitor existe
-    const usuarios = getStorage("app_usuarios");
-    if (!usuarios.some(u => u.nivel === "Monitor")) {
-        const monitorBase = typeof DATABASE !== "undefined" ? DATABASE.usuarios.find(u => u.nivel === "Monitor") : null;
-        if (monitorBase && !usuarios.some(u => u.id === monitorBase.id)) {
-            usuarios.push(monitorBase);
-            salvarUsuariosSistema(usuarios);
-        }
-    }
+    // Mantida apenas por compatibilidade com chamadas antigas.
+    // O preenchimento inicial agora acontece em carregarChaveFirebase():
+    // se a coleção do Firestore estiver vazia, os dados do database.js são enviados para o banco externo.
+    return true;
 }
 
 function carregarPremiados() {
-    const salvos = getStorage("app_premiados", null);
+    const salvos = getStorage("app_premiados", []);
     if (Array.isArray(salvos) && salvos.length > 0) return salvos;
-    const base = (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.premiados)) ? [...DATABASE.premiados] : [];
-    setStorage("app_premiados", base);
-    return base;
+    return (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.premiados)) ? clonarDados(DATABASE.premiados) : [];
 }
 
 function salvarPremiados() {
@@ -1988,7 +1983,7 @@ function ajustarCamposFormMaterial() {
 
 // ==================== MONITORIA — FIREBASE REALTIME ====================
 function initFirebase() {
-    if (firebaseApp && firebaseDB && firebaseFirestore && firebaseStorage) return;
+    if (firebaseApp && firebaseFirestore && firebaseStorage) return;
 
     const firebaseConfig = (typeof FIREBASE_CONFIG_AVANCE !== "undefined") ? FIREBASE_CONFIG_AVANCE : {
         apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
@@ -2001,22 +1996,48 @@ function initFirebase() {
         measurementId: "G-FPETQTFRZN"
     };
 
+    if (typeof firebase === "undefined") {
+        throw new Error("Firebase SDK não carregou. Confira os scripts do index.html.");
+    }
+
     try {
         if (!firebaseApp) {
             firebaseApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
         }
-        if (!firebaseDB && firebase.database) firebaseDB = firebase.database();
-        if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
-        if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
-        if (firebase.analytics) { try { firebase.analytics(); } catch (_) {} }
-        if (firebaseFirestore) {
-            firebaseFirestore.collection("sistema_debug").doc("ultimo_acesso").set({
-                quando: firebase.firestore.FieldValue.serverTimestamp(),
-                origem: "app_firestore_sem_armazenamento_local"
-            }, { merge: true }).catch(e => console.error("Debug Firestore falhou:", e));
+
+        if (!firebaseFirestore && firebase.firestore) {
+            firebaseFirestore = firebase.firestore();
+            firebaseFirestore.settings({ ignoreUndefinedProperties: true });
         }
+
+        if (!firebaseStorage && firebase.storage) {
+            firebaseStorage = firebase.storage();
+        }
+
+        // Mantemos a referência do Realtime Database apenas para a monitoria/chamada,
+        // caso você decida ativar essa etapa depois. Os dados administrativos NÃO usam Realtime Database.
+        if (!firebaseDB && firebase.database) {
+            try { firebaseDB = firebase.database(); } catch (_) { firebaseDB = null; }
+        }
+
+        if (firebase.analytics) {
+            try { firebase.analytics(); } catch (_) {}
+        }
+
+        if (!firebaseFirestore) {
+            throw new Error("Cloud Firestore não está disponível neste projeto.");
+        }
+
+        firebaseFirestore.collection("sistema_debug").doc("ultimo_acesso").set({
+            quando: firebase.firestore.FieldValue.serverTimestamp(),
+            origem: "github_pages",
+            app: "plataforma_olimpica_firestore_profissional",
+            versao: "sem_localstorage_sem_sessionstorage"
+        }, { merge: true }).catch(e => console.error("Debug Firestore falhou:", e));
+
     } catch(e) {
-        console.warn("Firebase não configurado ainda:", e.message);
+        console.error("Firebase não inicializou:", e);
+        throw e;
     }
 }
 
