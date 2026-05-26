@@ -50,7 +50,7 @@ const DATABASE = {
 // Define exatamente o que cada nível pode ver e fazer
 const PERMISSOES = {
     ADM: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "monitoria", "alunos", "usuarios", "olimpiadas", "cidades", "escolas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "monitoria", "alunos", "usuarios", "olimpiadas", "cidades", "escolas", "layout"],
         dashboard: { filtroTravado: false },
         calendario: { podeEditar: true },
         resultados: { podeEditar: true },

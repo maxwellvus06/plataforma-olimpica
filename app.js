@@ -144,6 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Se o Firebase tiver algum erro de regra, o botão de login continua ativo e o erro aparece só ao tentar entrar.
     try {
         initFirebase();
+        carregarLayoutVisual().catch(erro => console.warn("Layout visual não carregado ainda:", erro));
         initLogin();
         initDragAndDrop();
         initDragAndDropCronograma();
@@ -264,7 +265,8 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNavUsuarios": "usuarios",
         "btnNavOlimpiadas": "olimpiadas",
         "btnNavCidades": "cidades",
-        "btnNavEscolas": "escolas"
+        "btnNavEscolas": "escolas",
+        "btnNavLayout": "layout"
     };
 
     Object.entries(todosNavBotoes).forEach(([btnId, aba]) => {
@@ -363,7 +365,8 @@ function ativarPrimeiraAbaPermitida() {
         usuarios: document.getElementById("btnNavUsuarios"),
         olimpiadas: document.getElementById("btnNavOlimpiadas"),
         cidades: document.getElementById("btnNavCidades"),
-        escolas: document.getElementById("btnNavEscolas")
+        escolas: document.getElementById("btnNavEscolas"),
+        layout: document.getElementById("btnNavLayout")
     })[aba];
     if (btn) {
         btn.classList.remove("text-gray-400");
@@ -375,7 +378,7 @@ function ativarPrimeiraAbaPermitida() {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
+        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     const titulo = document.getElementById("pageTitleDisplay");
     if (titulo) titulo.innerText = titulos[aba] || "Painel Operacional";
@@ -386,6 +389,7 @@ function ativarPrimeiraAbaPermitida() {
     if (aba === "importar") renderizarResultadosImportacao();
     if (aba === "relatorios") prepararTelaRelatoriosComparativos();
     if (aba === "alunos") { popularSeletoresAlunos(); renderizarAlunos(); }
+    if (aba === "layout") prepararEditorLayout();
 }
 
 function getCidadeGestor() {
@@ -1716,7 +1720,7 @@ function navegarAba(abaId, botaoTarget) {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento"
+        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     document.getElementById("pageTitleDisplay").innerText = titulos[abaId] || "Painel Operacional";
 
@@ -1742,6 +1746,9 @@ function navegarAba(abaId, botaoTarget) {
     if (abaId === "alunos") {
         popularSeletoresAlunos();
         renderizarAlunos();
+    }
+    if (abaId === "layout") {
+        prepararEditorLayout();
     }
 
     document.querySelectorAll(".nav-item").forEach(btn => {
@@ -4417,6 +4424,215 @@ function ajustarCamposFormMaterial() {
 }
 
 // ==================== MONITORIA — FIREBASE REALTIME ====================
+
+// ==================== EDITOR VISUAL DE LAYOUT ====================
+const LAYOUT_PADRAO = {
+    nomeLogin: "Avance Consultoria",
+    subtituloLogin: "Plataforma de Resultados 2026",
+    nomeSidebar: "Avance Olímpica",
+    subtituloSidebar: "Módulo de Controle",
+    corPrimaria: "#2563eb",
+    corDestaque: "#60a5fa",
+    corFundo: "#111827",
+    corCard: "#1f2937",
+    corBorda: "#374151",
+    logoUrl: "",
+    bannerUrl: ""
+};
+let layoutVisualAtual = { ...LAYOUT_PADRAO };
+
+function layoutCollectionRef() {
+    initFirebase();
+    if (!firebaseFirestore) return null;
+    return firebaseFirestore.collection("sistema_layout").doc("config");
+}
+
+async function carregarLayoutVisual() {
+    const ref = layoutCollectionRef();
+    if (!ref) {
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    }
+    try {
+        const snap = await ref.get();
+        if (snap.exists) layoutVisualAtual = { ...LAYOUT_PADRAO, ...(snap.data() || {}) };
+        else await ref.set({ ...LAYOUT_PADRAO, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    } catch (erro) {
+        console.warn("Não foi possível carregar layout visual.", erro);
+        aplicarLayoutVisual(layoutVisualAtual);
+        return layoutVisualAtual;
+    }
+}
+
+function imagemOuIcone(slot, url, iconeClasse) {
+    const el = document.getElementById(slot);
+    if (!el) return;
+    if (url) el.innerHTML = `<img src="${textoSeguro(url)}" alt="Logo">`;
+    else el.innerHTML = `<i class="fa-solid ${iconeClasse}"></i>`;
+}
+
+function aplicarLayoutVisual(config = {}) {
+    layoutVisualAtual = { ...LAYOUT_PADRAO, ...config };
+    const c = layoutVisualAtual;
+
+    const paresTexto = {
+        brandLoginTitle: c.nomeLogin,
+        brandLoginSubtitle: c.subtituloLogin,
+        brandSidebarTitle: c.nomeSidebar,
+        brandSidebarSubtitle: c.subtituloSidebar,
+        layoutPreviewTitulo: c.nomeLogin,
+        layoutPreviewSubtitulo: c.subtituloLogin
+    };
+    Object.entries(paresTexto).forEach(([id, valor]) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = valor || "";
+    });
+
+    imagemOuIcone("brandLoginLogoSlot", c.logoUrl, "fa-graduation-cap text-3xl");
+    imagemOuIcone("brandSidebarLogoSlot", c.logoUrl, "fa-chart-line text-sm");
+    imagemOuIcone("layoutPreviewLogo", c.logoUrl, "fa-graduation-cap text-2xl");
+    const previewBanner = document.getElementById("layoutPreviewBanner");
+    if (previewBanner) {
+        previewBanner.style.backgroundImage = c.bannerUrl ? `url('${c.bannerUrl}')` : "";
+        previewBanner.innerText = c.bannerUrl ? "" : "Banner institucional";
+    }
+
+    const style = document.getElementById("layoutDynamicStyle");
+    if (style) {
+        style.textContent = `
+            body:not(.theme-light) { background-color: ${c.corFundo} !important; }
+            body:not(.theme-light) .bg-gray-900 { background-color: ${c.corFundo} !important; }
+            body:not(.theme-light) .bg-gray-950 { background-color: color-mix(in srgb, ${c.corFundo} 78%, black) !important; }
+            body:not(.theme-light) .bg-gray-800 { background-color: ${c.corCard} !important; }
+            body:not(.theme-light) .bg-gray-800\/40, body:not(.theme-light) .bg-gray-800\/50 { background-color: color-mix(in srgb, ${c.corCard} 82%, transparent) !important; }
+            body:not(.theme-light) .border-gray-700, body:not(.theme-light) .border-gray-800 { border-color: ${c.corBorda} !important; }
+            .bg-blue-600, .hover\\:bg-blue-700:hover { background-color: ${c.corPrimaria} !important; }
+            .text-blue-400 { color: ${c.corDestaque} !important; }
+            .border-blue-500\/20, .border-blue-700, .focus\\:border-blue-500:focus { border-color: ${c.corDestaque} !important; }
+            .bg-blue-500\/10, .bg-blue-500\/20 { background-color: color-mix(in srgb, ${c.corPrimaria} 18%, transparent) !important; }
+            .content-gradient { background-image: linear-gradient(90deg, ${c.corPrimaria}, ${c.corDestaque}) !important; }
+        `;
+    }
+}
+
+function lerLayoutDoFormulario() {
+    return {
+        nomeLogin: document.getElementById("layoutNomeLogin")?.value?.trim() || LAYOUT_PADRAO.nomeLogin,
+        subtituloLogin: document.getElementById("layoutSubtituloLogin")?.value?.trim() || LAYOUT_PADRAO.subtituloLogin,
+        nomeSidebar: document.getElementById("layoutNomeSidebar")?.value?.trim() || LAYOUT_PADRAO.nomeSidebar,
+        subtituloSidebar: document.getElementById("layoutSubtituloSidebar")?.value?.trim() || LAYOUT_PADRAO.subtituloSidebar,
+        corPrimaria: document.getElementById("layoutCorPrimaria")?.value || LAYOUT_PADRAO.corPrimaria,
+        corDestaque: document.getElementById("layoutCorDestaque")?.value || LAYOUT_PADRAO.corDestaque,
+        corFundo: document.getElementById("layoutCorFundo")?.value || LAYOUT_PADRAO.corFundo,
+        corCard: document.getElementById("layoutCorCard")?.value || LAYOUT_PADRAO.corCard,
+        corBorda: document.getElementById("layoutCorBorda")?.value || LAYOUT_PADRAO.corBorda,
+        logoUrl: document.getElementById("layoutLogoUrl")?.value?.trim() || "",
+        bannerUrl: document.getElementById("layoutBannerUrl")?.value?.trim() || ""
+    };
+}
+
+function preencherFormularioLayout(config = layoutVisualAtual) {
+    const c = { ...LAYOUT_PADRAO, ...config };
+    const valores = {
+        layoutNomeLogin: c.nomeLogin,
+        layoutSubtituloLogin: c.subtituloLogin,
+        layoutNomeSidebar: c.nomeSidebar,
+        layoutSubtituloSidebar: c.subtituloSidebar,
+        layoutCorPrimaria: c.corPrimaria,
+        layoutCorDestaque: c.corDestaque,
+        layoutCorFundo: c.corFundo,
+        layoutCorCard: c.corCard,
+        layoutCorBorda: c.corBorda,
+        layoutLogoUrl: c.logoUrl,
+        layoutBannerUrl: c.bannerUrl
+    };
+    Object.entries(valores).forEach(([id, valor]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = valor || "";
+    });
+    aplicarLayoutVisual(c);
+}
+
+function prepararEditorLayout() {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    preencherFormularioLayout(layoutVisualAtual);
+}
+
+function aplicarPaletaRapidaLayout(paleta) {
+    const paletas = {
+        azul: { corPrimaria: "#2563eb", corDestaque: "#60a5fa", corFundo: "#111827", corCard: "#1f2937", corBorda: "#374151" },
+        roxo: { corPrimaria: "#7c3aed", corDestaque: "#a78bfa", corFundo: "#111827", corCard: "#211a32", corBorda: "#4c1d95" },
+        verde: { corPrimaria: "#059669", corDestaque: "#34d399", corFundo: "#0f172a", corCard: "#16251f", corBorda: "#065f46" },
+        dourado: { corPrimaria: "#b45309", corDestaque: "#fbbf24", corFundo: "#111827", corCard: "#241d14", corBorda: "#92400e" },
+        vermelho: { corPrimaria: "#dc2626", corDestaque: "#f87171", corFundo: "#111827", corCard: "#281818", corBorda: "#7f1d1d" }
+    };
+    if (!paletas[paleta]) return;
+    Object.entries(paletas[paleta]).forEach(([campo, valor]) => {
+        const id = {
+            corPrimaria: "layoutCorPrimaria", corDestaque: "layoutCorDestaque", corFundo: "layoutCorFundo", corCard: "layoutCorCard", corBorda: "layoutCorBorda"
+        }[campo];
+        const el = document.getElementById(id);
+        if (el) el.value = valor;
+    });
+    previsualizarLayoutVisual();
+}
+
+function previsualizarLayoutVisual() {
+    aplicarLayoutVisual(lerLayoutDoFormulario());
+}
+
+async function uploadArquivoLayout(inputId, tipo) {
+    const input = document.getElementById(inputId);
+    const arquivo = input?.files?.[0];
+    if (!arquivo) return "";
+    initFirebase();
+    if (!firebaseStorage) throw new Error("Firebase Storage não inicializado.");
+    if (!arquivo.type.startsWith("image/")) throw new Error("Use apenas arquivo de imagem para o layout.");
+    const nomeSeguro = arquivo.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const caminho = `layout/${tipo}_${Date.now()}_${nomeSeguro}`;
+    const ref = firebaseStorage.ref().child(caminho);
+    const snap = await ref.put(arquivo, { contentType: arquivo.type });
+    return await snap.ref.getDownloadURL();
+}
+
+async function salvarLayoutVisual(event) {
+    event?.preventDefault();
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    const btn = event?.target?.querySelector('button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const config = lerLayoutDoFormulario();
+        const novaLogo = await uploadArquivoLayout("layoutLogoArquivo", "logo");
+        const novoBanner = await uploadArquivoLayout("layoutBannerArquivo", "banner");
+        if (novaLogo) config.logoUrl = novaLogo;
+        if (novoBanner) config.bannerUrl = novoBanner;
+        const ref = layoutCollectionRef();
+        if (!ref) throw new Error("Firestore não inicializado.");
+        await ref.set({ ...config, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPorId: usuarioLogado.id, atualizadoPorNome: usuarioLogado.nome }, { merge: true });
+        layoutVisualAtual = { ...LAYOUT_PADRAO, ...config };
+        preencherFormularioLayout(layoutVisualAtual);
+        alert("Layout salvo com sucesso.");
+    } catch (erro) {
+        console.error("Erro ao salvar layout", erro);
+        alert(`Erro ao salvar layout.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar layout'; }
+    }
+}
+
+async function resetarLayoutVisual() {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar o layout.");
+    if (!confirm("Restaurar o layout padrão da plataforma?")) return;
+    const ref = layoutCollectionRef();
+    if (!ref) return alert("Firestore não inicializado.");
+    await ref.set({ ...LAYOUT_PADRAO, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPorId: usuarioLogado.id, atualizadoPorNome: usuarioLogado.nome }, { merge: true });
+    layoutVisualAtual = { ...LAYOUT_PADRAO };
+    preencherFormularioLayout(layoutVisualAtual);
+    alert("Layout padrão restaurado.");
+}
+
 function initFirebase() {
     if (firebaseApp && firebaseFirestore && firebaseStorage) return;
 
