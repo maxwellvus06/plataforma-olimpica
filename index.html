@@ -148,6 +148,7 @@
                                             <th class="p-4">Estudante</th>
                                             <th class="p-4">Escola de Origem</th>
                                             <th class="p-4">Município</th>
+                                            <th class="p-4">Série</th>
                                             <th class="p-4">Olimpíada</th>
                                             <th class="p-4">Resultado</th>
                                         </tr>
@@ -224,17 +225,55 @@
                 </section>
 
                 <section id="view-importar" class="tab-view hidden space-y-6">
-                    <div class="max-w-2xl mx-auto bg-gray-800 border border-gray-700 p-8 rounded-2xl text-center space-y-6">
-                        <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                        <div>
-                            <h3 class="text-lg font-bold text-white">Importação Massiva de Medalhistas</h3>
-                            <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formato Excel (.xlsx) seguindo o modelo oficial com listas suspensas.</p>
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                        <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl text-center space-y-6">
+                            <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white">Importação Massiva de Medalhistas</h3>
+                                <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formato Excel (.xlsx) seguindo o modelo oficial com listas suspensas.</p>
+                            </div>
+                            <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition">
+                                <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls">
+                                <p class="text-sm text-gray-400">Arraste a planilha aqui ou <span class="text-blue-400 font-semibold underline">clique para procurar</span></p>
+                            </div>
+                            <button onclick="downloadResultadosTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Resultados .XLSX</button>
                         </div>
-                        <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition">
-                            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls">
-                            <p class="text-sm text-gray-400">Arraste a planilha aqui ou <span class="text-blue-400 font-semibold underline">clique para procurar</span></p>
+
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-medal text-amber-400 mr-2"></i> Adicionar Resultado Manual</h3>
+                            <form id="formCadResultadoManual" class="space-y-3" onsubmit="salvarResultadoManual(event)">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome do Aluno</label>
+                                    <input type="text" id="addResAluno" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Digite o nome completo" required>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade</label>
+                                        <select id="addResCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escola</label>
+                                        <select id="addResEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada</label>
+                                    <select id="addResOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Série do Aluno</label>
+                                        <select id="addResSerieSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de Premiação</label>
+                                        <select id="addResPremioSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-gray-500 leading-relaxed">Em caso de duplicidade para o mesmo aluno, escola, cidade, olimpíada e série, o registro mais novo substitui o anterior automaticamente.</p>
+                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Salvar Resultado</button>
+                            </form>
                         </div>
-                        <button onclick="downloadResultadosTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Resultados .XLSX</button>
                     </div>
                 </section>
 
