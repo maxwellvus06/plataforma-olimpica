@@ -1646,15 +1646,152 @@ function processarPlanilhaCronograma(arquivo) {
     leitor.readAsArrayBuffer(arquivo);
 }
 
-function downloadCronogramaTemplate() {
-    const wb = XLSX.utils.book_new();
-    const dadosModelo = [
-        { SIGLA: "OBMEP", "FASE / ETAPA": "Fase 1 - Escolar (Prova Objetiva)", "DATA / PERÍODO 2026": "09/06/2026", "SÉRIES ELEGÍVEIS": "6º EF a 3ª EM", "OBSERVAÇÃO CRÍTICA": "Imprimir cadernos de prova; recolher cartões." },
-        { SIGLA: "CANGURU", "FASE / ETAPA": "Prova Única (múltipla escolha)", "DATA / PERÍODO 2026": "19/03 a 25/03/2026", "SÉRIES ELEGÍVEIS": "3º EF a 3ª EM", "OBSERVAÇÃO CRÍTICA": "Aplicação nas salas sob fiscalização." }
+// ==================== TEMPLATES XLSX COM LISTA SUSPENSA ====================
+// Usa ExcelJS para gerar validação de dados real no Excel/Google Sheets.
+// SheetJS continua sendo usado apenas para LER as planilhas importadas.
+function bibliotecaExcelJSPresente() {
+    return typeof ExcelJS !== "undefined";
+}
+
+function valoresUnicosValidos(lista) {
+    return Array.from(new Set((lista || [])
+        .map(v => String(v ?? "").trim())
+        .filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function listaMunicipiosParaTemplate() {
+    return valoresUnicosValidos(getStorage("app_cidades").map(c => `${c.nome} - ${c.uf}`));
+}
+
+function listaEscolasParaTemplate() {
+    return valoresUnicosValidos(getStorage("app_escolas").map(e => e.nome));
+}
+
+function listaOlimpiadasParaTemplate() {
+    return valoresUnicosValidos(getStorage("app_olimpiadas").map(o => o.nome));
+}
+
+function listaSegmentosCronogramaParaTemplate() {
+    return valoresUnicosValidos([
+        "1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF",
+        "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF",
+        "1ª Série EM", "2ª Série EM", "3ª Série EM",
+        "3º EF a 3ª EM", "6º EF a 9º EF", "6º EF a 3ª EM", "Ensino Fundamental", "Ensino Médio", "Geral"
+    ]);
+}
+
+function obterOuCriarAbaListas(workbook) {
+    const ws = workbook.addWorksheet("Listas");
+    ws.state = "veryHidden";
+    return ws;
+}
+
+function escreverListaValidacao(wsListas, coluna, titulo, valores) {
+    const col = coluna;
+    const lista = valoresUnicosValidos(valores);
+    wsListas.getCell(`${col}1`).value = titulo;
+    lista.forEach((valor, idx) => {
+        wsListas.getCell(`${col}${idx + 2}`).value = valor;
+    });
+    const ultimaLinha = Math.max(lista.length + 1, 2);
+    return `Listas!$${col}$2:$${col}$${ultimaLinha}`;
+}
+
+function aplicarListaSuspensa(ws, coluna, primeiraLinha, ultimaLinha, formulaRange, mensagemErro) {
+    for (let row = primeiraLinha; row <= ultimaLinha; row++) {
+        ws.getCell(`${coluna}${row}`).dataValidation = {
+            type: "list",
+            allowBlank: false,
+            formulae: [formulaRange],
+            showErrorMessage: true,
+            errorStyle: "stop",
+            errorTitle: "Valor inválido",
+            error: mensagemErro || "Escolha um valor da lista suspensa."
+        };
+    }
+}
+
+function estilizarCabecalhoTemplate(ws, qtdColunas) {
+    const header = ws.getRow(1);
+    header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
+    header.alignment = { vertical: "middle", horizontal: "center" };
+    header.height = 24;
+
+    for (let col = 1; col <= qtdColunas; col++) {
+        const cell = ws.getCell(1, col);
+        cell.border = {
+            top: { style: "thin" }, left: { style: "thin" },
+            bottom: { style: "thin" }, right: { style: "thin" }
+        };
+    }
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: qtdColunas } };
+}
+
+async function baixarWorkbookExcelJS(workbook, nomeArquivo) {
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function downloadCronogramaTemplate() {
+    if (!bibliotecaExcelJSPresente()) {
+        alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
+        return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico";
+    workbook.created = new Date();
+
+    const ws = workbook.addWorksheet("ModeloCronograma");
+    ws.columns = [
+        { header: "SIGLA", key: "SIGLA", width: 44 },
+        { header: "FASE / ETAPA", key: "etapa", width: 36 },
+        { header: "DATA / PERÍODO 2026", key: "data", width: 22 },
+        { header: "SÉRIES ELEGÍVEIS", key: "segmento", width: 24 },
+        { header: "OBSERVAÇÃO CRÍTICA", key: "observacao", width: 56 }
     ];
-    const ws = XLSX.utils.json_to_sheet(dadosModelo);
-    XLSX.utils.book_append_sheet(wb, ws, "ModeloCronograma");
-    XLSX.writeFile(wb, "modelo_carga_cronograma.xlsx");
+
+    const olimpiadas = listaOlimpiadasParaTemplate();
+    ws.addRow({
+        SIGLA: olimpiadas[0] || "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)",
+        etapa: "Fase 1 - Escolar (Prova Objetiva)",
+        data: "09/06/2026",
+        segmento: "6º EF a 3ª EM",
+        observacao: "Imprimir cadernos de prova; recolher cartões."
+    });
+    ws.addRow({
+        SIGLA: olimpiadas[1] || "Canguru de Matemática Brasil",
+        etapa: "Prova Única (múltipla escolha)",
+        data: "19/03 a 25/03/2026",
+        segmento: "3º EF a 3ª EM",
+        observacao: "Aplicação nas salas sob fiscalização."
+    });
+
+    // Linhas em branco para preenchimento em lote
+    for (let i = 0; i < 98; i++) ws.addRow({});
+
+    estilizarCabecalhoTemplate(ws, 5);
+    ws.getColumn(5).alignment = { wrapText: true, vertical: "top" };
+
+    const listas = obterOuCriarAbaListas(workbook);
+    const rangeOlimpiadas = escreverListaValidacao(listas, "A", "Olimpíadas cadastradas", olimpiadas);
+    const rangeSegmentos = escreverListaValidacao(listas, "B", "Séries/segmentos", listaSegmentosCronogramaParaTemplate());
+
+    aplicarListaSuspensa(ws, "A", 2, 101, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "D", 2, 101, rangeSegmentos, "Escolha uma série/segmento da lista.");
+
+    await baixarWorkbookExcelJS(workbook, "modelo_carga_cronograma_com_listas.xlsx");
 }
 
 function initDragAndDrop() {
@@ -1687,6 +1824,7 @@ function processarPlanilha(arquivo) {
                 const premio = String(linha.Premio || linha.Prêmio || "").trim();
                 const serie = String(linha.Serie || linha["Série"] || "").trim();
                 const nl = idx + 2;
+                if (!aluno && !escola && !municipio && !olimpiada && !serie && !premio) return;
                 if (!aluno || !escola || !municipio || !olimpiada || !serie || !premio) { erros.push(`Linha ${nl}: campo obrigatório vazio.`); return; }
                 if (!escolas.some(e => normalizarTexto(e.nome) === normalizarTexto(escola))) { erros.push(`Linha ${nl}: escola não cadastrada (${escola}).`); return; }
                 if (!cidades.some(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(municipio))) { erros.push(`Linha ${nl}: município não cadastrado (${municipio}).`); return; }
@@ -1704,11 +1842,58 @@ function processarPlanilha(arquivo) {
     leitor.readAsArrayBuffer(arquivo);
 }
 
-function downloadTemplate() {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet([{ Aluno: "Nome Completo", Escola: "Nome da Escola", Municipio: "Cidade - UF", Olimpiada: "Nome da Olimpíada", Serie: "6º Ano EF", Premio: "Ouro" }]);
-    XLSX.utils.book_append_sheet(wb, ws, "Modelo");
-    XLSX.writeFile(wb, "modelo_importacao_resultados.xlsx");
+async function downloadTemplate() {
+    if (!bibliotecaExcelJSPresente()) {
+        alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
+        return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico";
+    workbook.created = new Date();
+
+    const ws = workbook.addWorksheet("Modelo");
+    ws.columns = [
+        { header: "Aluno", key: "aluno", width: 34 },
+        { header: "Escola", key: "escola", width: 42 },
+        { header: "Municipio", key: "municipio", width: 26 },
+        { header: "Olimpiada", key: "olimpiada", width: 54 },
+        { header: "Serie", key: "serie", width: 18 },
+        { header: "Premio", key: "premio", width: 20 }
+    ];
+
+    const escolas = listaEscolasParaTemplate();
+    const municipios = listaMunicipiosParaTemplate();
+    const olimpiadas = listaOlimpiadasParaTemplate();
+
+    ws.addRow({
+        aluno: "Nome Completo",
+        escola: escolas[0] || "Nome da Escola",
+        municipio: municipios[0] || "Cidade - UF",
+        olimpiada: olimpiadas[0] || "Nome da Olimpíada",
+        serie: "6º Ano EF",
+        premio: "Ouro"
+    });
+
+    // Linhas em branco para preenchimento em lote
+    for (let i = 0; i < 199; i++) ws.addRow({});
+
+    estilizarCabecalhoTemplate(ws, 6);
+
+    const listas = obterOuCriarAbaListas(workbook);
+    const rangeEscolas = escreverListaValidacao(listas, "A", "Escolas cadastradas", escolas);
+    const rangeMunicipios = escreverListaValidacao(listas, "B", "Municípios cadastrados", municipios);
+    const rangeOlimpiadas = escreverListaValidacao(listas, "C", "Olimpíadas cadastradas", olimpiadas);
+    const rangeSeries = escreverListaValidacao(listas, "D", "Séries", SERIES_PADRAO);
+    const rangePremios = escreverListaValidacao(listas, "E", "Prêmios", PREMIOS_PADRAO);
+
+    aplicarListaSuspensa(ws, "B", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "C", 2, 201, rangeMunicipios, "Escolha um município já cadastrado no sistema.");
+    aplicarListaSuspensa(ws, "D", 2, 201, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "E", 2, 201, rangeSeries, "Escolha uma série da lista.");
+    aplicarListaSuspensa(ws, "F", 2, 201, rangePremios, "Escolha um prêmio da lista.");
+
+    await baixarWorkbookExcelJS(workbook, "modelo_importacao_resultados_com_listas.xlsx");
 }
 
 // ==================== PLATAFORMA DE ENSINO ====================
