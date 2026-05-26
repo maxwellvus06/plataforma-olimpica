@@ -6,6 +6,8 @@ let usuarioLogado = null;
 // Referência Firebase para Monitoria
 let firebaseApp = null;
 let firebaseDB = null;
+let firebaseFirestore = null;
+let firebaseStorage = null;
 let monitoriaListenerAtivo = null;
 let salaMoniAtual = null;
 
@@ -1506,10 +1508,43 @@ function downloadTemplate() {
 }
 
 // ==================== PLATAFORMA DE ENSINO ====================
-function renderizarPlataformaEnsino() {
-    const materiais = getStorage("app_plataforma");
+const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
+const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
+const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
+const LIMITE_ARQUIVO_DRIVE_MB = 15;
+
+async function carregarMateriaisPlataforma() {
+    initFirebase();
+
+    // Agora a Plataforma usa Realtime Database para a lista de materiais.
+    // Os arquivos PDF ficam no Google Drive via Apps Script.
+    if (!firebaseDB) return getStorage("app_plataforma");
+
+    try {
+        const snapshot = await firebaseDB
+            .ref(FIREBASE_MATERIAIS_PATH)
+            .orderByChild("criadoEm")
+            .once("value");
+
+        const materiais = [];
+        snapshot.forEach(child => {
+            materiais.push({ id: child.key, ...child.val() });
+        });
+
+        return materiais.reverse();
+    } catch (erro) {
+        console.warn("Falha ao carregar materiais do Firebase Realtime Database. Usando cache local como fallback.", erro);
+        return getStorage("app_plataforma");
+    }
+}
+
+async function renderizarPlataformaEnsino() {
     const container = document.getElementById("gridMateriais");
     if (!container) return;
+
+    container.innerHTML = `<div class="col-span-full flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-4"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
+
+    const materiais = await carregarMateriaisPlataforma();
 
     if (!materiais.length) {
         container.innerHTML = `<div class="col-span-full flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-photo-film text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material publicado ainda.</p><p class="text-gray-600 text-xs mt-1">Aguarde publicações do administrador.</p></div>`;
@@ -1527,7 +1562,7 @@ function renderizarPlataformaEnsino() {
         let corBadge = isVideo ? "bg-red-500/10 text-red-400" : isLink ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400";
 
         const acoesAdm = permissao("plataforma.podeGerenciar")
-            ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-400 hover:text-red-300 text-xs font-bold ml-2"><i class="fa-solid fa-trash"></i></button>`
+            ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-400 hover:text-red-300 text-xs font-bold ml-2" title="Remover da plataforma"><i class="fa-solid fa-trash"></i></button>`
             : "";
 
         let conteudo = "";
@@ -1538,8 +1573,9 @@ function renderizarPlataformaEnsino() {
                 : `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-play mr-2"></i>Abrir vídeo</a>`;
         } else if (isLink && m.url) {
             conteudo = `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-external-link mr-2"></i>Acessar recurso</a>`;
-        } else if (isArquivo && m.dados) {
-            conteudo = `<a href="${m.dados}" download="${textoSeguro(m.nomeArquivo || 'arquivo')}" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-download mr-2"></i>Baixar arquivo</a>`;
+        } else if (isArquivo && (m.arquivoUrl || m.dados)) {
+            const href = m.arquivoUrl || m.dados;
+            conteudo = `<a href="${textoSeguro(href)}" target="_blank" rel="noopener" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-file-arrow-down mr-2"></i>Abrir / baixar arquivo</a>`;
         }
 
         return `
@@ -1571,9 +1607,56 @@ function converterUrlYoutube(url) {
     return null;
 }
 
-function salvarNovoMaterial(event) {
+function arquivoParaDataURL(arquivo) {
+    return new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(leitor.result);
+        leitor.onerror = () => reject(new Error("Não foi possível ler o arquivo selecionado."));
+        leitor.readAsDataURL(arquivo);
+    });
+}
+
+async function enviarArquivoParaGoogleDrive(arquivo) {
+    if (!DRIVE_UPLOAD_WEBAPP_URL || DRIVE_UPLOAD_WEBAPP_URL.includes("COLE_AQUI")) {
+        throw new Error("URL do Apps Script não configurada.");
+    }
+
+    const tamanhoMb = arquivo.size / (1024 * 1024);
+    if (tamanhoMb > LIMITE_ARQUIVO_DRIVE_MB) {
+        throw new Error(`Arquivo muito grande para este modo de teste. Use PDF com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
+    }
+
+    const fileBase64 = await arquivoParaDataURL(arquivo);
+    const payload = {
+        token: DRIVE_UPLOAD_TOKEN,
+        fileName: arquivo.name,
+        mimeType: arquivo.type || "application/pdf",
+        fileBase64
+    };
+
+    // Não colocamos header application/json para evitar preflight/CORS no Apps Script.
+    const resposta = await fetch(DRIVE_UPLOAD_WEBAPP_URL, {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
+
+    const texto = await resposta.text();
+    let dados;
+    try { dados = JSON.parse(texto); }
+    catch (e) { throw new Error("O Apps Script não retornou JSON válido. Verifique a implantação como App da Web."); }
+
+    if (!dados.success) {
+        throw new Error(dados.error || "Falha ao enviar arquivo para o Google Drive.");
+    }
+
+    return dados;
+}
+
+async function salvarNovoMaterial(event) {
     event.preventDefault();
     if (!permissao("plataforma.podeGerenciar")) return;
+
+    initFirebase();
 
     const titulo = document.getElementById("matTitulo").value.trim();
     const descricao = document.getElementById("matDescricao").value.trim();
@@ -1581,40 +1664,76 @@ function salvarNovoMaterial(event) {
     const tipo = document.getElementById("matTipo").value;
     const url = document.getElementById("matUrl").value.trim();
     const fileInput = document.getElementById("matArquivo");
+    const btn = event.submitter || document.querySelector('#formAddMaterial button[type="submit"]');
 
     if (!titulo) return alert("O título é obrigatório.");
+    if ((tipo === "video" || tipo === "link") && !url) return alert("Informe a URL do material.");
+    if (tipo === "arquivo" && (!fileInput || fileInput.files.length === 0)) return alert("Selecione um arquivo PDF para publicar.");
+    if (!firebaseDB) return alert("Firebase Realtime Database ainda não carregou. Verifique se o Firebase está configurado e se o Realtime Database está ativo.");
 
-    const materiais = getStorage("app_plataforma");
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
 
-    if (tipo === "arquivo" && fileInput.files.length > 0) {
-        const arquivo = fileInput.files[0];
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            materiais.push({ id: novoId(), titulo, descricao, area, tipo, dados: e.target.result, nomeArquivo: arquivo.name });
-            setStorage("app_plataforma", materiais);
-            document.getElementById("formAddMaterial").reset();
-            ajustarCamposFormMaterial();
-            renderizarPlataformaEnsino();
-            alert("Material publicado com sucesso!");
+        const material = {
+            titulo,
+            descricao,
+            area,
+            tipo,
+            url: tipo === "video" || tipo === "link" ? url : "",
+            criadoPor: usuarioLogado?.nome || "Sistema",
+            criadoPorId: usuarioLogado?.id || "",
+            criadoEm: firebase.database.ServerValue.TIMESTAMP,
+            hospedagem: tipo === "arquivo" ? "google_drive" : "link_externo"
         };
-        reader.readAsDataURL(arquivo);
-    } else {
-        if ((tipo === "video" || tipo === "link") && !url) return alert("Informe a URL do material.");
-        materiais.push({ id: novoId(), titulo, descricao, area, tipo, url });
-        setStorage("app_plataforma", materiais);
+
+        if (tipo === "arquivo") {
+            const arquivo = fileInput.files[0];
+            const upload = await enviarArquivoParaGoogleDrive(arquivo);
+            material.arquivoUrl = upload.fileUrl;
+            material.driveFileId = upload.fileId;
+            material.nomeArquivo = upload.fileName || arquivo.name;
+            material.tamanhoBytes = arquivo.size;
+        }
+
+        await firebaseDB.ref(FIREBASE_MATERIAIS_PATH).push(material);
+
+        // Cache local apenas como cópia de emergência para visualização offline.
+        const cache = getStorage("app_plataforma");
+        cache.unshift({ id: novoId(), ...material, criadoEm: Date.now() });
+        setStorage("app_plataforma", cache.slice(0, 100));
+
         document.getElementById("formAddMaterial").reset();
         ajustarCamposFormMaterial();
-        renderizarPlataformaEnsino();
-        alert("Material publicado com sucesso!");
+        await renderizarPlataformaEnsino();
+        alert("Material publicado com sucesso. Arquivo salvo no Google Drive e registro salvo no Firebase.");
+    } catch (erro) {
+        console.error("Erro ao publicar material:", erro);
+        alert(`Erro ao publicar material.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-upload mr-2"></i>Publicar Material'; }
     }
 }
 
-function excluirMaterial(id) {
+async function excluirMaterial(id) {
     if (!permissao("plataforma.podeGerenciar")) return;
     if (!confirmarExclusao("o material", "este item")) return;
-    const materiais = getStorage("app_plataforma").filter(m => m.id !== id);
-    setStorage("app_plataforma", materiais);
-    renderizarPlataformaEnsino();
+
+    initFirebase();
+
+    try {
+        if (firebaseDB) {
+            await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
+        } else {
+            const materiais = getStorage("app_plataforma").filter(m => m.id !== id);
+            setStorage("app_plataforma", materiais);
+        }
+
+        await renderizarPlataformaEnsino();
+        alert("Material removido da plataforma. Se era arquivo do Drive, o arquivo continua na pasta do Google Drive para segurança.");
+    } catch (erro) {
+        console.error("Erro ao apagar material:", erro);
+        alert(`Erro ao apagar material.\n\n${erro.message || erro}`);
+    }
 }
 
 function ajustarCamposFormMaterial() {
@@ -1630,9 +1749,8 @@ function ajustarCamposFormMaterial() {
 
 // ==================== MONITORIA — FIREBASE REALTIME ====================
 function initFirebase() {
-    if (firebaseApp) return; // já inicializado
+    if (firebaseApp && firebaseDB && firebaseFirestore && firebaseStorage) return;
 
-    // Configuração Firebase — substitua pelos dados do seu projeto
     const firebaseConfig = {
         apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
         authDomain: "avanceolimpico.firebaseapp.com",
@@ -1640,12 +1758,17 @@ function initFirebase() {
         projectId: "avanceolimpico",
         storageBucket: "avanceolimpico.firebasestorage.app",
         messagingSenderId: "895771266102",
-        appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97"
+        appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
+        measurementId: "G-FPETQTFRZN"
     };
 
     try {
-        firebaseApp = firebase.initializeApp(firebaseConfig);
-        firebaseDB = firebase.database();
+        if (!firebaseApp) {
+            firebaseApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+        }
+        if (!firebaseDB && firebase.database) firebaseDB = firebase.database();
+        if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
+        if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
     } catch(e) {
         console.warn("Firebase não configurado ainda:", e.message);
     }
