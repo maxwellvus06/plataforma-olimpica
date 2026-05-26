@@ -1,4 +1,5 @@
 // Gerenciador e Inteligência do Sistema Olímpico 2026
+// VERSÃO FULL V2: visual antigo + Firebase + calendário + importação de resultados + monitoria + plataforma + tema
 let chartInstance = null;
 let dadosTrabalho = [];
 let usuarioLogado = null;
