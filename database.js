@@ -1,37 +1,49 @@
-// Banco de Dados Centralizado - Plataforma Olímpica 2026
-const DATABASE = {
-    // Lista de Credenciais Oficiais e Escopo de Permissões (4 Níveis Solicitados)
-    usuarios: [
-        { login: "admin", senha: "123", nivel: "Adm", nome: "Administrador Master", cidade: "Todas", escola: "Todas" },
-        { login: "gestor", senha: "456", nivel: "Gestor", nome: "Gestor Municipal", cidade: "São Braz - PI", escola: "Todas" },
-        { login: "escola", senha: "789", nivel: "Escola", nome: "U. E. Polo Municipal", cidade: "São Braz - PI", escola: "U. E. São Braz" },
-        { login: "aluno", senha: "111", nivel: "Aluno", nome: "Carlos Eduardo Silva", cidade: "São Braz - PI", escola: "U. E. São Braz" }
-    ],
+// BANCO DE DADOS INICIAL - PLATAFORMA OLÍMPICA 2026
 
-    // Mapeamento das Olimpíadas Monitoradas pela Rede
-    olimpiadas: [
-        { id: 1, nome: "Canguru de Matemática Brasil", categoria: "MAT", series: "3º Ano EF ao 3º Ano EM" },
-        { id: 2, nome: "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)", categoria: "MAT", series: "6º Ano EF ao 3º Ano EM" },
-        { id: 3, nome: "Olimpíada Mandacaru de Matemática", categoria: "MAT", series: "4º Ano EF ao 3º Ano EM" },
-        { id: 4, nome: "OBMF (Olimpíada Brasileira de Matemática Financeira)", categoria: "MAT", series: "Ensino Fundamental e Médio" },
-        { id: 5, nome: "OBF (Olimpíada Brasileira de Física)", categoria: "CIÊ", series: "9º Ano EF ao 3º Ano EM" },
-        { id: 6, nome: "ONC (Olimpíada Nacional de Ciências)", categoria: "CIÊ", series: "6º Ano EF ao 3º Ano EM" },
-        { id: 7, nome: "OBA (Olimpíada Brasileira de Astronomia e Astronáutica)", categoria: "HUM", series: "1º Ano EF ao 3º Ano EM" }
-    ],
+// Credenciais de Acesso Prévias
+const DEFAULT_USERS = [
+    { username: "admin", password: "123", role: "ADM", name: "Administrador Master" },
+    { username: "coordenador", password: "456", role: "Coordenador Municipal", name: "Coord. São Braz" },
+    { username: "escola", password: "789", role: "Escola", name: "Escola Polo" }
+];
 
-    // Cronograma Cronológico de Atividades e Prazos Críticos de 2026
-    calendario: [
-        { olimpiada: "Canguru de Matemática", etapa: "Fase Única Nacional", data: "19/03 a 25/03/2026", segmento: "3º EF ao 3º EM", acao: "Aplicação local. Enviar folhas de respostas digitais." },
-        { olimpiada: "OBA (Astronomia)", etapa: "Fase Única Presencial", data: "15/05/2026", segmento: "1º EF ao 3º EM", acao: "Prova nacional na escola (10 questões)." },
-        { olimpiada: "Olimpíada Mandacaru", etapa: "Aplicação Regular", data: "21/05 e 22/05/2026", segmento: "4º EF ao 3º EM", acao: "Provas de 3h de duração. Sigilo total de gabarito." },
-        { olimpiada: "OBMEP", etapa: "Fase 1 (Escolar)", data: "09/06/2026", segmento: "6º EF ao 3º EM", acao: "Prova objetiva de 20 questões." }
-    ],
+// Inicialização dos dados persistidos no LocalStorage
+if (!localStorage.getItem("usuarios")) {
+    localStorage.setItem("usuarios", JSON.stringify(DEFAULT_USERS));
+}
 
-    // Registros de Notas e Conquistas dos Alunos
-    premiados: [
-        { aluno: "Carlos Eduardo Silva", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "Canguru de Matemática Brasil", premio: "Ouro" },
-        { aluno: "Ana Beatriz Rocha", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "OBMEP", premio: "Prata" },
-        { aluno: "Marcos Vinícius Sousa", escola: "C. M. Alberto Silva", municipio: "São Braz - PI", olimpiada: "Olimpíada Mandacaru de Matemática", premio: "Bronze" },
-        { aluno: "Mariana Costa Alves", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "OBA (Olimpíada Brasileira de Astronomia)", premio: "Menção Honrosa" }
-    ]
-};
+// Novas tabelas controladas com dados iniciais de exemplo (São Braz - PI)
+const DEFAULT_CIDADES = [
+    { id: "1", nome: "São Braz", sigla: "SBZ", uf: "PI" }
+];
+
+const DEFAULT_ESCOLAS = [
+    { 
+        id: "1", 
+        nome: "Escola Municipal Polo", 
+        razaoSocial: "Escola Mun Polo LTDA", 
+        cnpj: "12.345.678/0001-99", 
+        inep: "2201923", 
+        endereco: "Rua Central, 100", 
+        cep: "64.758-000", 
+        diretor: "Prof. Antônio Silva", 
+        email: "polo@saobraz.pi.gov.br", 
+        cidadeId: "1" 
+    }
+];
+
+if (!localStorage.getItem("cidades")) {
+    localStorage.setItem("cidades", JSON.stringify(DEFAULT_CIDADES));
+}
+if (!localStorage.getItem("escolas")) {
+    localStorage.setItem("escolas", JSON.stringify(DEFAULT_ESCOLAS));
+}
+
+// Listagem de Olimpíadas Monitoradas (Resumo)
+const CALENDAR_DATA = [
+    { id: "OBMEP", nome: "OBMEP - Olimpíada Brasileira de Matemática das Escolas Públicas" },
+    { id: "CANGURU", nome: "Canguru de Matemática Brasil" },
+    { id: "OBA", nome: "OBA - Olimpíada Brasileira de Astronomia e Astronáutica" },
+    { id: "ONC", nome: "ONC - Olimpíada Nacional de Ciências" },
+    { id: "MANDACARU", nome: "Olimpíada Mandacaru de Matemática" }
+];
