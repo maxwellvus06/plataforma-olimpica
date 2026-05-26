@@ -1512,6 +1512,7 @@ const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7N
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
 const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
+const LIMITE_ANEXO_MONITORIA_MB = 10;
 
 async function carregarMateriaisPlataforma() {
     initFirebase();
@@ -1887,24 +1888,53 @@ function abrirChatMonitoria(sala, salaId) {
         if (!lista.length) {
             msgs.innerHTML = `<div class="text-center text-gray-600 text-xs py-8"><i class="fa-solid fa-comments text-2xl mb-2 block"></i>Nenhuma mensagem ainda.<br>Seja o primeiro a enviar!</div>`;
         } else {
-            msgs.innerHTML = lista.map(m => {
-                const minha = m.autorId === usuarioLogado.id;
-                const hora = new Date(m.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-                return `
-                    <div class="flex ${minha ? 'justify-end' : 'justify-start'} mb-2">
-                        <div class="max-w-[75%] ${minha ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'} px-4 py-2.5 rounded-2xl ${minha ? 'rounded-tr-sm' : 'rounded-tl-sm'} shadow">
-                            ${!minha ? `<div class="text-[10px] font-bold text-blue-300 mb-0.5">${textoSeguro(m.autor)} <span class="text-gray-400 font-normal">(${textoSeguro(m.nivel)})</span></div>` : ""}
-                            <div class="text-sm leading-snug">${textoSeguro(m.texto)}</div>
-                            <div class="text-[10px] ${minha ? 'text-blue-200' : 'text-gray-500'} text-right mt-0.5">${hora}</div>
-                        </div>
-                    </div>
-                `;
-            }).join("");
+            msgs.innerHTML = lista.map(m => renderizarMensagemMonitoria(m)).join("");
         }
         msgs.scrollTop = msgs.scrollHeight;
     });
 
     monitoriaListenerAtivo = () => msgsRef.off("value", handler);
+}
+
+function renderizarMensagemMonitoria(m) {
+    const minha = m.autorId === usuarioLogado.id;
+    const hora = new Date(m.ts || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const autorHtml = !minha ? `<div class="text-[10px] font-bold text-blue-300 mb-0.5">${textoSeguro(m.autor)} <span class="text-gray-400 font-normal">(${textoSeguro(m.nivel)})</span></div>` : "";
+
+    let conteudoHtml = `<div class="text-sm leading-snug">${textoSeguro(m.texto || "")}</div>`;
+
+    if (m.tipo === "imagem" && m.arquivoUrl) {
+        conteudoHtml = `
+            ${m.texto ? `<div class="text-sm leading-snug mb-2">${textoSeguro(m.texto)}</div>` : ""}
+            <a href="${textoSeguro(m.arquivoUrl)}" target="_blank" rel="noopener" class="block">
+                <img src="${textoSeguro(m.arquivoUrl)}" alt="Imagem enviada" class="max-h-56 rounded-xl border border-white/10 object-contain bg-black/20">
+            </a>
+            <a href="${textoSeguro(m.arquivoUrl)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 mt-2 text-[11px] font-bold underline ${minha ? 'text-blue-100' : 'text-blue-300'}">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir imagem
+            </a>
+        `;
+    } else if (m.tipo === "arquivo" && m.arquivoUrl) {
+        conteudoHtml = `
+            ${m.texto ? `<div class="text-sm leading-snug mb-2">${textoSeguro(m.texto)}</div>` : ""}
+            <a href="${textoSeguro(m.arquivoUrl)}" target="_blank" rel="noopener" class="flex items-center gap-3 p-3 rounded-xl ${minha ? 'bg-blue-700/60 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-900'} border border-white/10 transition">
+                <i class="fa-solid fa-file-arrow-down text-lg"></i>
+                <span class="min-w-0">
+                    <span class="block text-xs font-bold truncate">${textoSeguro(m.nomeArquivo || 'Arquivo enviado')}</span>
+                    <span class="block text-[10px] opacity-80">Abrir / baixar arquivo</span>
+                </span>
+            </a>
+        `;
+    }
+
+    return `
+        <div class="flex ${minha ? 'justify-end' : 'justify-start'} mb-2">
+            <div class="max-w-[78%] ${minha ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'} px-4 py-2.5 rounded-2xl ${minha ? 'rounded-tr-sm' : 'rounded-tl-sm'} shadow">
+                ${autorHtml}
+                ${conteudoHtml}
+                <div class="text-[10px] ${minha ? 'text-blue-200' : 'text-gray-500'} text-right mt-1">${hora}</div>
+            </div>
+        </div>
+    `;
 }
 
 function enviarMensagemMonitoria() {
@@ -1914,6 +1944,7 @@ function enviarMensagemMonitoria() {
     if (!texto) return;
 
     firebaseDB.ref(`monitoria/${salaMoniAtual}/mensagens`).push({
+        tipo: "texto",
         autorId: usuarioLogado.id,
         autor: usuarioLogado.nome,
         nivel: usuarioLogado.nivel,
@@ -1921,6 +1952,53 @@ function enviarMensagemMonitoria() {
         ts: Date.now()
     });
     input.value = "";
+}
+
+function abrirSeletorArquivoMonitoria() {
+    const input = document.getElementById("monitoriaArquivoInput");
+    if (input) input.click();
+}
+
+async function enviarArquivoMonitoria(inputEl) {
+    if (!inputEl || !inputEl.files || !inputEl.files.length) return;
+    if (!firebaseDB || !salaMoniAtual || !usuarioLogado) {
+        inputEl.value = "";
+        return alert("Entre em uma sala antes de enviar arquivo.");
+    }
+
+    const arquivo = inputEl.files[0];
+    inputEl.value = "";
+
+    const tamanhoMb = arquivo.size / (1024 * 1024);
+    if (tamanhoMb > LIMITE_ANEXO_MONITORIA_MB) {
+        return alert(`Arquivo muito grande. Para o chat da monitoria, use até ${LIMITE_ANEXO_MONITORIA_MB} MB.`);
+    }
+
+    const statusAnterior = document.getElementById("monitoriaCallStatus")?.textContent || "";
+    setStatusChamadaMonitoria("Enviando anexo para o Drive...", "text-amber-400");
+
+    try {
+        const upload = await enviarArquivoParaGoogleDrive(arquivo);
+        const ehImagem = (arquivo.type || "").startsWith("image/");
+        await firebaseDB.ref(`monitoria/${salaMoniAtual}/mensagens`).push({
+            tipo: ehImagem ? "imagem" : "arquivo",
+            autorId: usuarioLogado.id,
+            autor: usuarioLogado.nome,
+            nivel: usuarioLogado.nivel,
+            texto: ehImagem ? "Imagem enviada" : "Arquivo enviado",
+            arquivoUrl: upload.fileUrl,
+            driveFileId: upload.fileId || "",
+            nomeArquivo: upload.fileName || arquivo.name,
+            mimeType: arquivo.type || "application/octet-stream",
+            tamanhoBytes: arquivo.size,
+            ts: Date.now()
+        });
+        setStatusChamadaMonitoria(statusAnterior || "Chamada não iniciada.", chamadaMonitoriaAtiva ? "text-emerald-400" : "text-gray-500");
+    } catch (e) {
+        console.error("Erro ao enviar anexo da monitoria", e);
+        setStatusChamadaMonitoria(statusAnterior || "Chamada não iniciada.", chamadaMonitoriaAtiva ? "text-emerald-400" : "text-gray-500");
+        alert(`Não foi possível enviar o anexo.\n\n${e.message || e}`);
+    }
 }
 
 
@@ -2055,7 +2133,19 @@ function criarPeerConnectionMonitoria() {
     };
 }
 
+async function limparChamadaMonitoriaSeAntiga(chamadaRef) {
+    const snap = await chamadaRef.once("value");
+    const dados = snap.val();
+    const ts = dados?.meta?.ts || dados?.offer?.ts || 0;
+    if (ts && Date.now() - ts > 20 * 60 * 1000) {
+        await chamadaRef.remove();
+        return true;
+    }
+    return false;
+}
+
 async function iniciarChamadaMonitoria(tipo = "video") {
+    initFirebase();
     if (!firebaseDB || !salaMoniAtual || !usuarioLogado) return alert("Entre em uma sala de monitoria antes de iniciar a chamada.");
     if (chamadaMonitoriaAtiva) return;
 
@@ -2071,6 +2161,8 @@ async function iniciarChamadaMonitoria(tipo = "video") {
         configurarVideosMonitoria();
 
         const chamadaRef = firebaseDB.ref(`monitoria/${salaMoniAtual}/chamada`);
+        await limparChamadaMonitoriaSeAntiga(chamadaRef);
+
         const offerRef = chamadaRef.child("offer");
         const answerRef = chamadaRef.child("answer");
         const candidatosRef = chamadaRef.child("candidatos");
@@ -2078,7 +2170,7 @@ async function iniciarChamadaMonitoria(tipo = "video") {
         adicionarRtcListener(candidatosRef, "child_added", snapUsuario => {
             const autorId = snapUsuario.key;
             if (!autorId || autorId === usuarioLogado.id) return;
-            snapUsuario.ref.on("child_added", async snapCand => {
+            const candHandler = async snapCand => {
                 const chave = `${autorId}:${snapCand.key}`;
                 if (rtcCandidatosProcessados.has(chave)) return;
                 rtcCandidatosProcessados.add(chave);
@@ -2086,38 +2178,44 @@ async function iniciarChamadaMonitoria(tipo = "video") {
                 if (!cand || !rtcPeerConnection) return;
                 try { await rtcPeerConnection.addIceCandidate(new RTCIceCandidate(cand)); }
                 catch (e) { console.warn("ICE candidate ainda não pôde ser aplicado", e); }
-            });
-            rtcListenersAtivos.push(() => snapUsuario.ref.off("child_added"));
+            };
+            snapUsuario.ref.on("child_added", candHandler);
+            rtcListenersAtivos.push(() => snapUsuario.ref.off("child_added", candHandler));
         });
 
-        offerRef.once("value", async snap => {
-            const offerExistente = snap.val();
+        const offerSnap = await offerRef.once("value");
+        const offerExistente = offerSnap.val();
 
-            if (!offerExistente) {
-                setStatusChamadaMonitoria("Criando chamada. Aguarde o outro participante entrar...", "text-amber-400");
-                const offer = await rtcPeerConnection.createOffer();
-                await rtcPeerConnection.setLocalDescription(offer);
-                await offerRef.set({ type: offer.type, sdp: offer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
+        if (!offerExistente) {
+            setStatusChamadaMonitoria("Criando chamada. Aguarde o outro participante entrar...", "text-amber-400");
+            const offer = await rtcPeerConnection.createOffer();
+            await rtcPeerConnection.setLocalDescription(offer);
+            await chamadaRef.child("meta").set({ tipo: tipoChamadaMonitoriaAtual, criadoPor: usuarioLogado.id, ts: Date.now() });
+            await offerRef.set({ type: offer.type, sdp: offer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
 
-                adicionarRtcListener(answerRef, "value", async answerSnap => {
-                    const answer = answerSnap.val();
-                    if (!answer || answer.autorId === usuarioLogado.id || rtcPeerConnection.currentRemoteDescription) return;
+            adicionarRtcListener(answerRef, "value", async answerSnap => {
+                const answer = answerSnap.val();
+                if (!answer || answer.autorId === usuarioLogado.id || rtcPeerConnection.currentRemoteDescription) return;
+                try {
                     await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription({ type: answer.type, sdp: answer.sdp }));
                     setStatusChamadaMonitoria("Conectando chamada...", "text-amber-400");
-                });
-            } else {
-                if (offerExistente.autorId === usuarioLogado.id) {
-                    setStatusChamadaMonitoria("Você já criou esta chamada. Aguarde outro participante.", "text-amber-400");
-                    return;
+                } catch (e) {
+                    console.warn("Falha ao aplicar resposta da chamada", e);
+                    setStatusChamadaMonitoria("Falha na conexão. Saia e tente novamente.", "text-red-400");
                 }
-
-                setStatusChamadaMonitoria("Entrando na chamada existente...", "text-amber-400");
-                await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription({ type: offerExistente.type, sdp: offerExistente.sdp }));
-                const answer = await rtcPeerConnection.createAnswer();
-                await rtcPeerConnection.setLocalDescription(answer);
-                await answerRef.set({ type: answer.type, sdp: answer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
+            });
+        } else {
+            if (offerExistente.autorId === usuarioLogado.id) {
+                setStatusChamadaMonitoria("Você já criou esta chamada. Aguarde outro participante.", "text-amber-400");
+                return;
             }
-        });
+
+            setStatusChamadaMonitoria("Entrando na chamada existente...", "text-amber-400");
+            await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription({ type: offerExistente.type, sdp: offerExistente.sdp }));
+            const answer = await rtcPeerConnection.createAnswer();
+            await rtcPeerConnection.setLocalDescription(answer);
+            await answerRef.set({ type: answer.type, sdp: answer.sdp, autorId: usuarioLogado.id, autor: usuarioLogado.nome, ts: Date.now() });
+        }
     } catch (e) {
         console.error("Erro ao iniciar chamada", e);
         encerrarChamadaMonitoria(false);
@@ -2220,6 +2318,8 @@ window.salvarNovoMaterial = salvarNovoMaterial;
 window.ajustarCamposFormMaterial = ajustarCamposFormMaterial;
 window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
+window.abrirSeletorArquivoMonitoria = abrirSeletorArquivoMonitoria;
+window.enviarArquivoMonitoria = enviarArquivoMonitoria;
 window.fecharModalMonitoria = fecharModalMonitoria;
 window.iniciarChamadaMonitoria = iniciarChamadaMonitoria;
 window.iniciarChamadaVideoMonitoria = iniciarChamadaVideoMonitoria;
