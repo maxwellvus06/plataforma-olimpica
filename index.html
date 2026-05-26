@@ -3,38 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Olimpíadas do Conhecimento</title>
+    <title>Plataforma de Gestão Olímpica Integrada 2026</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-card">
+            <h2>Portal Olímpico 2026</h2>
+            <p>Insira suas credenciais de governança</p>
+            <form onsubmit="e => e.preventDefault(); ejecutarLogin();">
+                <div style="margin-bottom:15px; text-align:left;">
+                    <input type="text" id="auth-user" class="form-control" placeholder="Usuário (admin, coordenador, escola)" required>
+                </div>
+                <div style="margin-bottom:20px; text-align:left;">
+                    <input type="password" id="auth-pass" class="form-control" placeholder="Senha" required>
+                </div>
+                <button type="button" onclick="ejecutarLogin()" class="btn" style="width:100%; padding:12px;">Entrar no Sistema</button>
+            </form>
+            <div style="margin-top:20px; font-size:11px; color:#94a3b8; text-align:left; background:#f8fafc; padding:10px; border-radius:6px;">
+                <strong>Chaves de homologação:</strong><br>
+                • ADM: user 'admin' / senha '123'<br>
+                • Coordenador: user 'coordenador' / senha '456'<br>
+                • Escola: user 'escola' / senha '789'
+            </div>
+        </div>
+    </div>
+
+    <div id="app-container" class="container">
+        
         <div class="header">
-            <h2>🎯 Painel de Olimpíadas do Conhecimento</h2>
-            <p>Plataforma Modular de Resultados Escolares — Ciclo 2026</p>
+            <div class="header-meta">
+                <div>
+                    <h2>🎯 Sistema Integrado de Gestão Olímpica (SIGO)</h2>
+                    <p>Controle de Alunos, Escolas e Cronogramas de Fases — Ciclo Letivo 2026</p>
+                </div>
+                <div style="text-align:right;">
+                    <span id="nav-user-name" class="user-badge" style="margin-right:10px;">Nome</span>
+                    <span id="nav-user-role" class="user-badge" style="background:#f59e0b;">Role</span>
+                    <button onclick="ejecutarLogout()" class="btn btn-danger" style="padding:5px 12px; font-size:12px; margin-left:10px;">Sair</button>
+                </div>
+            </div>
+
             <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
-                <button class="tab-btn" onclick="switchTab('calendario')">📅 Calendário (45 Olimpíadas)</button>
-                <button class="tab-btn" onclick="switchTab('importacao')">📥 Importar Dados</button>
+                <button class="tab-btn active" onclick="switchTab('tab-dashboard')">📊 Dashboard</button>
+                <button class="tab-btn" onclick="switchTab('tab-calendario-mestre')">📅 Calendário (45 Olimpíadas)</button>
+                <button class="tab-btn" id="btn-tab-usuarios" onclick="switchTab('tab-usuarios')">👥 Usuários</button>
+                <button class="tab-btn" id="btn-tab-municipios" onclick="switchTab('tab-municipios')">🏢 Municípios</button>
+                <button class="tab-btn" id="btn-tab-escolas" onclick="switchTab('tab-escolas')">🏫 Escolas</button>
+                <button class="tab-btn" onclick="switchTab('tab-alunos')">👨‍🎓 Alunos & Prêmios</button>
             </div>
         </div>
 
-        <div id="dashboard" class="tab-content active">
+        <div id="tab-dashboard" class="tab-content active">
             <div class="barra-filtros">
                 <div class="grupo-filtro">
-                    <label>Município</label>
-                    <select id="filtro-municipio" onchange="atualizarDashboard()">
-                        <option value="todos">Todos</option>
-                        <option value="São Braz - PI" selected>São Braz - PI</option>
-                    </select>
+                    <label>Município Polo</label>
+                    <select id="filtro-municipio" onchange="renderizarDashboard()"></select>
                 </div>
                 <div class="grupo-filtro">
-                    <label>Olimpíada</label>
-                    <select id="filtro-olimpiada" onchange="atualizarDashboard()">
-                        <option value="todas">Todas as 45 Olimpíadas</option>
+                    <label>Filtro de Olimpíada</label>
+                    <select id="filtro-olimpiada" onchange="renderizarDashboard()">
+                        <option value="todas">Todas as Olimpíadas</option>
                         <option value="Olimpíada Canguru de Matemática">Canguru de Matemática</option>
                         <option value="OLIMPÍADA BRASILEIRA DO SABER">Olimpíada Brasileira do Saber</option>
                         <option value="Olimpíada Brasileira de Matemática Financeira">Matemática Financeira</option>
+                        <option value="Olimpíada Brasileira de Geopolítica">Geopolítica</option>
                     </select>
                 </div>
             </div>
@@ -50,11 +85,11 @@
 
             <div class="layout-dashboard">
                 <div class="painel-branco">
-                    <div class="titulo-secao">📊 Gráfico de Rendimento Nacional</div>
-                    <div style="position: relative; height:220px;"><canvas id="chartReal"></canvas></div>
+                    <div class="titulo-secao">📊 Performance Consolidada</div>
+                    <div style="position:relative; height:240px;"><canvas id="chartCanvas"></canvas></div>
                 </div>
                 <div class="painel-branco">
-                    <div class="titulo-secao">🏆 Feed de Medalhistas Próximos</div>
+                    <div class="titulo-secao">🏆 Feed de Conquistas Próximas</div>
                     <table class="tabela-dados">
                         <thead><tr><th>Aluno / Escola</th><th>Olimpíada</th><th>Resultado</th></tr></thead>
                         <tbody id="tabela-feed"></tbody>
@@ -63,25 +98,130 @@
             </div>
         </div>
 
-        <div id="calendario" class="tab-content">
+        <div id="tab-calendario-mestre" class="tab-content">
             <div class="painel-branco">
-                <div class="titulo-secao">📅 Cronograma e Links das 45 Olimpíadas de 2026</div>
-                <table class="tabela-dados">
-                    <thead><tr><th>Competição / Olimpíada</th><th>Público Alvo</th><th style="text-align:center;">Data da Prova</th><th style="text-align:center;">Link Oficial</th></tr></thead>
-                    <tbody id="tabela-calendario-completo"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="importacao" class="tab-content">
-            <div class="painel-branco">
-                <div class="titulo-secao">📥 Upload de Resultados em Lote</div>
-                <div class="drop-zone" onclick="document.getElementById('csv-file').click()">
-                    📁 Clique aqui para selecionar a planilha de resultados (.csv)
-                    <input type="file" id="csv-file" accept=".csv" onchange="processarCSV(event)">
+                <div class="titulo-secao">📅 Cronograma Detalhado e Links Oficiais de Fases 2026</div>
+                <div class="tabela-wrapper">
+                    <table class="tabela-dados">
+                        <thead><tr><th>Competição / Olimpíada</th><th>Segmento Elegível</th><th style="text-align:center;">Data da Prova</th><th style="text-align:center;">Ações</th></tr></thead>
+                        <tbody id="tabela-calendario"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
+
+        <div id="tab-usuarios" class="tab-content">
+            <div class="grid-lancamento">
+                <div class="painel-branco">
+                    <div class="titulo-secao">👤 Cadastrar Novo Usuário de Governança</div>
+                    <form id="form-usuarios" onsubmit="cadastrarUsuario(event)">
+                        <div class="form-row">
+                            <div class="form-group"><label>Username</label><input type="text" id="new-user" required></div>
+                            <div class="form-group"><label>Nome Completo</label><input type="text" id="new-nome" required></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Nível de Acesso</label>
+                                <select id="new-role">
+                                    <option value="Coordenador Municipal">Coordenador Municipal</option>
+                                    <option value="Escola">Escola</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Senha de Acesso</label><input type="password" id="new-pass" required></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Escopo de Atuação (Município ou Escola)</label><input type="text" id="new-escopo" placeholder="Ex: São Braz - PI" required></div>
+                        </div>
+                        <button type="submit" class="btn btn-success">Salvar Credencial</button>
+                    </form>
+                </div>
+                <div class="painel-branco">
+                    <div class="titulo-secao">👥 Usuários Ativos no Sistema</div>
+                    <table class="tabela-dados">
+                        <thead><tr><th>User</th><th>Nome</th><th>Nível</th><th>Escopo</th></tr></thead>
+                        <tbody id="tbody-usuarios"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-municipios" class="tab-content">
+            <div class="grid-lancamento">
+                <div class="painel-branco">
+                    <div class="titulo-secao">🏢 Cadastrar Município Parceiro</div>
+                    <form id="form-municipios" onsubmit="cadastrarMunicipio(event)">
+                        <div class="form-group" style="margin-bottom:15px;"><label>Nome do Município / UF</label><input type="text" id="new-mun-nome" placeholder="Ex: Teresina - PI" required></div>
+                        <button type="submit" class="btn btn-success">Adicionar Município</button>
+                    </form>
+                </div>
+                <div class="painel-branco">
+                    <div class="titulo-secao">🏢 Redes de Ensino Vinculadas</div>
+                    <table class="tabela-dados">
+                        <thead><tr><th>ID</th><th>Município</th><th>Estado</th></tr></thead>
+                        <tbody id="tbody-municipios"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-escolas" class="tab-content">
+            <div class="grid-lancamento">
+                <div class="painel-branco">
+                    <div class="titulo-secao">🏫 Cadastrar Unidade Escolar</div>
+                    <form id="form-escolas" onsubmit="cadastrarEscola(event)">
+                        <div class="form-group" style="margin-bottom:15px;"><label>Nome da Escola</label><input type="text" id="new-esc-nome" placeholder="Ex: Unidade Escolar Patronato" required></div>
+                        <button type="submit" class="btn btn-success">Adicionar Unidade</button>
+                    </form>
+                </div>
+                <div class="painel-branco">
+                    <div class="titulo-secao">🏫 Escolas Mapeadas na Rede</div>
+                    <table class="tabela-dados">
+                        <thead><tr><th>ID</th><th>Escola</th><th>Status</th></tr></thead>
+                        <tbody id="tbody-escolas"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-alunos" class="tab-content">
+            <div class="grid-lancamento">
+                <div class="painel-branco">
+                    <div class="titulo-secao">👨‍🎓 Lançar Resultado do Aluno</div>
+                    <form id="form-alunos" onsubmit="cadastrarAluno(event)">
+                        <div class="form-row">
+                            <div class="form-group"><label>Nome do Estudante</label><input type="text" id="new-al-nome" required></div>
+                            <div class="form-group"><label>Unidade Escolar (Se ADM/Coord)</label><input type="text" id="new-al-escola" placeholder="U.E. Polo Municipal"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Olimpíada Alvo</label>
+                                <select id="new-al-olimpiada"><option value="">Selecione a Competição</option></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Premiação Obtida</label>
+                                <select id="new-al-premio">
+                                    <option value="Ouro">Ouro 🥇</option>
+                                    <option value="Prata">Prata 🥈</option>
+                                    <option value="Bronze">Bronze 🥉</option>
+                                    <option value="Menção Honrosa">Menção Honrosa 🏅</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success">Computar Medalha</button>
+                    </form>
+                </div>
+                <div class="painel-branco">
+                    <div class="titulo-secao">👨‍🎓 Histórico Geral de Alunos Premiados</div>
+                    <div class="tabela-wrapper">
+                        <table class="tabela-dados">
+                            <thead><tr><th>Estudante</th><th>Escola</th><th>Olimpíada</th><th>Medalha</th></tr></thead>
+                            <tbody id="tbody-alunos"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="database.js"></script>
