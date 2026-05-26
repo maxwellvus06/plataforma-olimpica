@@ -2,6 +2,7 @@
 let chartInstance = null;
 let dadosTrabalho = [];
 let usuarioLogado = null;
+let memoriaDadosSistema = {}; // cache em memória da aba atual; não grava no navegador
 
 // Referência Firebase para Monitoria
 let firebaseApp = null;
@@ -69,7 +70,6 @@ function initLogin() {
 
             if (contaEncontrada) {
                 usuarioLogado = contaEncontrada;
-                sessionStorage.setItem("avance_session", JSON.stringify(contaEncontrada));
                 logarSucesso(contaEncontrada);
             } else {
                 alert("Erro de Autenticação: Login inválido.");
@@ -84,11 +84,8 @@ function initLogin() {
 }
 
 function verificarSessao() {
-    const sessaoGuardada = sessionStorage.getItem("avance_session");
-    if (sessaoGuardada) {
-        usuarioLogado = JSON.parse(sessaoGuardada);
-        logarSucesso(usuarioLogado);
-    }
+    // Sem armazenamento local: ao atualizar a página, o usuário precisa logar novamente.
+    return;
 }
 
 function logarSucesso(usuario) {
@@ -361,7 +358,6 @@ function resultadoDentroDoEscopoResultadosUsuario(resultado) {
 }
 
 function logout() {
-    sessionStorage.removeItem("avance_session");
     usuarioLogado = null;
     if (monitoriaListenerAtivo) {
         monitoriaListenerAtivo();
@@ -373,23 +369,38 @@ function logout() {
     document.getElementById("loginForm").reset();
 }
 
+function clonarDados(valor) {
+    try { return JSON.parse(JSON.stringify(valor)); }
+    catch (_) { return valor; }
+}
+
 function getStorage(chave, fallback = []) {
-    try {
-        const salvo = localStorage.getItem(chave);
-        return salvo ? JSON.parse(salvo) : fallback;
-    } catch (e) {
-        console.warn(`Falha ao ler ${chave}`, e);
-        return fallback;
+    if (Object.prototype.hasOwnProperty.call(memoriaDadosSistema, chave)) {
+        return clonarDados(memoriaDadosSistema[chave]);
     }
+    return clonarDados(fallback);
 }
 
 function setStorage(chave, valor) {
-    localStorage.setItem(chave, JSON.stringify(valor));
-    salvarChaveFirebase(chave, valor);
+    memoriaDadosSistema[chave] = clonarDados(valor);
+    return salvarChaveFirebase(chave, valor);
 }
 
 function setStorageLocal(chave, valor) {
-    localStorage.setItem(chave, JSON.stringify(valor));
+    memoriaDadosSistema[chave] = clonarDados(valor);
+}
+
+function dadosSementePorChave(chave) {
+    const mapa = {
+        app_usuarios: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [],
+        app_cidades: typeof CONFIG_CIDADES_INICIAIS !== "undefined" ? CONFIG_CIDADES_INICIAIS : [],
+        app_escolas: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [],
+        app_olimpiadas: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [],
+        app_cronograma: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [],
+        app_premiados: typeof DATABASE !== "undefined" ? DATABASE.premiados : [],
+        app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : []
+    };
+    return Array.isArray(mapa[chave]) ? clonarDados(mapa[chave]) : [];
 }
 
 function normalizarListaFirebase(valor) {
@@ -407,51 +418,69 @@ function getFirebasePath(chave) {
 
 function salvarChaveFirebase(chave, valor) {
     initFirebase();
-    if (!firebaseDB) return Promise.resolve();
+    if (!firebaseDB) {
+        console.error(`${chave} NÃO foi salvo: Firebase Realtime Database não inicializado.`);
+        alert(`Firebase não inicializou. ${chave} não foi salvo no banco.`);
+        return Promise.reject(new Error("Firebase Realtime Database não inicializado"));
+    }
     const path = getFirebasePath(chave);
-    return firebaseDB.ref(path).set(valor).catch(erro => {
-        console.warn(`${chave} salvo localmente, mas não sincronizado no Firebase.`, erro);
+    return firebaseDB.ref(path).set(valor).then(() => {
+        console.log(`Firebase OK: ${chave} salvo em ${path}`);
+    }).catch(erro => {
+        console.error(`${chave} NÃO foi salvo no Firebase em ${path}.`, erro);
+        alert(`${chave} não foi salvo no Firebase. Verifique Rules/Realtime Database.
+
+${erro.message || erro}`);
+        throw erro;
     });
 }
 
 async function carregarChaveFirebase(chave, fallback = []) {
     initFirebase();
-    const locais = getStorage(chave, fallback);
-    if (!firebaseDB) return locais;
+    const seed = Array.isArray(fallback) && fallback.length ? fallback : dadosSementePorChave(chave);
+
+    if (!firebaseDB) {
+        console.error("Firebase Realtime Database não inicializado. Nada será gravado localmente.");
+        setStorageLocal(chave, seed);
+        return getStorage(chave, []);
+    }
 
     try {
-        const snap = await firebaseDB.ref(getFirebasePath(chave)).once("value");
+        const ref = firebaseDB.ref(getFirebasePath(chave));
+        const snap = await ref.once("value");
         const remotoBruto = snap.val();
-        const remotos = normalizarListaFirebase(remotoBruto);
+        let remotos = normalizarListaFirebase(remotoBruto);
 
-        if (remotos.length > 0) {
-            let finais = remotos;
-
-            // Regra de segurança do login: nunca deixar o Firebase apagar o usuário admin local.
-            // Se o Firebase já tem usuários, mescla por id/login para evitar login quebrado.
-            if (chave === "app_usuarios" && Array.isArray(locais) && locais.length > 0) {
-                const mapa = new Map();
-                remotos.forEach(item => mapa.set(item.id || item.login || novoId(), item));
-                locais.forEach(item => {
-                    const id = item.id || item.login || novoId();
-                    const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(item.login));
-                    if (!mapa.has(id) && !loginJaExiste) mapa.set(id, item);
-                });
-                finais = Array.from(mapa.values()).filter(Boolean);
-                if (finais.length !== remotos.length) await firebaseDB.ref(getFirebasePath(chave)).set(finais);
-            }
-
+        if (chave === "app_usuarios") {
+            const sementesUsuarios = dadosSementePorChave("app_usuarios");
+            const mapa = new Map();
+            remotos.forEach(item => mapa.set(item.id || item.login || novoId(), item));
+            sementesUsuarios.forEach(item => {
+                const id = item.id || item.login || novoId();
+                const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(item.login));
+                if (!mapa.has(id) && !loginJaExiste) mapa.set(id, item);
+            });
+            const finais = Array.from(mapa.values()).filter(Boolean);
+            if (JSON.stringify(finais) !== JSON.stringify(remotos)) await ref.set(finais);
             setStorageLocal(chave, finais);
             return finais;
         }
 
-        if (Array.isArray(locais) && locais.length > 0) {
-            await firebaseDB.ref(getFirebasePath(chave)).set(locais);
+        if (remotos.length > 0 || remotoBruto !== null) {
+            setStorageLocal(chave, remotos);
+            return remotos;
         }
-        return locais;
+
+        await ref.set(seed);
+        setStorageLocal(chave, seed);
+        return seed;
     } catch (erro) {
-        console.warn(`Não foi possível carregar ${chave} do Firebase. Usando dados locais.`, erro);
-        return locais;
+        console.error(`Erro real no Firebase ao carregar ${chave}:`, erro);
+        alert(`Erro de Firebase ao carregar ${chave}. Verifique as Rules do Realtime Database.
+
+${erro.message || erro}`);
+        setStorageLocal(chave, seed);
+        return seed;
     }
 }
 
@@ -724,7 +753,6 @@ function opcoesOlimpiadasNome() {
 function atualizarSessaoUsuario(usuarioAtualizado) {
     if (usuarioLogado?.id === usuarioAtualizado.id) {
         usuarioLogado = usuarioAtualizado;
-        sessionStorage.setItem("avance_session", JSON.stringify(usuarioAtualizado));
         document.getElementById("userLoggedNome").innerText = usuarioAtualizado.nome;
         document.getElementById("userLoggedNivel").innerText = usuarioAtualizado.nivel;
     }
@@ -1653,7 +1681,7 @@ async function carregarMateriaisPlataforma() {
 
         return materiais.reverse();
     } catch (erro) {
-        console.warn("Falha ao carregar materiais do Firebase Realtime Database. Usando cache local como fallback.", erro);
+        console.error("Falha ao carregar materiais do Firebase Realtime Database.", erro);
         return getStorage("app_plataforma");
     }
 }
@@ -1859,11 +1887,7 @@ async function salvarNovoMaterial(event) {
         }
 
         await firebaseDB.ref(FIREBASE_MATERIAIS_PATH).push(material);
-
-        // Cache local apenas como cópia de emergência para visualização offline.
-        const cache = getStorage("app_plataforma");
-        cache.unshift({ id: novoId(), ...material, criadoEm: Date.now() });
-        setStorage("app_plataforma", cache.slice(0, 100));
+        await carregarChaveFirebase("app_plataforma", []);
 
         document.getElementById("formAddMaterial").reset();
         ajustarCamposFormMaterial();
@@ -1900,8 +1924,7 @@ async function excluirMaterial(id) {
             await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
         }
 
-        const materiaisLocais = getStorage("app_plataforma").filter(m => m.id !== id && m.driveFileId !== material?.driveFileId);
-        setStorage("app_plataforma", materiaisLocais);
+        await carregarChaveFirebase("app_plataforma", []);
 
         await renderizarPlataformaEnsino();
         alert("Material removido da plataforma e arquivo enviado para a lixeira do Google Drive.");
@@ -1945,6 +1968,12 @@ function initFirebase() {
         if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
         if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
         if (firebase.analytics) { try { firebase.analytics(); } catch (_) {} }
+        if (firebaseDB) {
+            firebaseDB.ref(`${FIREBASE_ROOT_PATH}/_debug/ultimo_acesso`).set({
+                quando: firebase.database.ServerValue.TIMESTAMP,
+                origem: "app_sem_armazenamento_local"
+            }).catch(e => console.error("Debug Firebase falhou:", e));
+        }
     } catch(e) {
         console.warn("Firebase não configurado ainda:", e.message);
     }

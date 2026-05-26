@@ -109,10 +109,3 @@ const SALAS_MONITORIA = [
 const CONFIG_CIDADES_INICIAIS = [{ id: "1", nome: "São Braz", sigla: "SBZ", uf: "PI" }];
 const CONFIG_ESCOLAS_INICIAIS = [{ id: "1", nome: "U. E. São Braz", razaoSocial: "Unidade Escolar São Braz LTDA", cnpj: "12.345.678/0001-99", inep: "2201923", endereco: "Rua Central, 100", cep: "64.758-000", diretor: "Prof. Antônio Silva", email: "polo@saobraz.pi.gov.br", cidadeId: "1" }];
 
-if (!localStorage.getItem("app_usuarios")) localStorage.setItem("app_usuarios", JSON.stringify(DATABASE.usuarios));
-if (!localStorage.getItem("app_cidades")) localStorage.setItem("app_cidades", JSON.stringify(CONFIG_CIDADES_INICIAIS));
-if (!localStorage.getItem("app_escolas")) localStorage.setItem("app_escolas", JSON.stringify(CONFIG_ESCOLAS_INICIAIS));
-if (!localStorage.getItem("app_olimpiadas")) localStorage.setItem("app_olimpiadas", JSON.stringify(DATABASE.olimpiadas));
-if (!localStorage.getItem("app_cronograma")) localStorage.setItem("app_cronograma", JSON.stringify(DATABASE.cronograma));
-if (!localStorage.getItem("app_premiados")) localStorage.setItem("app_premiados", JSON.stringify(DATABASE.premiados));
-if (!localStorage.getItem("app_plataforma")) localStorage.setItem("app_plataforma", JSON.stringify(DATABASE.plataforma));
