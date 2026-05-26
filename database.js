@@ -87,7 +87,7 @@ const PERMISSOES = {
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
         usuarios: { podeGerenciar: false, niveisPermitidos: [] },
-        plataforma: { podeGerenciar: false }
+        plataforma: { podeGerenciar: true }
     }
 };
 

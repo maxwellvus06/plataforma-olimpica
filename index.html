@@ -386,51 +386,70 @@
 
                 <!-- ===================== PLATAFORMA DE ENSINO ===================== -->
                 <section id="view-plataforma" class="tab-view hidden space-y-6">
-                    <!-- Painel ADM para adicionar material -->
+                    <!-- Painel ADM/MONITOR para adicionar material -->
                     <div id="painelAddMaterial" class="hidden bg-gray-800 border border-gray-700 rounded-2xl p-6 shadow-xl">
-                        <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-3 mb-4"><i class="fa-solid fa-circle-plus text-blue-400 mr-2"></i> Publicar Novo Material</h3>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border-b border-gray-700 pb-3 mb-4">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-circle-plus text-blue-400 mr-2"></i> Publicar Novo Material</h3>
+                                <p class="text-xs text-gray-500 mt-1">Administradores e monitores podem postar materiais organizados por disciplina, nível e tipo.</p>
+                            </div>
+                            <span class="text-[10px] text-gray-500 uppercase font-bold tracking-wider"><i class="fa-solid fa-database mr-1"></i> Registro salvo no Firestore</span>
+                        </div>
                         <form id="formAddMaterial" onsubmit="salvarNovoMaterial(event)" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <div class="space-y-3">
-                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Título</label><input type="text" id="matTitulo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Título do material" required></div>
-                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de Conteúdo</label>
-                                    <select id="matTipo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" onchange="ajustarCamposFormMaterial()">
-                                        <option value="video">Vídeo (YouTube)</option>
-                                        <option value="link">Link / Material externo</option>
-                                        <option value="arquivo">Upload de arquivo (PDF)</option>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Título</label><input type="text" id="matTitulo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Lista 01 — Divisibilidade" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Disciplina</label>
+                                    <select id="matDisciplina" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required>
+                                        <option value="Matemática">Matemática</option><option value="Física">Física</option><option value="Química">Química</option><option value="Biologia">Biologia</option><option value="Ciências">Ciências</option><option value="Astronomia">Astronomia</option><option value="Tecnologia / Robótica">Tecnologia / Robótica</option><option value="Linguagem">Linguagem</option><option value="Humanas">Humanas</option><option value="Multidisciplinar">Multidisciplinar</option><option value="Geral">Geral</option>
                                     </select>
                                 </div>
-                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Área Temática</label>
-                                    <select id="matArea" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
-                                        <option value="">Geral</option>
-                                        <option value="Matemática">Matemática</option>
-                                        <option value="Física">Física</option>
-                                        <option value="Química">Química</option>
-                                        <option value="Astronomia">Astronomia</option>
-                                        <option value="Ciências">Ciências</option>
-                                        <option value="Linguagem">Linguagem</option>
-                                        <option value="Humanas">Humanas</option>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nível</label>
+                                    <select id="matNivel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required>
+                                        <option value="Geral">Geral</option><option value="Nível 1 — 6º/7º Ano">Nível 1 — 6º/7º Ano</option><option value="Nível 2 — 8º/9º Ano">Nível 2 — 8º/9º Ano</option><option value="Ensino Fundamental I">Ensino Fundamental I</option><option value="Ensino Fundamental II">Ensino Fundamental II</option><option value="Ensino Médio">Ensino Médio</option><option value="ITA/IME">ITA/IME</option><option value="Avançado / Seletivas">Avançado / Seletivas</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="space-y-3">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de material</label>
+                                    <select id="matTipoMaterial" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required>
+                                        <option value="Lista de exercícios">Lista de exercícios</option><option value="Apostila">Apostila</option><option value="Livro">Livro</option><option value="Videoaula">Videoaula</option><option value="Áudio">Áudio</option><option value="Simulado">Simulado</option><option value="Gabarito">Gabarito</option><option value="Resolução comentada">Resolução comentada</option><option value="Apresentação / Slides">Apresentação / Slides</option><option value="Link útil">Link útil</option><option value="Outro">Outro</option>
+                                    </select>
+                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Formato / hospedagem</label>
+                                    <select id="matTipo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" onchange="ajustarCamposFormMaterial()">
+                                        <option value="video">Vídeo incorporado / YouTube</option>
+                                        <option value="link">Link externo</option>
+                                        <option value="arquivo">Arquivo hospedado</option>
+                                    </select>
+                                </div>
                                 <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Descrição (opcional)</label><textarea id="matDescricao" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none resize-none" rows="3" placeholder="Breve descrição do conteúdo..."></textarea></div>
-                                <div id="divMatUrl"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">URL / Link</label><input type="url" id="matUrl" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="https://www.youtube.com/..."></div>
-                                <div id="divMatArquivo" class="hidden"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Arquivo (PDF)</label><input type="file" id="matArquivo" accept=".pdf" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300"></div>
                             </div>
-                            <div class="flex items-end">
+                            <div class="space-y-3 flex flex-col justify-between">
+                                <div id="divMatUrl"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">URL / Link</label><input type="url" id="matUrl" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="https://www.youtube.com/..."></div>
+                                <div id="divMatArquivo" class="hidden"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Arquivo</label><input type="file" id="matArquivo" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.mp3,.mp4,.png,.jpg,.jpeg,.webp" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300"><p class="text-[10px] text-gray-500 mt-1">PDF, listas, apostilas, áudio, imagem, planilha ou apresentação.</p></div>
                                 <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-lg"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar Material</button>
                             </div>
                         </form>
                     </div>
 
-                    <!-- Grade de materiais -->
-                    <div>
-                        <div class="flex items-center gap-3 mb-4">
-                            <i class="fa-solid fa-chalkboard-user text-blue-400 text-lg"></i>
-                            <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Materiais Disponíveis</h3>
+                    <!-- Filtros da plataforma -->
+                    <div class="bg-gray-800/40 border border-gray-800 rounded-2xl p-4">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-layer-group text-blue-400 mr-2"></i>Biblioteca e Fórum de Materiais</h3>
+                                <p class="text-xs text-gray-500 mt-1">Filtre por disciplina, nível e tipo. Cada material funciona como um tópico de fórum.</p>
+                            </div>
                         </div>
-                        <div id="gridMateriais" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Disciplina</label><select id="filtroMatDisciplina" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todas</option></select></div>
+                            <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Nível</label><select id="filtroMatNivel" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
+                            <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tipo</label><select id="filtroMatTipo" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
+                            <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Busca</label><input id="filtroMatBusca" oninput="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Título, descrição..."></div>
+                        </div>
                     </div>
+
+                    <!-- Grade de materiais -->
+                    <div id="gridMateriais" class="space-y-6"></div>
                 </section>
 
                 <!-- ===================== MONITORIA ===================== -->

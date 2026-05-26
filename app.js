@@ -1736,6 +1736,9 @@ function navegarAba(abaId, botaoTarget) {
     if (abaId === "meusresultados") {
         renderizarDashboardAluno();
     }
+    if (abaId === "usuarios") {
+        renderizarTabelasGerenciais();
+    }
     if (abaId === "alunos") {
         popularSeletoresAlunos();
         renderizarAlunos();
@@ -3716,8 +3719,12 @@ const FIREBASE_COLLECTIONS = {
 };
 function getMateriaisCollectionName() { return getFirebaseCollectionName("app_plataforma"); }
 function getUsuariosCollectionName() { return getFirebaseCollectionName("app_usuarios"); }
-const LIMITE_ARQUIVO_DRIVE_MB = 15;
+const LIMITE_ARQUIVO_DRIVE_MB = 25;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
+const DISCIPLINAS_PLATAFORMA = ["Geral", "Matemática", "Física", "Química", "Biologia", "Ciências", "Astronomia", "Tecnologia / Robótica", "Linguagem", "Humanas", "Multidisciplinar"];
+const NIVEIS_PLATAFORMA = ["Geral", "Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Fundamental I", "Ensino Fundamental II", "Ensino Médio", "ITA/IME", "Avançado / Seletivas"];
+const TIPOS_MATERIAL_PLATAFORMA = ["Lista de exercícios", "Apostila", "Livro", "Videoaula", "Áudio", "Simulado", "Gabarito", "Resolução comentada", "Apresentação / Slides", "Link útil", "Outro"];
+const TIPOS_INTERACAO_PLATAFORMA = ["Dúvida", "Resolução", "Comentário", "Correção sugerida"];
 
 async function carregarMateriaisPlataforma() {
     initFirebase();
@@ -3749,59 +3756,184 @@ ${erro.message || erro}`);
     }
 }
 
+function normalizarMaterialPlataforma(m) {
+    const tipoLegado = m.tipo || "link";
+    const disciplina = m.disciplina || m.area || "Geral";
+    const nivel = m.nivel || "Geral";
+    let tipoMaterial = m.tipoMaterial;
+    if (!tipoMaterial) {
+        if (tipoLegado === "video") tipoMaterial = "Videoaula";
+        else if (tipoLegado === "arquivo") tipoMaterial = "Apostila";
+        else tipoMaterial = "Link útil";
+    }
+    return { ...m, disciplina, area: disciplina, nivel, tipoMaterial, tipo: tipoLegado, interacoes: Array.isArray(m.interacoes) ? m.interacoes : [] };
+}
+
+function preencherFiltroPlataforma(id, opcoes, valorAtual) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const anterior = valorAtual || select.value || "TODOS";
+    select.innerHTML = `<option value="TODOS">Todos</option>` + opcoes.map(op => `<option value="${textoSeguro(op)}">${textoSeguro(op)}</option>`).join("");
+    if (Array.from(select.options).some(o => o.value === anterior)) select.value = anterior;
+}
+
+function atualizarFiltrosPlataforma(materiais) {
+    const disciplinas = Array.from(new Set([...DISCIPLINAS_PLATAFORMA, ...materiais.map(m => m.disciplina).filter(Boolean)])).sort((a,b)=>a.localeCompare(b));
+    const niveis = Array.from(new Set([...NIVEIS_PLATAFORMA, ...materiais.map(m => m.nivel).filter(Boolean)]));
+    const tipos = Array.from(new Set([...TIPOS_MATERIAL_PLATAFORMA, ...materiais.map(m => m.tipoMaterial).filter(Boolean)]));
+    preencherFiltroPlataforma("filtroMatDisciplina", disciplinas, document.getElementById("filtroMatDisciplina")?.value);
+    preencherFiltroPlataforma("filtroMatNivel", niveis, document.getElementById("filtroMatNivel")?.value);
+    preencherFiltroPlataforma("filtroMatTipo", tipos, document.getElementById("filtroMatTipo")?.value);
+}
+
+function formatarDataHora(timestamp) {
+    if (!timestamp) return "Data não registrada";
+    try { return new Date(Number(timestamp)).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }); }
+    catch (_) { return "Data inválida"; }
+}
+
+function iconeMaterialPlataforma(m) {
+    const tipoMaterial = normalizarTexto(m.tipoMaterial);
+    if (m.tipo === "video" || tipoMaterial.includes("video")) return { icone: "fa-play-circle", cor: "text-red-400" };
+    if (tipoMaterial.includes("audio") || tipoMaterial.includes("áudio")) return { icone: "fa-headphones", cor: "text-purple-400" };
+    if (tipoMaterial.includes("lista")) return { icone: "fa-list-check", cor: "text-emerald-400" };
+    if (tipoMaterial.includes("livro")) return { icone: "fa-book", cor: "text-amber-400" };
+    if (tipoMaterial.includes("simulado")) return { icone: "fa-clipboard-check", cor: "text-blue-400" };
+    if (tipoMaterial.includes("gabarito")) return { icone: "fa-key", cor: "text-yellow-400" };
+    if (tipoMaterial.includes("resolução") || tipoMaterial.includes("resolucao")) return { icone: "fa-lightbulb", cor: "text-orange-400" };
+    if (m.tipo === "arquivo") return { icone: "fa-file-lines", cor: "text-orange-400" };
+    return { icone: "fa-link", cor: "text-blue-400" };
+}
+
+function renderizarConteudoMaterial(m) {
+    const isVideo = m.tipo === "video";
+    const isLink = m.tipo === "link";
+    const isArquivo = m.tipo === "arquivo";
+    if (isVideo && m.url) {
+        const embedUrl = converterUrlYoutube(m.url);
+        return embedUrl
+            ? `<div class="aspect-video w-full rounded-xl overflow-hidden my-3 bg-gray-950"><iframe src="${embedUrl}" frameborder="0" allowfullscreen class="w-full h-full"></iframe></div>`
+            : `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-play mr-2"></i>Abrir vídeo</a>`;
+    }
+    if (isLink && m.url) return `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-external-link mr-2"></i>Acessar recurso</a>`;
+    if (isArquivo && (m.arquivoUrl || m.dados)) {
+        const href = m.arquivoUrl || m.dados;
+        return `<a href="${textoSeguro(href)}" target="_blank" rel="noopener" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-file-arrow-down mr-2"></i>Abrir / baixar arquivo</a>`;
+    }
+    return "";
+}
+
+function renderizarInteracoesMaterial(m) {
+    const interacoes = Array.isArray(m.interacoes) ? [...m.interacoes].sort((a,b)=>Number(b.criadoEm||0)-Number(a.criadoEm||0)) : [];
+    const lista = interacoes.length
+        ? interacoes.map(i => `
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                    <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${i.tipo === "Dúvida" ? "bg-amber-500/10 text-amber-300" : i.tipo === "Resolução" ? "bg-emerald-500/10 text-emerald-300" : "bg-blue-500/10 text-blue-300"}">${textoSeguro(i.tipo || "Comentário")}</span>
+                    <span class="text-[10px] text-gray-500">${textoSeguro(i.criadoPor || "Usuário")} · ${formatarDataHora(i.criadoEm)}</span>
+                </div>
+                <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">${textoSeguro(i.texto || "")}</p>
+                ${i.imagemUrl ? `<a href="${textoSeguro(i.imagemUrl)}" target="_blank" class="inline-block mt-2"><img src="${textoSeguro(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></a>` : ""}
+            </div>
+        `).join("")
+        : `<p class="text-xs text-gray-600 italic">Nenhuma interação ainda. Seja o primeiro a comentar, perguntar ou enviar uma resolução.</p>`;
+
+    return `
+        <details class="mt-3 border-t border-gray-700 pt-3">
+            <summary class="cursor-pointer text-xs font-bold text-gray-300 hover:text-white"><i class="fa-solid fa-comments text-blue-400 mr-2"></i> Fórum do material (${interacoes.length})</summary>
+            <div class="mt-3 space-y-3">
+                ${lista}
+                <form onsubmit="publicarInteracaoMaterial('${m.id}', event)" class="bg-gray-900/50 border border-gray-700 rounded-xl p-3 space-y-2">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <select id="interacaoTipo_${m.id}" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300 focus:outline-none">
+                            ${TIPOS_INTERACAO_PLATAFORMA.map(t => `<option value="${textoSeguro(t)}">${textoSeguro(t)}</option>`).join("")}
+                        </select>
+                        <input id="interacaoImagem_${m.id}" type="file" accept="image/*" class="md:col-span-2 p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
+                    </div>
+                    <textarea id="interacaoTexto_${m.id}" rows="2" required class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200 focus:outline-none resize-none" placeholder="Escreva sua dúvida, resolução ou comentário..."></textarea>
+                    <button type="submit" class="w-full md:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar no fórum</button>
+                </form>
+            </div>
+        </details>
+    `;
+}
+
 async function renderizarPlataformaEnsino() {
     const container = document.getElementById("gridMateriais");
     if (!container) return;
 
-    container.innerHTML = `<div class="col-span-full flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-4"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
+    container.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-4"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
 
-    const materiais = await carregarMateriaisPlataforma();
+    let materiais = (await carregarMateriaisPlataforma()).map(normalizarMaterialPlataforma);
+    atualizarFiltrosPlataforma(materiais);
+
+    const filtroDisciplina = document.getElementById("filtroMatDisciplina")?.value || "TODOS";
+    const filtroNivel = document.getElementById("filtroMatNivel")?.value || "TODOS";
+    const filtroTipo = document.getElementById("filtroMatTipo")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroMatBusca")?.value || "");
+
+    materiais = materiais.filter(m => {
+        if (filtroDisciplina !== "TODOS" && m.disciplina !== filtroDisciplina) return false;
+        if (filtroNivel !== "TODOS" && m.nivel !== filtroNivel) return false;
+        if (filtroTipo !== "TODOS" && m.tipoMaterial !== filtroTipo) return false;
+        if (busca) {
+            const alvo = normalizarTexto(`${m.titulo || ""} ${m.descricao || ""} ${m.disciplina || ""} ${m.nivel || ""} ${m.tipoMaterial || ""}`);
+            if (!alvo.includes(busca)) return false;
+        }
+        return true;
+    });
 
     if (!materiais.length) {
-        container.innerHTML = `<div class="col-span-full flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-photo-film text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material publicado ainda.</p><p class="text-gray-600 text-xs mt-1">Aguarde publicações do administrador.</p></div>`;
+        container.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center bg-gray-800 border border-gray-700 rounded-2xl"><i class="fa-solid fa-photo-film text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material encontrado.</p><p class="text-gray-600 text-xs mt-1">Ajuste os filtros ou aguarde novas publicações.</p></div>`;
         return;
     }
 
-    container.innerHTML = materiais.map(m => {
-        const isVideo = m.tipo === "video";
-        const isLink = m.tipo === "link";
-        const isArquivo = m.tipo === "arquivo";
+    const grupos = new Map();
+    materiais.forEach(m => {
+        const chave = `${m.disciplina || "Geral"}|||${m.nivel || "Geral"}|||${m.tipoMaterial || "Outro"}`;
+        if (!grupos.has(chave)) grupos.set(chave, []);
+        grupos.get(chave).push(m);
+    });
 
-        let icone = isVideo ? "fa-play-circle" : isLink ? "fa-link" : "fa-file-pdf";
-        let corIcone = isVideo ? "text-red-400" : isLink ? "text-blue-400" : "text-orange-400";
-        let badgeTipo = isVideo ? "Vídeo" : isLink ? "Link" : "Arquivo";
-        let corBadge = isVideo ? "bg-red-500/10 text-red-400" : isLink ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400";
-
-        const acoesAdm = permissao("plataforma.podeGerenciar")
-            ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-400 hover:text-red-300 text-xs font-bold ml-2" title="Remover da plataforma"><i class="fa-solid fa-trash"></i></button>`
-            : "";
-
-        let conteudo = "";
-        if (isVideo && m.url) {
-            const embedUrl = converterUrlYoutube(m.url);
-            conteudo = embedUrl
-                ? `<div class="aspect-video w-full rounded-xl overflow-hidden mb-3"><iframe src="${embedUrl}" frameborder="0" allowfullscreen class="w-full h-full"></iframe></div>`
-                : `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-play mr-2"></i>Abrir vídeo</a>`;
-        } else if (isLink && m.url) {
-            conteudo = `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-external-link mr-2"></i>Acessar recurso</a>`;
-        } else if (isArquivo && (m.arquivoUrl || m.dados)) {
-            const href = m.arquivoUrl || m.dados;
-            conteudo = `<a href="${textoSeguro(href)}" target="_blank" rel="noopener" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition mb-3"><i class="fa-solid fa-file-arrow-down mr-2"></i>Abrir / baixar arquivo</a>`;
-        }
-
+    container.innerHTML = Array.from(grupos.entries()).map(([chave, itens]) => {
+        const [disciplina, nivel, tipoMaterial] = chave.split("|||");
         return `
-            <div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl flex flex-col gap-2">
-                <div class="flex items-start justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                        <i class="fa-solid ${icone} ${corIcone} text-xl"></i>
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${corBadge}">${badgeTipo}</span>
-                    </div>
-                    ${acoesAdm}
+            <div class="space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="px-3 py-1 rounded-full bg-blue-500/10 text-blue-300 text-[10px] font-bold uppercase tracking-wider"><i class="fa-solid fa-book mr-1"></i>${textoSeguro(disciplina)}</span>
+                    <span class="px-3 py-1 rounded-full bg-purple-500/10 text-purple-300 text-[10px] font-bold uppercase tracking-wider"><i class="fa-solid fa-layer-group mr-1"></i>${textoSeguro(nivel)}</span>
+                    <span class="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 text-[10px] font-bold uppercase tracking-wider"><i class="fa-solid fa-file-lines mr-1"></i>${textoSeguro(tipoMaterial)}</span>
+                    <span class="text-[10px] text-gray-600 font-bold uppercase tracking-wider">${itens.length} item(ns)</span>
                 </div>
-                <h4 class="font-bold text-white text-sm leading-snug">${textoSeguro(m.titulo)}</h4>
-                ${m.descricao ? `<p class="text-gray-400 text-xs leading-relaxed">${textoSeguro(m.descricao)}</p>` : ""}
-                ${m.area ? `<span class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider"><i class="fa-solid fa-tag mr-1"></i>${textoSeguro(m.area)}</span>` : ""}
-                ${conteudo}
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                    ${itens.map(m => {
+                        const icon = iconeMaterialPlataforma(m);
+                        const acoesAdm = permissao("plataforma.podeGerenciar")
+                            ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-400 hover:text-red-300 text-xs font-bold ml-2" title="Remover da plataforma"><i class="fa-solid fa-trash"></i></button>`
+                            : "";
+                        return `
+                            <div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl flex flex-col gap-2">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <i class="fa-solid ${icon.icone} ${icon.cor} text-xl"></i>
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-900 text-gray-300">${textoSeguro(m.tipoMaterial)}</span>
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-900 text-gray-400">${m.tipo === "arquivo" ? "Arquivo" : m.tipo === "video" ? "Vídeo" : "Link"}</span>
+                                    </div>
+                                    ${acoesAdm}
+                                </div>
+                                <h4 class="font-bold text-white text-sm leading-snug">${textoSeguro(m.titulo)}</h4>
+                                ${m.descricao ? `<p class="text-gray-400 text-xs leading-relaxed">${textoSeguro(m.descricao)}</p>` : ""}
+                                <div class="text-[10px] text-gray-500 leading-relaxed">
+                                    <div><i class="fa-solid fa-user mr-1"></i>Postado por ${textoSeguro(m.criadoPor || "Sistema")} ${m.criadoPorNivel ? `(${textoSeguro(m.criadoPorNivel)})` : ""}</div>
+                                    <div><i class="fa-solid fa-clock mr-1"></i>${formatarDataHora(m.criadoEm)}</div>
+                                    ${m.nomeArquivo ? `<div><i class="fa-solid fa-paperclip mr-1"></i>${textoSeguro(m.nomeArquivo)}</div>` : ""}
+                                </div>
+                                ${renderizarConteudoMaterial(m)}
+                                ${renderizarInteracoesMaterial(m)}
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
             </div>
         `;
     }).join("");
@@ -3908,21 +4040,24 @@ async function excluirArquivoGoogleDrive(fileId) {
 
 async function salvarNovoMaterial(event) {
     event.preventDefault();
-    if (!permissao("plataforma.podeGerenciar")) return;
+    if (!permissao("plataforma.podeGerenciar")) return alert("Apenas administradores e monitores podem publicar materiais.");
 
     initFirebase();
 
     const titulo = document.getElementById("matTitulo").value.trim();
     const descricao = document.getElementById("matDescricao").value.trim();
-    const area = document.getElementById("matArea").value;
+    const disciplina = document.getElementById("matDisciplina")?.value || "Geral";
+    const nivel = document.getElementById("matNivel")?.value || "Geral";
+    const tipoMaterial = document.getElementById("matTipoMaterial")?.value || "Outro";
     const tipo = document.getElementById("matTipo").value;
     const url = document.getElementById("matUrl").value.trim();
     const fileInput = document.getElementById("matArquivo");
     const btn = event.submitter || document.querySelector('#formAddMaterial button[type="submit"]');
 
     if (!titulo) return alert("O título é obrigatório.");
+    if (!disciplina || !nivel || !tipoMaterial) return alert("Disciplina, nível e tipo de material são obrigatórios.");
     if ((tipo === "video" || tipo === "link") && !url) return alert("Informe a URL do material.");
-    if (tipo === "arquivo" && (!fileInput || fileInput.files.length === 0)) return alert("Selecione um arquivo PDF para publicar.");
+    if (tipo === "arquivo" && (!fileInput || fileInput.files.length === 0)) return alert("Selecione um arquivo para publicar.");
     if (!firebaseFirestore) return alert("Cloud Firestore ainda não carregou. Verifique se o Firebase está configurado e se as Rules do Firestore permitem leitura/escrita.");
 
     try {
@@ -3931,13 +4066,19 @@ async function salvarNovoMaterial(event) {
         const material = {
             titulo,
             descricao,
-            area,
+            disciplina,
+            area: disciplina, // compatibilidade com materiais antigos
+            nivel,
+            tipoMaterial,
             tipo,
             url: tipo === "video" || tipo === "link" ? url : "",
             id: novoId(),
             criadoPor: usuarioLogado?.nome || "Sistema",
             criadoPorId: usuarioLogado?.id || "",
+            criadoPorNivel: usuarioLogado?.nivel || "",
             criadoEm: Date.now(),
+            atualizadoEm: Date.now(),
+            interacoes: [],
             hospedagem: tipo === "arquivo" ? "google_drive" : "link_externo"
         };
 
@@ -3947,6 +4088,7 @@ async function salvarNovoMaterial(event) {
             material.arquivoUrl = upload.fileUrl;
             material.driveFileId = upload.fileId;
             material.nomeArquivo = upload.fileName || arquivo.name;
+            material.mimeType = arquivo.type || "application/octet-stream";
             material.tamanhoBytes = arquivo.size;
         }
 
@@ -3956,12 +4098,74 @@ async function salvarNovoMaterial(event) {
         document.getElementById("formAddMaterial").reset();
         ajustarCamposFormMaterial();
         await renderizarPlataformaEnsino();
-        alert("Material publicado com sucesso. Arquivo salvo no Google Drive e registro salvo no Firebase.");
+        alert("Material publicado com sucesso. Registro salvo no Firebase e arquivo/link registrado na plataforma.");
     } catch (erro) {
         console.error("Erro ao publicar material:", erro);
-        alert(`Erro ao publicar material.\n\n${erro.message || erro}`);
+        alert(`Erro ao publicar material.
+
+${erro.message || erro}`);
     } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-upload mr-2"></i>Publicar Material'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar Material'; }
+    }
+}
+
+async function publicarInteracaoMaterial(materialId, event) {
+    event.preventDefault();
+    if (!usuarioLogado) return alert("Você precisa estar logado para interagir no fórum.");
+    initFirebase();
+    if (!firebaseFirestore) return alert("Cloud Firestore não inicializado.");
+
+    const tipo = document.getElementById(`interacaoTipo_${materialId}`)?.value || "Comentário";
+    const textoEl = document.getElementById(`interacaoTexto_${materialId}`);
+    const imagemEl = document.getElementById(`interacaoImagem_${materialId}`);
+    const texto = textoEl?.value.trim() || "";
+    const btn = event.submitter;
+
+    if (!texto) return alert("Escreva uma dúvida, resolução ou comentário.");
+
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Enviando...'; }
+        const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+        const snap = await ref.get();
+        if (!snap.exists) throw new Error("Material não encontrado no Firestore.");
+        const material = snap.data() || {};
+        const interacoes = Array.isArray(material.interacoes) ? [...material.interacoes] : [];
+
+        const interacao = {
+            id: novoId(),
+            tipo,
+            texto,
+            criadoPor: usuarioLogado.nome || "Usuário",
+            criadoPorId: usuarioLogado.id || "",
+            criadoPorNivel: usuarioLogado.nivel || "",
+            criadoEm: Date.now()
+        };
+
+        if (imagemEl?.files?.length) {
+            const imagem = imagemEl.files[0];
+            if (!String(imagem.type || "").startsWith("image/")) throw new Error("Anexe apenas imagens nas interações do fórum.");
+            if (imagem.size / (1024 * 1024) > LIMITE_ANEXO_MONITORIA_MB) throw new Error(`Imagem muito grande. Use até ${LIMITE_ANEXO_MONITORIA_MB} MB.`);
+            const upload = await enviarArquivoParaGoogleDrive(imagem);
+            interacao.imagemUrl = upload.fileUrl;
+            interacao.driveFileId = upload.fileId;
+            interacao.nomeArquivo = upload.fileName || imagem.name;
+            interacao.mimeType = imagem.type;
+            interacao.tamanhoBytes = imagem.size;
+        }
+
+        interacoes.push(interacao);
+        await ref.update({ interacoes, atualizadoEm: Date.now() });
+        if (textoEl) textoEl.value = "";
+        if (imagemEl) imagemEl.value = "";
+        await carregarChaveFirebase("app_plataforma", []);
+        await renderizarPlataformaEnsino();
+    } catch (erro) {
+        console.error("Erro ao enviar interação no fórum:", erro);
+        alert(`Erro ao enviar interação.
+
+${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i>Enviar no fórum'; }
     }
 }
 
@@ -3997,11 +4201,20 @@ function ajustarCamposFormMaterial() {
     const tipo = document.getElementById("matTipo")?.value;
     const divUrl = document.getElementById("divMatUrl");
     const divArquivo = document.getElementById("divMatArquivo");
+    const inputUrl = document.getElementById("matUrl");
+    const inputArquivo = document.getElementById("matArquivo");
     if (!divUrl || !divArquivo) return;
     divUrl.classList.add("hidden");
     divArquivo.classList.add("hidden");
-    if (tipo === "video" || tipo === "link") divUrl.classList.remove("hidden");
-    else if (tipo === "arquivo") divArquivo.classList.remove("hidden");
+    if (inputUrl) inputUrl.required = false;
+    if (inputArquivo) inputArquivo.required = false;
+    if (tipo === "video" || tipo === "link") {
+        divUrl.classList.remove("hidden");
+        if (inputUrl) inputUrl.required = true;
+    } else if (tipo === "arquivo") {
+        divArquivo.classList.remove("hidden");
+        if (inputArquivo) inputArquivo.required = true;
+    }
 }
 
 // ==================== MONITORIA — FIREBASE REALTIME ====================
@@ -4614,6 +4827,8 @@ window.excluirResultado = excluirResultado;
 window.excluirMaterial = excluirMaterial;
 window.salvarNovoMaterial = salvarNovoMaterial;
 window.ajustarCamposFormMaterial = ajustarCamposFormMaterial;
+window.publicarInteracaoMaterial = publicarInteracaoMaterial;
+window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
 window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
 window.abrirSeletorArquivoMonitoria = abrirSeletorArquivoMonitoria;

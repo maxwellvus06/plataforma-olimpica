@@ -1,47 +1,58 @@
-PLATAFORMA OLÍMPICA — CADASTRO DE ALUNOS + RESULTADOS VINCULADOS
+PLATAFORMA — BIBLIOTECA + FÓRUM DE MATERIAIS
 
-Arquivos principais:
+O que mudou nesta versão:
+
+1. Aba Plataforma reorganizada
+- Materiais agora são filtrados e agrupados por Disciplina, Nível e Tipo de material.
+- Cada material funciona como um tópico de fórum.
+
+2. Permissão de postagem
+- Administradores e Monitores podem publicar materiais.
+- A permissão do nível Monitor foi ajustada para plataforma.podeGerenciar = true.
+
+3. Registro de auditoria
+- Cada material salva no Firestore:
+  - criadoPor
+  - criadoPorId
+  - criadoPorNivel
+  - criadoEm
+  - atualizadoEm
+
+4. Tipos de material
+- Lista de exercícios
+- Apostila
+- Livro
+- Videoaula
+- Áudio
+- Simulado
+- Gabarito
+- Resolução comentada
+- Apresentação / Slides
+- Link útil
+- Outro
+
+5. Fórum por material
+- Usuários podem interagir em cada material marcando a postagem como:
+  - Dúvida
+  - Resolução
+  - Comentário
+  - Correção sugerida
+- Também podem anexar imagem, útil para dúvidas, soluções e fotos de resolução.
+
+6. Onde os dados ficam
+- Os registros dos materiais ficam no Firestore:
+  anos/{ANO_ATIVO}/sistema_plataforma
+- Arquivos e imagens continuam sendo enviados pelo Apps Script/Google Drive já usado pela plataforma.
+
+Arquivos principais alterados:
 - index.html
-- database.js
 - app.js
-- firestore.rules
+- database.js
 
-O que foi adicionado nesta versão:
-
-1) Nova aba: Alunos
-- Cadastro individual de aluno.
-- Importação em lote via XLSX.
-- Modelo XLSX com listas suspensas para escola, série e sexo.
-- Tabela de alunos cadastrados por ano.
-- Edição e exclusão de aluno.
-
-2) Campos do aluno
-- Nome completo obrigatório.
-- E-mail institucional e e-mail pessoal: pelo menos um obrigatório.
-- CPF obrigatório.
-- Data de nascimento com idade calculada.
-- Sexo obrigatório via lista suspensa.
-- Escola puxada das escolas já cadastradas.
-- Série via lista suspensa.
-- Turno/turma obrigatório.
-- Contato do aluno.
-- Mãe, pai e responsável acadêmico: pelo menos um obrigatório.
-- Contato do pai/responsável.
-
-3) Firestore
-Os alunos ficam separados por ano, junto com os outros dados anuais:
-
-anos/2026/sistema_alunos
-anos/2025/sistema_alunos
-anos/2024/sistema_alunos
-...
-
-4) Resultados
-Na aba de resultados, agora há um campo "Aluno cadastrado".
-- Se selecionar um aluno, nome, cidade, escola e série são preenchidos automaticamente.
-- Cidade e escola ficam travadas para evitar erro de vínculo.
-- Se escolher digitação manual, continua sendo possível digitar o nome e selecionar cidade/escola.
-
-5) Observação
-Usuários continuam globais em sistema_usuarios.
-Alunos são dados anuais, porque podem ser analisados junto aos resultados de cada ciclo.
+Após subir no GitHub:
+1. Substitua index.html, app.js e database.js.
+2. Dê Ctrl+F5 ou teste em aba anônima.
+3. Entre como ADM ou Monitor.
+4. Vá na aba Plataforma.
+5. Publique um material.
+6. Teste uma interação no fórum do material.
