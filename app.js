@@ -31,6 +31,83 @@ const RTC_CONFIG = {
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
+const TAXONOMIA_ETAPAS = [
+    {
+        grupoCodigo: "G1",
+        grupoNome: "Grupo 1 — Pré-inscrição / Divulgação",
+        etapas: [
+            { codigo: "01", nome: "Publicação do Edital" },
+            { codigo: "02", nome: "Abertura das Inscrições" },
+            { codigo: "03", nome: "Encerramento das Inscrições" },
+            { codigo: "04", nome: "Homologação das Inscrições" },
+            { codigo: "05", nome: "Pagamento / Boleto" }
+        ]
+    },
+    {
+        grupoCodigo: "G2",
+        grupoNome: "Grupo 2 — Pré-prova / Logística",
+        etapas: [
+            { codigo: "06", nome: "Download / Disponibilização da Prova" },
+            { codigo: "07", nome: "Impressão e Preparação do Material" },
+            { codigo: "08", nome: "Teste Técnico / Configuração de Sistema" },
+            { codigo: "09", nome: "Cadastro de Estudantes / Professores" }
+        ]
+    },
+    {
+        grupoCodigo: "G3",
+        grupoNome: "Grupo 3 — Aplicação da Prova",
+        etapas: [
+            { codigo: "10", nome: "Fase Única — Aplicação" },
+            { codigo: "11", nome: "1ª Fase — Aplicação Escolar" },
+            { codigo: "12", nome: "2ª Fase — Aplicação Regional" },
+            { codigo: "13", nome: "3ª Fase — Aplicação Nacional" },
+            { codigo: "14", nome: "Janela Extra / Aplicação de Reposição" },
+            { codigo: "15", nome: "Fase Internacional / Seletiva" }
+        ]
+    },
+    {
+        grupoCodigo: "G4",
+        grupoNome: "Grupo 4 — Pós-prova / Envio e Correção",
+        etapas: [
+            { codigo: "16", nome: "Envio de Cartões / Folhas de Resposta" },
+            { codigo: "17", nome: "Envio / Upload de Gabarito Nominal" },
+            { codigo: "18", nome: "Gabarito Preliminar" },
+            { codigo: "19", nome: "Gabarito Definitivo" },
+            { codigo: "20", nome: "Contestação / Recursos de Gabarito" }
+        ]
+    },
+    {
+        grupoCodigo: "G5",
+        grupoNome: "Grupo 5 — Resultados e Classificação",
+        etapas: [
+            { codigo: "21", nome: "Lista Preliminar de Classificados" },
+            { codigo: "22", nome: "Lista Definitiva de Classificados" },
+            { codigo: "23", nome: "Resultado Final / Premiados" },
+            { codigo: "24", nome: "Resultado Preliminar (com recurso aberto)" }
+        ]
+    },
+    {
+        grupoCodigo: "G6",
+        grupoNome: "Grupo 6 — Pós-resultado / Operacional",
+        etapas: [
+            { codigo: "25", nome: "Indicação de Professores" },
+            { codigo: "26", nome: "Confirmação de Interesse / Participação" },
+            { codigo: "27", nome: "Envio de Documentação dos Premiados" },
+            { codigo: "28", nome: "Compra / Pedido de Medalhas" }
+        ]
+    },
+    {
+        grupoCodigo: "G7",
+        grupoNome: "Grupo 7 — Entrega e Premiação",
+        etapas: [
+            { codigo: "29", nome: "Entrega de Certificados Digitais" },
+            { codigo: "30", nome: "Entrega de Medalhas / Troféus" },
+            { codigo: "31", nome: "Cerimônia de Premiação" },
+            { codigo: "32", nome: "Classificação Automática para Próxima Olimpíada" }
+        ]
+    }
+];
+
 document.addEventListener("DOMContentLoaded", () => {
     // Login primeiro. Nada de carregar/gravar todas as coleções antes do formulário funcionar.
     // Se o Firebase tiver algum erro de regra, o botão de login continua ativo e o erro aparece só ao tentar entrar.
@@ -48,6 +125,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("filterResultadoCidade")?.addEventListener("change", renderizarResultadosImportacao);
         document.getElementById("filterResultadoEscola")?.addEventListener("change", renderizarResultadosImportacao);
         document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
+        document.getElementById("filterCronogramaGrupoEtapa")?.addEventListener("change", () => { preencherFiltrosCronograma(); renderizarCronograma(); });
+        document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -634,6 +713,110 @@ function normalizarTexto(valor) {
     return String(valor ?? "").trim().toLowerCase();
 }
 
+function todasEtapasPadronizadas() {
+    return TAXONOMIA_ETAPAS.flatMap(grupo => grupo.etapas.map(etapa => ({
+        ...etapa,
+        grupoCodigo: grupo.grupoCodigo,
+        grupoNome: grupo.grupoNome
+    })));
+}
+
+function encontrarEtapaPadronizada(valor) {
+    const alvo = normalizarTexto(valor);
+    if (!alvo) return null;
+    return todasEtapasPadronizadas().find(etapa =>
+        normalizarTexto(etapa.nome) === alvo ||
+        normalizarTexto(etapa.codigo) === alvo ||
+        normalizarTexto(`${etapa.codigo} · ${etapa.nome}`) === alvo
+    ) || null;
+}
+
+function normalizarEtapaCronograma(valor) {
+    const etapa = encontrarEtapaPadronizada(valor);
+    if (!etapa) return {
+        etapa: String(valor ?? "").trim(),
+        etapaCodigo: "",
+        etapaGrupo: "",
+        etapaGrupoNome: "",
+        padronizada: false
+    };
+    return {
+        etapa: etapa.nome,
+        etapaCodigo: etapa.codigo,
+        etapaGrupo: etapa.grupoCodigo,
+        etapaGrupoNome: etapa.grupoNome,
+        padronizada: true
+    };
+}
+
+function montarOptionsEtapasSelect(valorSelecionado = "", opcoes = {}) {
+    const incluirPlaceholder = opcoes.incluirPlaceholder !== false;
+    const textoPlaceholder = opcoes.textoPlaceholder || "Selecione a etapa...";
+    const valorAtual = String(valorSelecionado ?? "").trim();
+    const etapaAtual = encontrarEtapaPadronizada(valorAtual);
+    const partes = [];
+
+    if (incluirPlaceholder) partes.push(`<option value="">${textoSeguro(textoPlaceholder)}</option>`);
+    if (valorAtual && !etapaAtual) {
+        partes.push(`<option value="${textoSeguro(valorAtual)}" selected>⚠ Etapa não padronizada — ${textoSeguro(valorAtual)}</option>`);
+    }
+
+    TAXONOMIA_ETAPAS.forEach(grupo => {
+        partes.push(`<optgroup label="${textoSeguro(grupo.grupoNome)}">`);
+        grupo.etapas.forEach(etapa => {
+            const selected = etapaAtual?.codigo === etapa.codigo ? " selected" : "";
+            partes.push(`<option value="${textoSeguro(etapa.nome)}"${selected}>${textoSeguro(etapa.codigo)} · ${textoSeguro(etapa.nome)}</option>`);
+        });
+        partes.push(`</optgroup>`);
+    });
+
+    return partes.join("");
+}
+
+function preencherSelectEtapasCronograma() {
+    const select = document.getElementById("addCroEtapa");
+    if (!select) return;
+    const valorAtual = select.value;
+    select.innerHTML = montarOptionsEtapasSelect(valorAtual, { incluirPlaceholder: true, textoPlaceholder: "Selecione a etapa/fase..." });
+}
+
+function preencherFiltrosCronograma() {
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa");
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa");
+    if (!filtroGrupo && !filtroEtapa) return;
+
+    const grupoAtual = filtroGrupo?.value || "TODOS";
+    if (filtroGrupo) {
+        const valorAnterior = filtroGrupo.value || "TODOS";
+        filtroGrupo.innerHTML = `<option value="TODOS">-- Todos os grupos de etapa --</option>` +
+            TAXONOMIA_ETAPAS.map(grupo => `<option value="${textoSeguro(grupo.grupoCodigo)}">${textoSeguro(grupo.grupoNome)}</option>`).join("") +
+            `<option value="NAO_PADRONIZADA">⚠ Etapas não padronizadas</option>`;
+        if ([...filtroGrupo.options].some(opt => opt.value === valorAnterior)) filtroGrupo.value = valorAnterior;
+    }
+
+    if (filtroEtapa) {
+        const valorAnterior = filtroEtapa.value || "TODOS";
+        const grupos = grupoAtual === "TODOS" || grupoAtual === "NAO_PADRONIZADA"
+            ? TAXONOMIA_ETAPAS
+            : TAXONOMIA_ETAPAS.filter(grupo => grupo.grupoCodigo === grupoAtual);
+        filtroEtapa.innerHTML = `<option value="TODOS">-- Todas as etapas --</option>` + grupos.map(grupo =>
+            `<optgroup label="${textoSeguro(grupo.grupoNome)}">` +
+            grupo.etapas.map(etapa => `<option value="${textoSeguro(etapa.nome)}">${textoSeguro(etapa.codigo)} · ${textoSeguro(etapa.nome)}</option>`).join("") +
+            `</optgroup>`
+        ).join("");
+        if ([...filtroEtapa.options].some(opt => opt.value === valorAnterior)) filtroEtapa.value = valorAnterior;
+    }
+}
+
+function etapaVisualCronograma(evento) {
+    const info = normalizarEtapaCronograma(evento.etapa);
+    if (info.padronizada) {
+        const label = `${info.etapaCodigo} · ${info.etapa}`;
+        return `<span class="px-2 py-0.5 bg-gray-900 border border-gray-700 rounded text-gray-300">${textoSeguro(label)}</span>`;
+    }
+    return `<span class="px-2 py-0.5 bg-amber-950/30 border border-amber-700/50 rounded text-amber-300" title="Selecione uma etapa padronizada ao editar este evento.">⚠ Etapa não padronizada: ${textoSeguro(evento.etapa || "Não informada")}</span>`;
+}
+
 function confirmarExclusao(tipo, nome) {
     return confirm(`Tem certeza que deseja apagar ${tipo}: ${nome}?\n\nEssa ação não pode ser desfeita.`);
 }
@@ -721,17 +904,22 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
         wrap.appendChild(label);
 
         let input;
-        if (campo.tipo === "select") {
+        if (campo.tipo === "select" || campo.tipo === "selectGrouped") {
             input = document.createElement("select");
             input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none";
-            const opts = Array.isArray(campo.options) ? campo.options : [];
-            opts.forEach(opt => {
-                const o = document.createElement("option");
-                if (typeof opt === "object") { o.value = opt.value; o.text = opt.text; }
-                else { o.value = opt; o.text = opt; }
-                if (o.value == campo.valor) o.selected = true;
-                input.appendChild(o);
-            });
+
+            if (campo.tipo === "selectGrouped") {
+                input.innerHTML = montarOptionsEtapasSelect(campo.valor, { incluirPlaceholder: true, textoPlaceholder: "Selecione a etapa padronizada..." });
+            } else {
+                const opts = Array.isArray(campo.options) ? campo.options : [];
+                opts.forEach(opt => {
+                    const o = document.createElement("option");
+                    if (typeof opt === "object") { o.value = opt.value; o.text = opt.text; }
+                    else { o.value = opt; o.text = opt; }
+                    if (o.value == campo.valor) o.selected = true;
+                    input.appendChild(o);
+                });
+            }
         } else if (campo.tipo === "textarea") {
             input = document.createElement("textarea");
             input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none resize-none";
@@ -1004,7 +1192,7 @@ function editarCronograma(id) {
         titulo: "Editar evento do calendário",
         campos: [
             { nome: "olimpiadaId", label: "Olimpíada vinculada", tipo: "select", valor: atual.olimpiadaId, options: getStorage("app_olimpiadas").map(o => ({ value: o.id, text: o.nome })) },
-            { nome: "etapa", label: "Etapa / fase", valor: atual.etapa || "" },
+            { nome: "etapa", label: "Etapa / fase", tipo: "selectGrouped", valor: atual.etapa || "" },
             { nome: "data", label: "Data / janela crítica", valor: atual.data || "" },
             { nome: "segmento", label: "Público-alvo / séries elegíveis", valor: atual.segmento || "" },
             { nome: "acao", label: "Diretriz operacional", tipo: "textarea", valor: atual.acao || "" }
@@ -1013,7 +1201,8 @@ function editarCronograma(id) {
             if (!d.olimpiadaId || !d.etapa || !d.data || !d.segmento || !d.acao) return alert("Todos os campos do evento são obrigatórios."), false;
             const lista = getStorage("app_cronograma");
             const i = lista.findIndex(c => c.id === id);
-            lista[i] = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: d.etapa, data: d.data, segmento: d.segmento, acao: d.acao };
+            const infoEtapa = normalizarEtapaCronograma(d.etapa);
+            lista[i] = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: d.data, segmento: d.segmento, acao: d.acao };
             setStorage("app_cronograma", lista);
             renderizarCronograma();
             alert("Evento atualizado com sucesso.");
@@ -1181,10 +1370,12 @@ function salvarNovoCronograma(event) {
     const data = document.getElementById("addCroData").value.trim();
     const segmento = document.getElementById("addCroSegmento").value.trim();
     const acao = document.getElementById("addCroAcao").value.trim();
+    const infoEtapa = normalizarEtapaCronograma(etapa);
     const cronograma = getStorage("app_cronograma");
-    cronograma.push({ id: novoId(), olimpiadaId, etapa, data, segmento, acao });
+    cronograma.push({ id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data, segmento, acao });
     setStorage("app_cronograma", cronograma);
     document.getElementById("formCadCronograma").reset();
+    preencherSelectEtapasCronograma();
     renderizarCronograma();
 }
 
@@ -1294,18 +1485,34 @@ function gravarResultadoComSobrescrita(novo) {
 
 // ==================== RENDERS COMPONENTES ====================
 function renderizarCronograma() {
+    preencherFiltrosCronograma();
     const cronograma = getStorage("app_cronograma");
     const olimpiadas = getStorage("app_olimpiadas");
     const tbody = document.getElementById("tableCronogramaCorpo");
     if (!tbody) return;
     const podeEditar = permissao("calendario.podeEditar");
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
 
-    tbody.innerHTML = cronograma.map(c => {
+    const cronogramaFiltrado = cronograma.filter(c => {
+        const info = normalizarEtapaCronograma(c.etapa);
+        const porGrupo = filtroGrupo === "TODOS" ||
+            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
+        return porGrupo && porEtapa;
+    });
+
+    if (!cronogramaFiltrado.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum evento encontrado para os filtros selecionados.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = cronogramaFiltrado.map(c => {
         const oli = olimpiadas.find(o => o.id === c.olimpiadaId);
         return `
             <tr class="hover:bg-gray-800/40 transition">
                 <td class="p-4 font-bold text-white">${oli ? textoSeguro(oli.nome) : "Desconhecida"}</td>
-                <td class="p-4 text-xs font-semibold"><span class="px-2 py-0.5 bg-gray-900 border border-gray-700 rounded text-gray-300">${textoSeguro(c.etapa)}</span></td>
+                <td class="p-4 text-xs font-semibold">${etapaVisualCronograma(c)}</td>
                 <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${textoSeguro(c.data)}</td>
                 <td class="p-4 text-xs text-gray-400 font-medium">${textoSeguro(c.segmento)}</td>
                 <td class="p-4 text-gray-400 text-xs leading-relaxed">${textoSeguro(c.acao)}</td>
@@ -1379,6 +1586,8 @@ function renderizarTabelasGerenciais() {
     if (document.getElementById("addCroOlimpiadaSelect")) {
         document.getElementById("addCroOlimpiadaSelect").innerHTML = '<option value="">Selecione a olimpíada alvo...</option>' + olimpiadas.map(o => `<option value="${o.id}">${o.nome}</option>`).join("");
     }
+    preencherSelectEtapasCronograma();
+    preencherFiltrosCronograma();
     if (document.getElementById("addUserCidadeSelect")) {
         document.getElementById("addUserCidadeSelect").innerHTML = '<option value="">Selecione a cidade polo...</option>' + cidades.map(c => `<option value="${c.id}">${c.nome} (${c.uf})</option>`).join("");
     }
@@ -1634,7 +1843,9 @@ function processarPlanilhaCronograma(arquivo) {
                 const siglaOuNome = (linha.SIGLA || linha.Olimpiada || "").trim().toLowerCase();
                 const foundOli = olimpiadas.find(o => o.nome.toLowerCase().includes(siglaOuNome) || o.categoria.toLowerCase() === siglaOuNome);
                 if (foundOli) {
-                    cronograma.push({ id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: linha["FASE / ETAPA"] || linha.Etapa || "Fase Escolar", data: linha["DATA / PERÍODO 2026"] || linha.Data || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." });
+                    const etapaOriginal = linha["FASE / ETAPA"] || linha.Etapa || "Fase Única — Aplicação";
+                    const infoEtapa = normalizarEtapaCronograma(etapaOriginal);
+                    cronograma.push({ id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: linha["DATA / PERÍODO 2026"] || linha.Data || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." });
                     inseridos++;
                 }
             });
@@ -1765,14 +1976,14 @@ async function downloadCronogramaTemplate() {
     const olimpiadas = listaOlimpiadasParaTemplate();
     ws.addRow({
         SIGLA: olimpiadas[0] || "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)",
-        etapa: "Fase 1 - Escolar (Prova Objetiva)",
+        etapa: "1ª Fase — Aplicação Escolar",
         data: "09/06/2026",
         segmento: "6º EF a 3ª EM",
         observacao: "Imprimir cadernos de prova; recolher cartões."
     });
     ws.addRow({
         SIGLA: olimpiadas[1] || "Canguru de Matemática Brasil",
-        etapa: "Prova Única (múltipla escolha)",
+        etapa: "Fase Única — Aplicação",
         data: "19/03 a 25/03/2026",
         segmento: "3º EF a 3ª EM",
         observacao: "Aplicação nas salas sob fiscalização."
@@ -1786,9 +1997,11 @@ async function downloadCronogramaTemplate() {
 
     const listas = obterOuCriarAbaListas(workbook);
     const rangeOlimpiadas = escreverListaValidacao(listas, "A", "Olimpíadas cadastradas", olimpiadas);
-    const rangeSegmentos = escreverListaValidacao(listas, "B", "Séries/segmentos", listaSegmentosCronogramaParaTemplate());
+    const rangeEtapas = escreverListaValidacao(listas, "B", "Etapas padronizadas", todasEtapasPadronizadas().map(e => e.nome));
+    const rangeSegmentos = escreverListaValidacao(listas, "C", "Séries/segmentos", listaSegmentosCronogramaParaTemplate());
 
     aplicarListaSuspensa(ws, "A", 2, 101, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "B", 2, 101, rangeEtapas, "Escolha uma etapa padronizada.");
     aplicarListaSuspensa(ws, "D", 2, 101, rangeSegmentos, "Escolha uma série/segmento da lista.");
 
     await baixarWorkbookExcelJS(workbook, "modelo_carga_cronograma_com_listas.xlsx");
