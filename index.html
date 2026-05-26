@@ -33,7 +33,7 @@
     <!-- ===================== TELA DE LOGIN ===================== -->
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
         <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
-            <button id="btnThemeToggleLogin" type="button" class="theme-toggle-btn absolute top-4 right-4 z-10"><i class="fa-solid fa-moon"></i><span>Tema</span></button>
+            <button id="btnThemeToggleLogin" type="button" onclick="alternarTemaAvanceSeguro()" class="theme-toggle-btn absolute top-4 right-4 z-10"><i class="fa-solid fa-moon"></i><span>Tema</span></button>
             <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r content-gradient tumble"></div>
             <div class="text-center mb-8">
                 <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mb-4 border border-blue-500/20">
@@ -58,6 +58,7 @@
                     </div>
                 </div>
                 <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-bold py-3 rounded-xl tracking-wider transition transform active:scale-95 shadow-lg">Acessar Painel</button>
+                <p id="loginMessage" class="min-h-[18px] text-center text-xs font-bold text-red-400"></p>
             </form>
         </div>
     </div>
@@ -127,7 +128,7 @@
             <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-8 shrink-0">
                 <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
                 <div class="flex items-center gap-3">
-                    <button id="btnThemeToggleHeader" type="button" class="theme-toggle-btn"><i class="fa-solid fa-moon"></i><span>Tema</span></button>
+                    <button id="btnThemeToggleHeader" type="button" onclick="alternarTemaAvanceSeguro()" class="theme-toggle-btn"><i class="fa-solid fa-moon"></i><span>Tema</span></button>
                     <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         <span class="text-xs font-mono text-gray-400 uppercase tracking-wider font-semibold">Ciclo Operacional 2026</span>
@@ -527,6 +528,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
     <script src="database.js"></script>
-    <script src="app.js?v=20260526-full-calendar-import-v2"></script>
+    <script src="app.js?v=20260526-v3-login-theme-fix"></script>
 </body>
 </html>

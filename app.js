@@ -2855,3 +2855,183 @@ window.salvarNovoMaterial = salvarNovoMaterial;
 window.excluirMaterial = excluirMaterial;
 window.enviarArquivoMonitoria = enviarArquivoMonitoria;
 window.alternarTemaAvance = alternarTemaAvance;
+
+
+
+// =====================================================================
+// PATCH V3 — LOGIN FIRESTORE DIRETO + TEMA SEM DEPENDER DO RESTANTE DO APP
+// =====================================================================
+// Motivo: manter o visual e as features antigas, mas garantir que:
+// 1) o login aceite usuários criados no Firestore como username/password/fullname/role
+//    ou login/senha/nome/nivel;
+// 2) o botão de tema funcione desde a tela de login, mesmo se algum módulo antigo falhar.
+
+function mostrarMensagemLoginV3(texto, erro = true) {
+    let msg = document.getElementById("loginMessage");
+    if (!msg) {
+        const form = document.getElementById("loginForm");
+        msg = document.createElement("p");
+        msg.id = "loginMessage";
+        msg.className = "min-h-[18px] text-center text-xs font-bold";
+        form?.appendChild(msg);
+    }
+    msg.textContent = texto || "";
+    msg.classList.toggle("text-red-400", erro);
+    msg.classList.toggle("text-emerald-400", !erro);
+}
+
+function normalizarUsuarioLoginV3(id, u = {}) {
+    const login = String(u.login || u.username || "").trim().toLowerCase();
+    const senha = String(u.senha || u.password || "");
+    const nivel = String(u.nivel || u.role || "Aluno").trim();
+    const nome = String(u.nome || u.fullname || u.name || login || "Usuário").trim();
+
+    return {
+        id: id || u.id || login || novoId(),
+        login,
+        username: login,
+        senha,
+        password: senha,
+        nivel,
+        role: nivel,
+        nome,
+        fullname: nome,
+        email: u.email || "",
+        telefone: u.telefone || "",
+        vinculoId: u.vinculoId || u.vinculo || "",
+        vinculo: u.vinculoId || u.vinculo || "",
+        vinculoNome: u.vinculoNome || "Geral/Master"
+    };
+}
+
+async function buscarUsuarioFirestoreLoginV3(loginDigitado, senhaDigitada) {
+    initFirebase();
+    if (!firebaseFirestore) throw new Error("Firestore não carregou. Confira os scripts Firebase no index.html.");
+
+    const login = String(loginDigitado || "").trim().toLowerCase();
+    const senha = String(senhaDigitada || "");
+
+    // Busca todos os usuários. É mais robusto para seu momento atual porque aceita
+    // tanto documentos antigos quanto documentos novos com nomes de campos diferentes.
+    const snap = await firebaseFirestore.collection("usuarios").get();
+
+    let encontrado = null;
+    snap.forEach(docSnap => {
+        if (encontrado) return;
+
+        const u = normalizarUsuarioLoginV3(docSnap.id, docSnap.data() || {});
+        const loginOK = u.login === login || String(u.username || "").toLowerCase() === login;
+        const senhaOK = String(u.senha) === senha || String(u.password) === senha;
+
+        if (loginOK && senhaOK) encontrado = u;
+    });
+
+    return encontrado;
+}
+
+// Sobrescreve a função antiga de login.
+// A função antiga ainda existe no arquivo, mas esta aqui fica valendo.
+function initLogin() {
+    const form = document.getElementById("loginForm");
+    if (!form || form.dataset.loginV3 === "true") return;
+
+    form.dataset.loginV3 = "true";
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const userInput = document.getElementById("auth-user")?.value?.trim() || "";
+        const passInput = document.getElementById("auth-pass")?.value?.trim() || "";
+        const btn = form.querySelector('button[type="submit"]');
+
+        if (!userInput || !passInput) {
+            mostrarMensagemLoginV3("Digite usuário e senha.");
+            return;
+        }
+
+        try {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...';
+            }
+
+            mostrarMensagemLoginV3("Consultando usuários no Firestore...", false);
+
+            const usuario = await buscarUsuarioFirestoreLoginV3(userInput, passInput);
+
+            if (!usuario) {
+                mostrarMensagemLoginV3("Usuário ou senha inválidos. Confira a coleção usuarios no Firestore.");
+                return;
+            }
+
+            usuarioLogado = usuario;
+            sessionStorage.setItem("avance_session", JSON.stringify(usuario));
+            localStorage.setItem("app_usuarios", JSON.stringify([usuario, ...((getStorage("app_usuarios") || []).filter(u => u.id !== usuario.id))]));
+
+            mostrarMensagemLoginV3("Login confirmado. Carregando painel...", false);
+
+            // Recarrega a base antes de renderizar.
+            try {
+                await carregarBaseFirestoreInicial();
+                dadosTrabalho = carregarPremiados();
+            } catch (syncErr) {
+                console.warn("Login OK, mas falhou ao carregar alguma coleção:", syncErr);
+            }
+
+            logarSucesso(usuario);
+        } catch (erro) {
+            console.error("Erro no login V3:", erro);
+            mostrarMensagemLoginV3("Erro ao conectar ao Firestore. Veja as regras do Firebase e o Console/F12.");
+            alert(`Erro ao conectar ao Firestore:\n\n${erro.message || erro}`);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = "Acessar Painel";
+            }
+        }
+    });
+}
+
+function aplicarTemaAvance() {
+    const tema = localStorage.getItem("avance_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", tema);
+    atualizarBotoesTemaAvance();
+}
+
+function alternarTemaAvance() {
+    const atual = document.documentElement.getAttribute("data-theme") || localStorage.getItem("avance_theme") || "dark";
+    const novo = atual === "dark" ? "light" : "dark";
+    localStorage.setItem("avance_theme", novo);
+    document.documentElement.setAttribute("data-theme", novo);
+    atualizarBotoesTemaAvance();
+}
+
+function atualizarBotoesTemaAvance() {
+    const tema = document.documentElement.getAttribute("data-theme") || "dark";
+    const html = tema === "dark"
+        ? '<i class="fa-solid fa-moon"></i><span>Escuro</span>'
+        : '<i class="fa-solid fa-sun"></i><span>Claro</span>';
+    document.querySelectorAll("#btnThemeToggleLogin, #btnThemeToggleHeader").forEach(btn => {
+        btn.innerHTML = html;
+    });
+}
+
+// Exposição global para o onclick inline de segurança.
+window.aplicarTemaAvanceSeguro = aplicarTemaAvance;
+window.alternarTemaAvanceSeguro = alternarTemaAvance;
+window.aplicarTemaAvance = aplicarTemaAvance;
+window.alternarTemaAvance = alternarTemaAvance;
+
+document.addEventListener("DOMContentLoaded", () => {
+    aplicarTemaAvance();
+
+    const loginBtn = document.getElementById("btnThemeToggleLogin");
+    const headerBtn = document.getElementById("btnThemeToggleHeader");
+
+    loginBtn?.addEventListener("click", alternarTemaAvance);
+    headerBtn?.addEventListener("click", alternarTemaAvance);
+
+    // Se por algum motivo a primeira inicialização antiga não anexar o login,
+    // esta chamada garante o listener correto.
+    initLogin();
+});
