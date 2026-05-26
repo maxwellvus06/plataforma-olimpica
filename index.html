@@ -1,997 +1,381 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Avance Consultoria - Plataforma Olímpica</title>
+  <title>Portal Olímpico 2026</title>
 
-  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <script>
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          boxShadow: {
+            soft: '0 18px 45px rgba(0,0,0,.16)'
+          }
+        }
+      }
+    }
+  </script>
 
   <style>
-    :root{
-      --bg:#f4f7fb;
-      --panel:#ffffff;
-      --ink:#172033;
-      --muted:#667085;
-      --line:#e5e7eb;
-      --primary:#0f62fe;
-      --primary-dark:#0842a0;
-      --danger:#dc2626;
-      --success:#16a34a;
-      --warning:#d97706;
-      --shadow:0 14px 35px rgba(15, 23, 42, .08);
-      --radius:18px;
-    }
-
-    *{ box-sizing:border-box; }
-
-    body{
-      margin:0;
-      font-family:Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:var(--bg);
-      color:var(--ink);
-    }
-
-    button, input, select{
-      font-family:inherit;
-    }
-
-    .login-container{
-      min-height:100vh;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:24px;
-      background:
-        radial-gradient(circle at top left, rgba(15,98,254,.22), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(22,163,74,.16), transparent 30%),
-        #0b1020;
-    }
-
-    .login-box{
-      width:min(430px, 100%);
-      background:rgba(255,255,255,.96);
-      border:1px solid rgba(255,255,255,.35);
-      box-shadow:0 25px 70px rgba(0,0,0,.28);
-      border-radius:24px;
-      padding:34px;
-    }
-
-    .login-header{
-      text-align:center;
-      margin-bottom:24px;
-    }
-
-    .login-logo-icon{
-      font-size:42px;
-      color:var(--primary);
-      margin-bottom:12px;
-    }
-
-    .login-header h2{
-      margin:0;
-      font-size:26px;
-      letter-spacing:-.04em;
-    }
-
-    .login-header p{
-      margin:8px 0 0;
-      color:var(--muted);
-      font-size:14px;
-    }
-
-    .input-group{
-      margin-bottom:16px;
-    }
-
-    .input-row{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:14px;
-    }
-
-    label{
-      display:block;
-      font-weight:700;
-      color:#344054;
-      font-size:13px;
-      margin-bottom:7px;
-    }
-
-    input, select{
-      width:100%;
-      border:1px solid var(--line);
-      border-radius:13px;
-      padding:12px 13px;
-      font-size:14px;
-      outline:none;
-      background:#fff;
-      color:var(--ink);
-    }
-
-    input:focus, select:focus{
-      border-color:var(--primary);
-      box-shadow:0 0 0 4px rgba(15,98,254,.1);
-    }
-
-    .btn-login, .btn-save, .btn-export, .btn-secondary, .btn-danger, .btn-logout, .btn-excel-label{
-      border:0;
-      border-radius:13px;
-      padding:12px 15px;
-      font-weight:800;
-      cursor:pointer;
-      transition:.18s ease;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:9px;
-      text-decoration:none;
-      font-size:14px;
-    }
-
-    .btn-login, .btn-save{
-      width:100%;
-      background:var(--primary);
-      color:#fff;
-    }
-
-    .btn-login:hover, .btn-save:hover, .btn-export:hover, .btn-secondary:hover{
-      transform:translateY(-1px);
-      filter:brightness(.96);
-    }
-
-    .btn-export, .btn-secondary, .btn-excel-label{
-      background:#eef4ff;
-      color:#0b3b8c;
-      border:1px solid #c7d7fe;
-    }
-
-    .btn-danger{
-      background:#fee2e2;
-      color:#991b1b;
-      border:1px solid #fecaca;
-    }
-
-    .login-error-msg{
-      min-height:22px;
-      color:#b42318;
-      text-align:center;
-      font-weight:700;
-      font-size:13px;
-      margin-top:14px;
-    }
-
-    .system-container{
-      min-height:100vh;
-      display:flex;
-    }
-
-    .sidebar{
-      width:280px;
-      background:#101828;
-      color:#fff;
-      display:flex;
-      flex-direction:column;
-      padding:22px;
-      position:sticky;
-      top:0;
-      height:100vh;
-    }
-
-    .sidebar-brand{
-      display:flex;
-      align-items:center;
-      gap:13px;
-      padding-bottom:20px;
-      border-bottom:1px solid rgba(255,255,255,.1);
-    }
-
-    .sidebar-brand i{
-      font-size:26px;
-      color:#8bb8ff;
-    }
-
-    .sidebar-brand h3{
-      margin:0;
-      font-size:20px;
-    }
-
-    .sidebar-brand span{
-      color:#b8c2d6;
-      font-size:12px;
-      font-weight:700;
-    }
-
-    .user-profile-summary{
-      margin:22px 0;
-      padding:16px;
-      background:rgba(255,255,255,.06);
-      border-radius:16px;
-    }
-
-    .welcome-txt{
-      margin:0;
-      color:#b8c2d6;
-      font-size:12px;
-    }
-
-    .user-name-txt{
-      margin:5px 0 0;
-      font-weight:800;
-    }
-
-    .sidebar-menu{
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-
-    .menu-item{
-      color:#d0d5dd;
-      text-decoration:none;
-      padding:12px;
-      border-radius:13px;
-      display:flex;
-      align-items:center;
-      gap:11px;
-      font-weight:700;
-      font-size:14px;
-    }
-
-    .menu-item.active, .menu-item:hover{
-      background:#1d2939;
-      color:#fff;
-    }
-
-    .sidebar-footer{
-      margin-top:auto;
-      padding-top:18px;
-    }
-
-    .btn-logout{
-      width:100%;
-      background:#1d2939;
-      color:#fff;
-      border:1px solid rgba(255,255,255,.1);
-    }
-
-    .main-content{
-      flex:1;
-      padding:30px;
-      overflow:auto;
-    }
-
-    .section-header{
-      margin-bottom:22px;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:16px;
-    }
-
-    .section-header h1{
-      margin:0;
-      font-size:30px;
-      letter-spacing:-.04em;
-    }
-
-    .section-header p{
-      margin:7px 0 0;
-      color:var(--muted);
-    }
-
-    .analytics-cards{
-      display:grid;
-      grid-template-columns:repeat(4, minmax(0, 1fr));
-      gap:16px;
-      margin-bottom:18px;
-    }
-
-    .card, .form-container, .table-container{
-      background:var(--panel);
-      border:1px solid var(--line);
-      box-shadow:var(--shadow);
-      border-radius:var(--radius);
-    }
-
-    .card{
-      padding:20px;
-      display:flex;
-      gap:15px;
-      align-items:center;
-    }
-
-    .card-icon{
-      width:52px;
-      height:52px;
-      border-radius:16px;
-      background:#e8efff;
-      color:var(--primary);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-size:22px;
-      flex:0 0 auto;
-    }
-
-    .card-info h3{
-      margin:0;
-      font-size:27px;
-    }
-
-    .card-info p{
-      margin:5px 0 0;
-      color:var(--muted);
-      font-weight:700;
-      font-size:13px;
-    }
-
-    .grid-form-table{
-      display:grid;
-      grid-template-columns:380px minmax(0,1fr);
-      gap:18px;
-      align-items:start;
-    }
-
-    .grid-form-table-wide{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:18px;
-    }
-
-    .form-container, .table-container{
-      padding:20px;
-    }
-
-    .form-container h3, .table-container h3{
-      margin:0 0 16px;
-      letter-spacing:-.02em;
-    }
-
-    .responsive-table{
-      overflow:auto;
-    }
-
-    .data-table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:14px;
-    }
-
-    .data-table th{
-      text-align:left;
-      color:#475467;
-      background:#f8fafc;
-      border-bottom:1px solid var(--line);
-      padding:12px;
-      white-space:nowrap;
-    }
-
-    .data-table td{
-      border-bottom:1px solid var(--line);
-      padding:12px;
-      vertical-align:middle;
-    }
-
-    .data-table tr:last-child td{
-      border-bottom:0;
-    }
-
-    .btn-action-delete, .btn-action-open{
-      border:0;
-      border-radius:10px;
-      padding:8px 10px;
-      cursor:pointer;
-      font-weight:800;
-    }
-
-    .btn-action-delete{
-      background:#fee2e2;
-      color:#b42318;
-    }
-
-    .btn-action-open{
-      background:#e0f2fe;
-      color:#075985;
-      text-decoration:none;
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-    }
-
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      padding:5px 9px;
-      border-radius:999px;
-      font-size:12px;
-      font-weight:800;
-      white-space:nowrap;
-    }
-
-    .badge-success{ background:#dcfce7; color:#166534; }
-    .badge-danger{ background:#fee2e2; color:#991b1b; }
-    .badge-warning{ background:#fef3c7; color:#92400e; }
-    .badge-neutral{ background:#eef2ff; color:#3730a3; }
-
-    .action-bar{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
-      margin-bottom:16px;
-    }
-
-    .firebase-health{
-      display:grid;
-      grid-template-columns:repeat(4, minmax(0,1fr));
-      gap:12px;
-    }
-
-    .health-item{
-      padding:15px;
-      border:1px solid var(--line);
-      border-radius:15px;
-      background:#fff;
-    }
-
-    .health-item small{
-      display:block;
-      color:var(--muted);
-      font-weight:800;
-      margin-bottom:5px;
-    }
-
-    .health-item strong{
-      word-break:break-word;
-    }
-
-    .muted{
-      color:var(--muted);
-    }
-
-    .hidden{
-      display:none !important;
-    }
-
-    @media (max-width: 1050px){
-      .analytics-cards, .firebase-health{
-        grid-template-columns:repeat(2, minmax(0, 1fr));
-      }
-      .grid-form-table{
-        grid-template-columns:1fr;
-      }
-    }
-
-    @media (max-width: 760px){
-      .system-container{
-        flex-direction:column;
-      }
-      .sidebar{
-        width:100%;
-        height:auto;
-        position:relative;
-      }
-      .main-content{
-        padding:18px;
-      }
-      .input-row, .analytics-cards, .firebase-health{
-        grid-template-columns:1fr;
-      }
-      .section-header{
-        display:block;
-      }
-    }
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --text: #101828;
+      --muted: #667085;
+      --line: #e4e7ec;
+      --field: #ffffff;
+      --field-text: #101828;
+      --sidebar: #0b1220;
+      --sidebar-line: #1f2937;
+      --accent: #2563eb;
+    }
+
+    html[data-theme="dark"] {
+      --bg: #111827;
+      --panel: #1f2937;
+      --panel-2: #111827;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --line: #374151;
+      --field: #111827;
+      --field-text: #f9fafb;
+      --sidebar: #030712;
+      --sidebar-line: #1f2937;
+      --accent: #3b82f6;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .panel { background: var(--panel); border: 1px solid var(--line); }
+    .panel-2 { background: var(--panel-2); border: 1px solid var(--line); }
+    .muted { color: var(--muted); }
+    .field { background: var(--field); color: var(--field-text); border: 1px solid var(--line); }
+    .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--sidebar-line); }
+    .nav-item.active { color: #60a5fa; background: rgba(59, 130, 246, .12); }
+    .light-card { background: var(--panel); border: 1px solid var(--line); }
+    .content-gradient { background: linear-gradient(90deg, #2563eb, #7c3aed, #10b981); }
+    .hidden { display: none !important; }
+    .chat-bubble-me { background: #2563eb; color: white; margin-left: auto; }
+    .chat-bubble-other { background: var(--panel-2); color: var(--text); margin-right: auto; border: 1px solid var(--line); }
+    .modal-backdrop { background: rgba(0,0,0,.72); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
   </style>
 </head>
 
 <body>
-  <div id="login-screen" class="login-container">
-    <div class="login-box">
-      <div class="login-header">
-        <i class="fa-solid fa-graduation-cap login-logo-icon"></i>
-        <h2>Avance Consultoria</h2>
-        <p>Plataforma de Gestão Olímpica</p>
+  <!-- LOGIN -->
+  <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
+    <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-full h-2 content-gradient"></div>
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mb-4 border border-blue-500/20">
+          <i class="fa-solid fa-graduation-cap text-3xl"></i>
+        </div>
+        <h2 class="text-2xl font-extrabold tracking-tight text-white">Avance Consultoria</h2>
+        <p class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-medium">Plataforma Olímpica Firebase</p>
       </div>
 
-      <form id="login-form">
-        <div class="input-group">
-          <label for="username"><i class="fa-solid fa-user"></i> Usuário</label>
-          <input type="text" id="username" autocomplete="username" required placeholder="Ex: admin">
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Usuário</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500"><i class="fa-solid fa-user text-sm"></i></span>
+            <input type="text" id="auth-user" class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-white text-sm" placeholder="Ex: admin" required>
+          </div>
         </div>
 
-        <div class="input-group">
-          <label for="password"><i class="fa-solid fa-lock"></i> Senha</label>
-          <input type="password" id="password" autocomplete="current-password" required placeholder="Digite sua senha">
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Senha</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500"><i class="fa-solid fa-lock text-sm"></i></span>
+            <input type="password" id="auth-pass" class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-white text-sm" placeholder="••••••••" required>
+          </div>
         </div>
 
-        <button type="submit" class="btn-login">
-          Acessar Sistema <i class="fa-solid fa-arrow-right-to-bracket"></i>
-        </button>
-
-        <div id="login-error" class="login-error-msg"></div>
+        <button type="submit" id="btnLogin" class="w-full bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-bold py-3 rounded-xl tracking-wider transition active:scale-95 shadow-lg">Acessar Painel</button>
+        <p id="loginMessage" class="text-center text-xs font-bold text-red-400 min-h-[18px]"></p>
       </form>
     </div>
   </div>
 
-  <div id="main-system" class="system-container hidden">
-    <aside class="sidebar">
-      <div class="sidebar-brand">
-        <i class="fa-solid fa-layer-group"></i>
+  <!-- MAIN -->
+  <div id="mainPanel" class="hidden flex min-h-screen">
+    <aside class="sidebar w-64 flex flex-col shrink-0">
+      <div class="p-6 border-b border-gray-800 flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow"><i class="fa-solid fa-chart-line text-sm"></i></div>
         <div>
-          <h3>Avance</h3>
-          <span id="user-role-badge">Painel</span>
+          <h1 class="text-sm font-bold text-white tracking-wide">Avance Olímpica</h1>
+          <span class="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Módulo de Controle</span>
         </div>
       </div>
 
-      <div class="user-profile-summary">
-        <p class="welcome-txt">Bem-vindo,</p>
-        <p id="user-display-name" class="user-name-txt">Usuário</p>
-      </div>
+      <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+        <button id="btnNav-dashboard" onclick="navegarAba('dashboard', this)" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-square-poll-vertical text-base w-5 text-center"></i> Dashboard Geral
+        </button>
+        <button id="btnNav-monitoria" onclick="navegarAba('monitoria', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-headset text-base w-5 text-center"></i> Monitoria
+        </button>
+        <button id="btnNav-plataforma" onclick="navegarAba('plataforma', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-cloud-arrow-up text-base w-5 text-center"></i> Envio de Arquivos
+        </button>
 
-      <nav class="sidebar-menu">
-        <a href="#" class="menu-item active" data-target="view-dashboard"><i class="fa-solid fa-chart-pie"></i> Painel Geral</a>
-        <a href="#" class="menu-item" data-target="view-cidades" id="menu-cidades"><i class="fa-solid fa-city"></i> Cidades</a>
-        <a href="#" class="menu-item" data-target="view-escolas" id="menu-escolas"><i class="fa-solid fa-school"></i> Escolas</a>
-        <a href="#" class="menu-item" data-target="view-usuarios" id="menu-usuarios"><i class="fa-solid fa-users-gear"></i> Usuários</a>
-        <a href="#" class="menu-item" data-target="view-olimpiadas"><i class="fa-solid fa-trophy"></i> Cronograma</a>
-        <a href="#" class="menu-item" data-target="view-arquivos"><i class="fa-solid fa-cloud-arrow-up"></i> Arquivos</a>
-        <a href="#" class="menu-item" data-target="view-diagnostico"><i class="fa-solid fa-plug-circle-check"></i> Diagnóstico Firebase</a>
+        <div class="pt-2 pb-1"><div class="border-t border-gray-800"></div></div>
+
+        <button id="btnNavUsuarios" onclick="navegarAba('usuarios', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-users-gear text-base w-5 text-center"></i> Gerenciar Usuários
+        </button>
+        <button id="btnNavCidades" onclick="navegarAba('cidades', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-city text-base w-5 text-center"></i> Gerenciar Cidades
+        </button>
+        <button id="btnNavEscolas" onclick="navegarAba('escolas', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-school text-base w-5 text-center"></i> Gerenciar Escolas
+        </button>
+        <button id="btnNavOlimpiadas" onclick="navegarAba('olimpiadas', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+          <i class="fa-solid fa-trophy text-base w-5 text-center"></i> Olimpíadas / Cronograma
+        </button>
       </nav>
 
-      <div class="sidebar-footer">
-        <button id="btn-logout" class="btn-logout">
-          <i class="fa-solid fa-arrow-right-from-bracket"></i> Sair
-        </button>
+      <div class="p-4 border-t border-gray-800 bg-gray-950/50">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300"><i class="fa-solid fa-circle-user text-xl"></i></div>
+          <div class="overflow-hidden">
+            <p id="userLoggedNome" class="text-xs font-bold text-gray-200 truncate">Usuário</p>
+            <span id="userLoggedNivel" class="text-[10px] text-gray-500 font-medium tracking-wide">Nível</span>
+          </div>
+        </div>
+        <button id="btnLogout" class="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-900 hover:bg-red-950/30 border border-gray-800 hover:border-red-900/50 text-xs font-semibold text-gray-400 hover:text-red-400 transition"><i class="fa-solid fa-arrow-right-from-bracket"></i> Desconectar</button>
       </div>
     </aside>
 
-    <main class="main-content">
-      <section id="view-dashboard" class="content-section">
-        <div class="section-header">
-          <div>
-            <h1>Painel Geral</h1>
-            <p>Indicadores carregados diretamente do Firebase Firestore.</p>
-          </div>
-          <button id="btn-refresh" class="btn-secondary">
-            <i class="fa-solid fa-rotate"></i> Atualizar dados
+    <div class="flex-1 flex flex-col min-w-0">
+      <header class="h-16 panel flex items-center justify-between px-8 shrink-0">
+        <h2 id="pageTitleDisplay" class="text-base font-bold tracking-wide">Dashboard Geral</h2>
+        <div class="flex items-center gap-3">
+          <button id="btnThemeToggle" class="px-3 py-2 rounded-xl panel-2 text-xs font-bold hover:opacity-90 transition">
+            <i class="fa-solid fa-moon mr-2"></i><span>Tema escuro</span>
           </button>
-        </div>
-
-        <div class="analytics-cards">
-          <div class="card">
-            <div class="card-icon"><i class="fa-solid fa-city"></i></div>
-            <div class="card-info">
-              <h3 id="dash-count-cidades">0</h3>
-              <p>Cidades</p>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-icon"><i class="fa-solid fa-school"></i></div>
-            <div class="card-info">
-              <h3 id="dash-count-escolas">0</h3>
-              <p>Escolas</p>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-icon"><i class="fa-solid fa-trophy"></i></div>
-            <div class="card-info">
-              <h3 id="dash-count-olimpiadas">0</h3>
-              <p>Olimpíadas</p>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-icon"><i class="fa-solid fa-user-graduate"></i></div>
-            <div class="card-info">
-              <h3 id="dash-count-usuarios">0</h3>
-              <p>Usuários</p>
-            </div>
+          <div class="flex items-center gap-2 panel-2 px-3 py-1.5 rounded-lg">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-mono muted uppercase tracking-wider font-semibold">Firebase ativo</span>
           </div>
         </div>
+      </header>
 
-        <div class="table-container">
-          <h3>Status da Conexão</h3>
-          <div class="firebase-health">
-            <div class="health-item">
-              <small>Origem dos dados</small>
-              <strong id="diag-data-source">Firebase Firestore</strong>
+      <main class="flex-1 overflow-y-auto p-8 space-y-8">
+        <!-- DASHBOARD -->
+        <section id="view-dashboard" class="tab-view space-y-8">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 panel-2 p-4 rounded-xl">
+            <div>
+              <label class="block text-[11px] font-bold muted uppercase mb-1.5 tracking-wider">Município</label>
+              <select id="filterMunicipio" class="field w-full p-2.5 rounded-xl text-sm"></select>
             </div>
-            <div class="health-item">
-              <small>Projeto</small>
-              <strong id="diag-project-id">-</strong>
+            <div>
+              <label class="block text-[11px] font-bold muted uppercase mb-1.5 tracking-wider">Escola</label>
+              <select id="filterEscola" class="field w-full p-2.5 rounded-xl text-sm"></select>
             </div>
-            <div class="health-item">
-              <small>Storage Bucket</small>
-              <strong id="diag-storage-bucket">-</strong>
-            </div>
-            <div class="health-item">
-              <small>Última sincronização</small>
-              <strong id="diag-last-sync">-</strong>
+            <div>
+              <label class="block text-[11px] font-bold muted uppercase mb-1.5 tracking-wider">Olimpíada</label>
+              <select id="filterOlimpiada" class="field w-full p-2.5 rounded-xl text-sm"></select>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section id="view-cidades" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Gerenciar Cidades</h1>
-            <p>Cadastro salvo na coleção <strong>cidades</strong> do Firestore.</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="panel p-5 rounded-2xl shadow-soft"><span class="text-xs font-bold muted uppercase tracking-wider">Total de Resultados</span><h3 id="cardTotalMedalhas" class="text-2xl font-black mt-2">0</h3></div>
+            <div class="panel p-5 rounded-2xl shadow-soft"><span class="text-xs font-bold muted uppercase tracking-wider">Ouros</span><h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3></div>
+            <div class="panel p-5 rounded-2xl shadow-soft"><span class="text-xs font-bold muted uppercase tracking-wider">Escolas</span><h3 id="cardTotalEscolas" class="text-2xl font-black text-purple-400 mt-2">0</h3></div>
+            <div class="panel p-5 rounded-2xl shadow-soft"><span class="text-xs font-bold muted uppercase tracking-wider">Cidades</span><h3 id="cardTotalCidades" class="text-2xl font-black text-emerald-400 mt-2">0</h3></div>
           </div>
-        </div>
 
-        <div class="grid-form-table">
-          <div class="form-container">
-            <h3>Nova Cidade</h3>
-            <form id="form-cidade">
-              <div class="input-group">
-                <label>Nome da Cidade</label>
-                <input type="text" id="cid-nome" required placeholder="Ex: Teresina">
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="panel p-6 rounded-2xl flex flex-col justify-center min-h-[300px]">
+              <h3 class="text-sm font-bold mb-4 muted uppercase tracking-wider">Distribuição de Prêmios</h3>
+              <div class="relative flex-1 flex items-center justify-center max-h-[240px]"><canvas id="chartPremios"></canvas></div>
+            </div>
+            <div class="panel rounded-2xl xl:col-span-2 overflow-hidden flex flex-col">
+              <div class="p-5 border-b" style="border-color:var(--line)"><h3 class="text-sm font-bold muted uppercase tracking-wider">Histórico de Resultados</h3></div>
+              <div class="overflow-x-auto flex-1">
+                <table class="w-full text-left border-collapse">
+                  <thead><tr class="panel-2 text-[11px] font-bold muted uppercase tracking-wider"><th class="p-4">Estudante</th><th class="p-4">Escola</th><th class="p-4">Município</th><th class="p-4">Série</th><th class="p-4">Olimpíada</th><th class="p-4">Resultado</th></tr></thead>
+                  <tbody id="tablePremiadosCorpo" class="divide-y text-sm"></tbody>
+                </table>
               </div>
+            </div>
+          </div>
+        </section>
 
-              <div class="input-group">
-                <label>Estado</label>
-                <select id="cid-uf" required>
-                  <option value="PI">Piauí (PI)</option>
-                  <option value="MA">Maranhão (MA)</option>
-                  <option value="CE">Ceará (CE)</option>
-                  <option value="PE">Pernambuco (PE)</option>
-                  <option value="BA">Bahia (BA)</option>
-                </select>
+        <!-- MONITORIA -->
+        <section id="view-monitoria" class="tab-view hidden space-y-6">
+          <div class="panel rounded-2xl p-6">
+            <div class="flex flex-wrap justify-between gap-4 items-center mb-5">
+              <div>
+                <h3 class="text-lg font-black">Salas de Monitoria</h3>
+                <p class="muted text-sm">Regra: no máximo 2 pessoas por sala, sendo obrigatoriamente 1 Monitor e 1 outro usuário.</p>
               </div>
+              <button onclick="renderizarSalasMonitoria()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
+            </div>
+            <div id="gridSalasMonitoria" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+          </div>
 
-              <button type="submit" class="btn-save">
-                Salvar Cidade <i class="fa-solid fa-check"></i>
-              </button>
+          <div id="painelSalaMonitoria" class="hidden panel rounded-2xl overflow-hidden">
+            <div class="p-4 border-b flex flex-wrap justify-between gap-3 items-center" style="border-color:var(--line)">
+              <div>
+                <h3 id="salaMonitoriaTitulo" class="font-black">Sala</h3>
+                <p id="salaMonitoriaStatus" class="text-xs muted"></p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="btnCallVoice" class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-phone mr-1"></i> Voz</button>
+                <button id="btnCallVideo" class="px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-bold"><i class="fa-solid fa-video mr-1"></i> Vídeo</button>
+                <button id="btnEndCall" class="px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-bold hidden"><i class="fa-solid fa-phone-slash mr-1"></i> Encerrar</button>
+                <button onclick="sairSalaMonitoria()" class="px-3 py-2 rounded-xl bg-gray-700 text-white text-xs font-bold"><i class="fa-solid fa-door-open mr-1"></i> Sair da sala</button>
+              </div>
+            </div>
+
+            <div id="painelMidiaMonitoria" class="hidden grid grid-cols-1 md:grid-cols-2 gap-3 p-4 border-b" style="border-color:var(--line)">
+              <video id="localVideo" autoplay muted playsinline class="w-full rounded-xl bg-black min-h-[180px]"></video>
+              <video id="remoteVideo" autoplay playsinline class="w-full rounded-xl bg-black min-h-[180px]"></video>
+            </div>
+
+            <div id="chatMonitoriaMensagens" class="h-[360px] overflow-y-auto p-4 space-y-3 panel-2"></div>
+
+            <form id="formChatMonitoria" class="p-4 flex flex-wrap gap-2">
+              <input id="chatMonitoriaInput" class="field flex-1 min-w-[220px] rounded-xl px-4 py-3 text-sm" placeholder="Digite sua dúvida ou resposta...">
+              <label class="px-4 py-3 rounded-xl panel-2 cursor-pointer text-sm font-bold">
+                <i class="fa-solid fa-paperclip mr-1"></i> Arquivo
+                <input id="chatMonitoriaFile" type="file" class="hidden">
+              </label>
+              <button class="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm"><i class="fa-solid fa-paper-plane mr-1"></i> Enviar</button>
             </form>
           </div>
+        </section>
 
-          <div class="table-container">
-            <h3>Cidades Cadastradas</h3>
-            <div class="responsive-table">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Cidade</th>
-                    <th>UF</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="table-cidades-body"></tbody>
-              </table>
+        <!-- PLATAFORMA / ARQUIVOS -->
+        <section id="view-plataforma" class="tab-view hidden space-y-6">
+          <div id="painelAddMaterial" class="panel rounded-2xl p-6 shadow-soft">
+            <h3 class="text-sm font-bold uppercase tracking-wider border-b pb-3 mb-4" style="border-color:var(--line)"><i class="fa-solid fa-circle-plus text-blue-400 mr-2"></i> Publicar Novo Material</h3>
+            <form id="formAddMaterial" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div class="md:col-span-2"><label class="block text-xs font-bold muted uppercase mb-1">Título</label><input id="matTitulo" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Olimpíada</label><select id="matOlimpiada" class="field w-full p-2.5 rounded-xl text-sm"></select></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Arquivo</label><input id="matArquivo" type="file" class="field w-full p-2 rounded-xl text-sm" required></div>
+              <button class="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Enviar</button>
+            </form>
+            <p id="materialUploadStatus" class="text-xs muted mt-3"></p>
+          </div>
+
+          <div class="panel rounded-2xl overflow-hidden shadow-soft">
+            <div class="p-5 border-b flex flex-wrap gap-3 items-center" style="border-color:var(--line)">
+              <h3 class="text-sm font-bold muted uppercase tracking-wider mr-auto"><i class="fa-solid fa-folder-open text-blue-400 mr-2"></i>Materiais Publicados</h3>
+              <input id="filterMaterialBusca" class="field p-2 rounded-xl text-xs" placeholder="Buscar material...">
+            </div>
+            <div id="gridMateriais" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-5"></div>
+          </div>
+        </section>
+
+        <!-- USUÁRIOS -->
+        <section id="view-usuarios" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="panel rounded-2xl p-6">
+              <h3 class="text-sm font-bold uppercase tracking-wider border-b pb-3 mb-4" style="border-color:var(--line)">Novo Usuário</h3>
+              <form id="formUsuario" class="space-y-3">
+                <input type="hidden" id="userIdEdit">
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Nome</label><input id="addUserNome" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Login</label><input id="addUserLogin" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Senha</label><input id="addUserSenha" type="password" class="field w-full p-2.5 rounded-xl text-sm" placeholder="Obrigatória para novo usuário"></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Nível</label><select id="addUserNivel" class="field w-full p-2.5 rounded-xl text-sm"><option>ADM</option><option>Gestor</option><option>Escola</option><option>Aluno</option><option>Monitor</option></select></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Vínculo</label><select id="addUserVinculo" class="field w-full p-2.5 rounded-xl text-sm"></select></div>
+                <button class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl">Salvar Usuário</button>
+                <button type="button" onclick="limparFormUsuario()" class="w-full py-2.5 panel-2 font-bold text-xs uppercase tracking-wider rounded-xl">Limpar</button>
+              </form>
+            </div>
+            <div class="panel rounded-2xl overflow-hidden xl:col-span-2">
+              <div class="p-5 border-b" style="border-color:var(--line)"><h3 class="text-sm font-bold muted uppercase tracking-wider">Usuários Cadastrados</h3></div>
+              <div class="overflow-x-auto"><table class="w-full text-left"><thead class="panel-2 text-[11px] font-bold muted uppercase"><tr><th class="p-4">Nome</th><th class="p-4">Login</th><th class="p-4">Nível</th><th class="p-4">Vínculo</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableUsuarios" class="text-sm"></tbody></table></div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="view-escolas" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Gerenciar Escolas</h1>
-            <p>Cadastro salvo na coleção <strong>escolas</strong> do Firestore.</p>
+        <!-- CIDADES -->
+        <section id="view-cidades" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="panel rounded-2xl p-6">
+              <h3 class="text-sm font-bold uppercase tracking-wider border-b pb-3 mb-4" style="border-color:var(--line)">Nova Cidade</h3>
+              <form id="formCidade" class="space-y-3">
+                <input type="hidden" id="cidadeIdEdit">
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Cidade</label><input id="addCidadeNome" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">UF</label><input id="addCidadeUf" maxlength="2" class="field w-full p-2.5 rounded-xl text-sm uppercase" required></div>
+                <button class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl">Salvar Cidade</button>
+                <button type="button" onclick="limparFormCidade()" class="w-full py-2.5 panel-2 font-bold text-xs uppercase tracking-wider rounded-xl">Limpar</button>
+              </form>
+            </div>
+            <div class="panel rounded-2xl overflow-hidden xl:col-span-2">
+              <div class="p-5 border-b" style="border-color:var(--line)"><h3 class="text-sm font-bold muted uppercase tracking-wider">Cidades Cadastradas</h3></div>
+              <div class="overflow-x-auto"><table class="w-full text-left"><thead class="panel-2 text-[11px] font-bold muted uppercase"><tr><th class="p-4">Cidade</th><th class="p-4">UF</th><th class="p-4">Escolas</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableCidades" class="text-sm"></tbody></table></div>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div class="grid-form-table-wide">
-          <div class="form-container">
-            <h3>Nova Escola</h3>
-            <form id="form-escola">
-              <div class="input-row">
-                <div class="input-group">
-                  <label>Razão Social</label>
-                  <input type="text" id="esc-razao" required placeholder="Ex: Colégio Propósito">
-                </div>
-
-                <div class="input-group">
-                  <label>Cidade Vinculada</label>
-                  <select id="esc-cidade-select" required></select>
-                </div>
-              </div>
-
-              <div class="input-row">
-                <div class="input-group">
-                  <label>CNPJ</label>
-                  <input type="text" id="esc-cnpj" placeholder="00.000.000/0001-00">
-                </div>
-
-                <div class="input-group">
-                  <label>Código INEP</label>
-                  <input type="text" id="esc-inep" placeholder="Ex: 22034512">
-                </div>
-              </div>
-
-              <div class="input-row">
-                <div class="input-group">
-                  <label>Endereço</label>
-                  <input type="text" id="esc-endereco" placeholder="Rua, número, bairro">
-                </div>
-
-                <div class="input-group">
-                  <label>CEP</label>
-                  <input type="text" id="esc-cep" placeholder="00000-000">
-                </div>
-              </div>
-
-              <div class="input-row">
-                <div class="input-group">
-                  <label>Diretor(a)</label>
-                  <input type="text" id="esc-diretor" placeholder="Nome completo">
-                </div>
-
-                <div class="input-group">
-                  <label>E-mail Institucional</label>
-                  <input type="email" id="esc-email" placeholder="escola@dominio.com">
-                </div>
-              </div>
-
-              <button type="submit" class="btn-save">
-                Salvar Escola <i class="fa-solid fa-school"></i>
-              </button>
+        <!-- ESCOLAS -->
+        <section id="view-escolas" class="tab-view hidden space-y-6">
+          <div class="panel rounded-2xl p-6">
+            <h3 class="text-sm font-bold uppercase tracking-wider border-b pb-3 mb-4" style="border-color:var(--line)">Cadastro de Escola</h3>
+            <form id="formEscola" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input type="hidden" id="escolaIdEdit">
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Nome</label><input id="addEscolaNome" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Razão Social</label><input id="addEscolaRazao" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Cidade</label><select id="addEscolaCidade" class="field w-full p-2.5 rounded-xl text-sm" required></select></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">CNPJ</label><input id="addEscolaCnpj" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">INEP</label><input id="addEscolaInep" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Diretor</label><input id="addEscolaDiretor" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">E-mail</label><input id="addEscolaEmail" type="email" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">Endereço</label><input id="addEscolaEndereco" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <div><label class="block text-xs font-bold muted uppercase mb-1">CEP</label><input id="addEscolaCep" class="field w-full p-2.5 rounded-xl text-sm"></div>
+              <button class="md:col-span-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl">Salvar Escola</button>
+              <button type="button" onclick="limparFormEscola()" class="py-2.5 panel-2 font-bold text-xs uppercase tracking-wider rounded-xl">Limpar</button>
             </form>
           </div>
+          <div class="panel rounded-2xl overflow-hidden">
+            <div class="p-5 border-b" style="border-color:var(--line)"><h3 class="text-sm font-bold muted uppercase tracking-wider">Escolas Cadastradas</h3></div>
+            <div class="overflow-x-auto"><table class="w-full text-left"><thead class="panel-2 text-[11px] font-bold muted uppercase"><tr><th class="p-4">Nome</th><th class="p-4">Cidade</th><th class="p-4">INEP</th><th class="p-4">Diretor</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableEscolas" class="text-sm"></tbody></table></div>
+          </div>
+        </section>
 
-          <div class="table-container">
-            <h3>Escolas Cadastradas</h3>
-            <div class="responsive-table">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Razão Social</th>
-                    <th>Cidade</th>
-                    <th>INEP</th>
-                    <th>Diretor</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="table-escolas-body"></tbody>
-              </table>
+        <!-- OLIMPIADAS -->
+        <section id="view-olimpiadas" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="panel rounded-2xl p-6">
+              <h3 class="text-sm font-bold uppercase tracking-wider border-b pb-3 mb-4" style="border-color:var(--line)">Nova Olimpíada / Evento</h3>
+              <form id="formOlimpiada" class="space-y-3">
+                <input type="hidden" id="olimpiadaIdEdit">
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Nome</label><input id="addOlimpiadaNome" class="field w-full p-2.5 rounded-xl text-sm" required></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Sigla / Categoria</label><input id="addOlimpiadaCategoria" class="field w-full p-2.5 rounded-xl text-sm"></div>
+                <div><label class="block text-xs font-bold muted uppercase mb-1">Séries</label><input id="addOlimpiadaSeries" class="field w-full p-2.5 rounded-xl text-sm"></div>
+                <button class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl">Salvar Olimpíada</button>
+              </form>
+            </div>
+            <div class="panel rounded-2xl overflow-hidden xl:col-span-2">
+              <div class="p-5 border-b" style="border-color:var(--line)"><h3 class="text-sm font-bold muted uppercase tracking-wider">Olimpíadas</h3></div>
+              <div class="overflow-x-auto"><table class="w-full text-left"><thead class="panel-2 text-[11px] font-bold muted uppercase"><tr><th class="p-4">Nome</th><th class="p-4">Categoria</th><th class="p-4">Séries</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableOlimpiadas" class="text-sm"></tbody></table></div>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section id="view-usuarios" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Gerenciar Usuários</h1>
-            <p>Cadastro salvo na coleção <strong>usuarios</strong> do Firestore.</p>
-          </div>
-        </div>
-
-        <div class="grid-form-table">
-          <div class="form-container">
-            <h3>Novo Usuário</h3>
-            <form id="form-usuario">
-              <div class="input-group">
-                <label>Nível de Acesso</label>
-                <select id="user-role-select" required>
-                  <option value="ADM">Administrador Geral</option>
-                  <option value="Gestor">Gestor Municipal/Regional</option>
-                  <option value="Escola">Coordenador de Escola</option>
-                  <option value="Aluno">Aluno</option>
-                </select>
-              </div>
-
-              <div class="input-group">
-                <label>Nome de Usuário</label>
-                <input type="text" id="user-username" required placeholder="Ex: maxwell.adm">
-              </div>
-
-              <div class="input-group">
-                <label>Nome de Exibição</label>
-                <input type="text" id="user-fullname" required placeholder="Ex: Maxwell Uchôa">
-              </div>
-
-              <div class="input-group">
-                <label>Senha</label>
-                <input type="password" id="user-password" required placeholder="Defina uma senha">
-              </div>
-
-              <div id="dynamic-user-fields"></div>
-
-              <button type="submit" class="btn-save">
-                Criar Usuário <i class="fa-solid fa-user-shield"></i>
-              </button>
-            </form>
-          </div>
-
-          <div class="table-container">
-            <h3>Usuários Cadastrados</h3>
-            <div class="responsive-table">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Login</th>
-                    <th>Nome</th>
-                    <th>Nível</th>
-                    <th>Vínculo</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="table-usuarios-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="view-olimpiadas" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Cronograma Olímpico</h1>
-            <p>Eventos salvos na coleção <strong>olimpiadas</strong> do Firestore.</p>
-          </div>
-        </div>
-
-        <div class="action-bar">
-          <label for="excel-file-input" class="btn-excel-label">
-            <i class="fa-solid fa-file-excel"></i> Importar Cronograma XLSX
-          </label>
-          <input type="file" id="excel-file-input" accept=".xlsx,.xls" class="hidden">
-
-          <button id="btn-export-template" class="btn-export">
-            <i class="fa-solid fa-download"></i> Baixar Modelo XLSX
-          </button>
-        </div>
-
-        <div class="grid-form-table-wide">
-          <div class="form-container" id="container-add-olimpiada">
-            <h3>Adicionar Evento Manual</h3>
-            <form id="form-olimpiada">
-              <div class="input-row">
-                <div class="input-group">
-                  <label>Nome da Olimpíada</label>
-                  <input type="text" id="olimp-nome" required placeholder="Ex: OBMEP">
-                </div>
-
-                <div class="input-group">
-                  <label>Fase / Evento</label>
-                  <input type="text" id="olimp-fase" required placeholder="Ex: 1ª Fase">
-                </div>
-              </div>
-
-              <div class="input-row">
-                <div class="input-group">
-                  <label>Data de Início</label>
-                  <input type="date" id="olimp-start" required>
-                </div>
-
-                <div class="input-group">
-                  <label>Data de Término</label>
-                  <input type="date" id="olimp-end" required>
-                </div>
-              </div>
-
-              <button type="submit" class="btn-save">
-                Publicar no Calendário <i class="fa-solid fa-calendar-plus"></i>
-              </button>
-            </form>
-          </div>
-
-          <div class="table-container">
-            <h3>Eventos Cadastrados</h3>
-            <div class="responsive-table">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Olimpíada</th>
-                    <th>Fase / Evento</th>
-                    <th>Início</th>
-                    <th>Fim</th>
-                    <th>Status</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="table-olimpiadas-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="view-arquivos" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Arquivos</h1>
-            <p>Upload no <strong>Firebase Storage</strong> e metadados na coleção <strong>arquivos</strong>.</p>
-          </div>
-        </div>
-
-        <div class="grid-form-table">
-          <div class="form-container">
-            <h3>Enviar Arquivo</h3>
-            <form id="form-arquivo">
-              <div class="input-group">
-                <label>Título / Descrição</label>
-                <input type="text" id="file-title" required placeholder="Ex: Lista OBMEP - Divisibilidade">
-              </div>
-
-              <div class="input-group">
-                <label>Arquivo</label>
-                <input type="file" id="file-input" required>
-              </div>
-
-              <button type="submit" class="btn-save">
-                Enviar para o Storage <i class="fa-solid fa-cloud-arrow-up"></i>
-              </button>
-            </form>
-            <p class="muted" id="upload-status"></p>
-          </div>
-
-          <div class="table-container">
-            <h3>Arquivos Enviados</h3>
-            <div class="responsive-table">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Título</th>
-                    <th>Arquivo</th>
-                    <th>Tamanho</th>
-                    <th>Enviado em</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="table-arquivos-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="view-diagnostico" class="content-section hidden">
-        <div class="section-header">
-          <div>
-            <h1>Diagnóstico Firebase</h1>
-            <p>Use esta tela para confirmar se o site publicado está lendo o Firebase novo.</p>
-          </div>
-        </div>
-
-        <div class="table-container">
-          <h3>Informações Técnicas</h3>
-          <div class="firebase-health">
-            <div class="health-item">
-              <small>App JS</small>
-              <strong id="diag-app-version">-</strong>
-            </div>
-            <div class="health-item">
-              <small>Project ID</small>
-              <strong id="diag-project-id-2">-</strong>
-            </div>
-            <div class="health-item">
-              <small>Auth Domain</small>
-              <strong id="diag-auth-domain">-</strong>
-            </div>
-            <div class="health-item">
-              <small>Último erro</small>
-              <strong id="diag-last-error">Nenhum</strong>
-            </div>
-          </div>
-
-          <div class="action-bar" style="margin-top:18px;">
-            <button id="btn-test-firestore" class="btn-secondary">
-              <i class="fa-solid fa-database"></i> Testar Firestore
-            </button>
-            <button id="btn-clear-session" class="btn-danger">
-              <i class="fa-solid fa-broom"></i> Limpar sessão local
-            </button>
-          </div>
-
-          <p class="muted">
-            Se os dados antigos aparecerem com o Firestore vazio, o problema é cache, arquivo antigo publicado ou outro projeto Firebase.
-          </p>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   </div>
 
-  <script type="module" src="./app.js?v=20260526-01"></script>
+  <script type="module" src="./app.js?v=20260526-features-01"></script>
 </body>
 </html>
