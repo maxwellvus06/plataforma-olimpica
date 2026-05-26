@@ -4587,7 +4587,16 @@ const LAYOUT_PADRAO = {
     corCard: "#1f2937",
     corBorda: "#374151",
     logoUrl: "",
-    bannerUrl: ""
+    bannerUrl: "",
+    estiloVisual: "classico",
+    densidade: "confortavel",
+    raio: "medio",
+    fonte: "sistema",
+    fundoModo: "solido",
+    fundoImagemUrl: "",
+    fundoOpacidade: "0.08",
+    bannerAltura: "180px",
+    bannerPosicao: "center"
 };
 let layoutVisualAtual = { ...LAYOUT_PADRAO };
 
@@ -4646,13 +4655,45 @@ function aplicarLayoutVisual(config = {}) {
     const previewBanner = document.getElementById("layoutPreviewBanner");
     if (previewBanner) {
         previewBanner.style.backgroundImage = c.bannerUrl ? `url('${c.bannerUrl}')` : "";
+        previewBanner.style.height = c.bannerAltura || "180px";
+        previewBanner.style.backgroundPosition = c.bannerPosicao || "center";
+        previewBanner.style.backgroundSize = "cover";
         previewBanner.innerText = c.bannerUrl ? "" : "Banner institucional";
     }
+
+    const fonteCss = {
+        sistema: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        inter: "Inter, ui-sans-serif, system-ui, sans-serif",
+        serifada: "Georgia, 'Times New Roman', serif",
+        mono: "'JetBrains Mono', 'Fira Code', Consolas, monospace"
+    }[c.fonte] || "Inter, ui-sans-serif, system-ui, sans-serif";
+
+    const raioCss = { reto: "0.5rem", suave: "0.75rem", medio: "1rem", forte: "1.5rem" }[c.raio] || "1rem";
+    const paddingCss = { compacta: "0.75rem", confortavel: "1rem", ampla: "1.35rem" }[c.densidade] || "1rem";
+    const gapCss = { compacta: "0.75rem", confortavel: "1rem", ampla: "1.35rem" }[c.densidade] || "1rem";
+
+    const fundoBase = c.fundoModo === "gradiente"
+        ? `radial-gradient(circle at top left, color-mix(in srgb, ${c.corPrimaria} 28%, transparent), transparent 32%), linear-gradient(135deg, ${c.corFundo}, color-mix(in srgb, ${c.corFundo} 78%, black))`
+        : c.corFundo;
+
+    const imagemFundoCss = c.fundoModo === "imagem" && c.fundoImagemUrl
+        ? `body:not(.theme-light)::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; background: url('${c.fundoImagemUrl}') center/cover no-repeat; opacity: ${c.fundoOpacidade || "0.08"}; }`
+        : `body:not(.theme-light)::before { content: none; }`;
+
+    const estiloExtra = {
+        classico: "",
+        glass: `body:not(.theme-light) .bg-gray-800, body:not(.theme-light) .bg-gray-900\\/40 { backdrop-filter: blur(16px); background-color: color-mix(in srgb, ${c.corCard} 72%, transparent) !important; }`,
+        minimalista: `body:not(.theme-light) .shadow-xl, body:not(.theme-light) .shadow-2xl, body:not(.theme-light) .shadow-lg { box-shadow: none !important; } body:not(.theme-light) .border { border-width: 1px !important; }`,
+        institucional: `body:not(.theme-light) h1, body:not(.theme-light) h2, body:not(.theme-light) h3 { letter-spacing: .04em; } body:not(.theme-light) .uppercase { letter-spacing: .09em; }`,
+        olimpico: `.content-gradient { background-size: 200% 100%; animation: layoutGradientMove 7s ease-in-out infinite; } @keyframes layoutGradientMove { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }`
+    }[c.estiloVisual] || "";
 
     const style = document.getElementById("layoutDynamicStyle");
     if (style) {
         style.textContent = `
-            body:not(.theme-light) { background-color: ${c.corFundo} !important; }
+            body { font-family: ${fonteCss} !important; }
+            body:not(.theme-light) { background: ${fundoBase} !important; background-attachment: fixed !important; }
+            ${imagemFundoCss}
             body:not(.theme-light) .bg-gray-900 { background-color: ${c.corFundo} !important; }
             body:not(.theme-light) .bg-gray-950 { background-color: color-mix(in srgb, ${c.corFundo} 78%, black) !important; }
             body:not(.theme-light) .bg-gray-800 { background-color: ${c.corCard} !important; }
@@ -4663,6 +4704,11 @@ function aplicarLayoutVisual(config = {}) {
             .border-blue-500\/20, .border-blue-700, .focus\\:border-blue-500:focus { border-color: ${c.corDestaque} !important; }
             .bg-blue-500\/10, .bg-blue-500\/20 { background-color: color-mix(in srgb, ${c.corPrimaria} 18%, transparent) !important; }
             .content-gradient { background-image: linear-gradient(90deg, ${c.corPrimaria}, ${c.corDestaque}) !important; }
+            .rounded-xl, .rounded-2xl, .rounded-lg { border-radius: ${raioCss} !important; }
+            main.space-y-8, .space-y-8 { gap: ${gapCss} !important; }
+            body:not(.theme-light) .p-6 { padding: ${paddingCss} !important; }
+            .brand-banner-preview { height: ${c.bannerAltura || "180px"} !important; background-position: ${c.bannerPosicao || "center"} !important; background-size: cover !important; }
+            ${estiloExtra}
         `;
     }
 }
@@ -4679,7 +4725,16 @@ function lerLayoutDoFormulario() {
         corCard: document.getElementById("layoutCorCard")?.value || LAYOUT_PADRAO.corCard,
         corBorda: document.getElementById("layoutCorBorda")?.value || LAYOUT_PADRAO.corBorda,
         logoUrl: document.getElementById("layoutLogoUrl")?.value?.trim() || "",
-        bannerUrl: document.getElementById("layoutBannerUrl")?.value?.trim() || ""
+        bannerUrl: document.getElementById("layoutBannerUrl")?.value?.trim() || "",
+        estiloVisual: document.getElementById("layoutEstiloVisual")?.value || LAYOUT_PADRAO.estiloVisual,
+        densidade: document.getElementById("layoutDensidade")?.value || LAYOUT_PADRAO.densidade,
+        raio: document.getElementById("layoutRaio")?.value || LAYOUT_PADRAO.raio,
+        fonte: document.getElementById("layoutFonte")?.value || LAYOUT_PADRAO.fonte,
+        fundoModo: document.getElementById("layoutFundoModo")?.value || LAYOUT_PADRAO.fundoModo,
+        fundoImagemUrl: document.getElementById("layoutFundoImagemUrl")?.value?.trim() || "",
+        fundoOpacidade: document.getElementById("layoutFundoOpacidade")?.value || LAYOUT_PADRAO.fundoOpacidade,
+        bannerAltura: document.getElementById("layoutBannerAltura")?.value || LAYOUT_PADRAO.bannerAltura,
+        bannerPosicao: document.getElementById("layoutBannerPosicao")?.value || LAYOUT_PADRAO.bannerPosicao
     };
 }
 
@@ -4696,7 +4751,16 @@ function preencherFormularioLayout(config = layoutVisualAtual) {
         layoutCorCard: c.corCard,
         layoutCorBorda: c.corBorda,
         layoutLogoUrl: c.logoUrl,
-        layoutBannerUrl: c.bannerUrl
+        layoutBannerUrl: c.bannerUrl,
+        layoutEstiloVisual: c.estiloVisual,
+        layoutDensidade: c.densidade,
+        layoutRaio: c.raio,
+        layoutFonte: c.fonte,
+        layoutFundoModo: c.fundoModo,
+        layoutFundoImagemUrl: c.fundoImagemUrl,
+        layoutFundoOpacidade: c.fundoOpacidade,
+        layoutBannerAltura: c.bannerAltura,
+        layoutBannerPosicao: c.bannerPosicao
     };
     Object.entries(valores).forEach(([id, valor]) => {
         const el = document.getElementById(id);
@@ -4743,8 +4807,15 @@ async function uploadArquivoLayout(inputId, tipo) {
     const nomeSeguro = arquivo.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const caminho = `layout/${tipo}_${Date.now()}_${nomeSeguro}`;
     const ref = firebaseStorage.ref().child(caminho);
-    const snap = await ref.put(arquivo, { contentType: arquivo.type });
-    return await snap.ref.getDownloadURL();
+    try {
+        const snap = await ref.put(arquivo, { contentType: arquivo.type });
+        return await snap.ref.getDownloadURL();
+    } catch (erro) {
+        if (String(erro?.code || erro?.message || "").includes("unauthorized")) {
+            throw new Error("Firebase Storage bloqueou o upload. Publique as regras do Storage permitindo a pasta layout/ e confira se o Storage está ativo.");
+        }
+        throw erro;
+    }
 }
 
 async function salvarLayoutVisual(event) {
@@ -4756,8 +4827,13 @@ async function salvarLayoutVisual(event) {
         const config = lerLayoutDoFormulario();
         const novaLogo = await uploadArquivoLayout("layoutLogoArquivo", "logo");
         const novoBanner = await uploadArquivoLayout("layoutBannerArquivo", "banner");
+        const novaImagemFundo = await uploadArquivoLayout("layoutFundoImagemArquivo", "fundo");
         if (novaLogo) config.logoUrl = novaLogo;
         if (novoBanner) config.bannerUrl = novoBanner;
+        if (novaImagemFundo) {
+            config.fundoImagemUrl = novaImagemFundo;
+            config.fundoModo = "imagem";
+        }
         const ref = layoutCollectionRef();
         if (!ref) throw new Error("Firestore não inicializado.");
         await ref.set({ ...config, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPorId: usuarioLogado.id, atualizadoPorNome: usuarioLogado.nome }, { merge: true });
@@ -5996,8 +6072,13 @@ async function salvarLayoutVisual(event) {
         const config = lerLayoutDoFormulario();
         const novaLogo = await uploadArquivoLayout("layoutLogoArquivo", "logo");
         const novoBanner = await uploadArquivoLayout("layoutBannerArquivo", "banner");
+        const novaImagemFundo = await uploadArquivoLayout("layoutFundoImagemArquivo", "fundo");
         if (novaLogo) config.logoUrl = novaLogo;
         if (novoBanner) config.bannerUrl = novoBanner;
+        if (novaImagemFundo) {
+            config.fundoImagemUrl = novaImagemFundo;
+            config.fundoModo = "imagem";
+        }
         const ref = layoutCollectionRef(escopo.docId);
         if (!ref) throw new Error("Firestore não inicializado.");
         await ref.set({
