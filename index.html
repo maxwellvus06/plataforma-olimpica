@@ -10,6 +10,7 @@
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
+    <!-- ===================== TELA DE LOGIN ===================== -->
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
         <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
             <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r content-gradient tumble"></div>
@@ -40,8 +41,10 @@
         </div>
     </div>
 
+    <!-- ===================== PAINEL PRINCIPAL ===================== -->
     <div id="mainPanel" class="hidden flex min-h-screen">
-        
+
+        <!-- SIDEBAR -->
         <aside class="w-64 bg-gray-950 border-r border-gray-800 flex flex-col shrink-0">
             <div class="p-6 border-b border-gray-800 flex items-center gap-3">
                 <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow"><i class="fa-solid fa-chart-line text-sm"></i></div>
@@ -51,22 +54,32 @@
                 </div>
             </div>
 
-            <nav class="flex-1 p-4 space-y-1">
-                <button onclick="navegarAba('dashboard', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-blue-400 bg-blue-500/10 transition">
+            <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+                <!-- Sempre visível (filtrado por JS) -->
+                <button id="btnNav-dashboard" onclick="navegarAba('dashboard', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-blue-400 bg-blue-500/10 transition">
                     <i class="fa-solid fa-square-poll-vertical text-base w-5 text-center"></i> Dashboard Analítico
                 </button>
-                <button onclick="navegarAba('calendario', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                <button id="btnNav-calendario" onclick="navegarAba('calendario', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-calendar-days text-base w-5 text-center"></i> Calendário Oficial
                 </button>
-                <button onclick="navegarAba('importar', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                <button id="btnNav-importar" onclick="navegarAba('importar', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-file-import text-base w-5 text-center"></i> Importar Resultados
                 </button>
-                
+                <button id="btnNav-plataforma" onclick="navegarAba('plataforma', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-chalkboard-user text-base w-5 text-center"></i> Plataforma
+                </button>
+                <button id="btnNav-monitoria" onclick="navegarAba('monitoria', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-headset text-base w-5 text-center"></i> Monitoria
+                </button>
+
+                <div class="pt-2 pb-1"><div class="border-t border-gray-800"></div></div>
+
+                <!-- Abas ADM / Gestor (controladas por JS) -->
                 <button id="btnNavUsuarios" onclick="navegarAba('usuarios', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-users-gear text-base w-5 text-center"></i> Gerenciar Usuários
                 </button>
                 <button id="btnNavOlimpiadas" onclick="navegarAba('olimpiadas', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
-                    <i class="fa-solid fa-trophy text-base w-5 text-center"></i> Gerenciar Olimpíadas
+                    <i class="fa-solid fa-trophy text-base w-5 text-center"></i> Olimpíadas
                 </button>
                 <button id="btnNavCidades" onclick="navegarAba('cidades', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-city text-base w-5 text-center"></i> Gerenciar Cidades
@@ -88,6 +101,7 @@
             </div>
         </aside>
 
+        <!-- ÁREA PRINCIPAL -->
         <div class="flex-1 flex flex-col min-w-0">
             <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-8 shrink-0">
                 <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
@@ -98,7 +112,8 @@
             </header>
 
             <main class="flex-1 overflow-y-auto p-8 space-y-8">
-                
+
+                <!-- ===================== DASHBOARD ===================== -->
                 <section id="view-dashboard" class="tab-view space-y-8">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-800/40 p-4 rounded-xl border border-gray-800">
                         <div>
@@ -114,26 +129,12 @@
                             <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
                         </div>
                     </div>
-
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Medalhas</span>
-                            <h3 id="cardTotalMedalhas" class="text-2xl font-black text-white mt-2">0</h3>
-                        </div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</span>
-                            <h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3>
-                        </div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Escolas Atendidas</span>
-                            <h3 id="cardTotalEscolas" class="text-2xl font-black text-purple-400 mt-2">0</h3>
-                        </div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Cidades Mapeadas</span>
-                            <h3 id="cardTotalCidades" class="text-2xl font-black text-emerald-400 mt-2">0</h3>
-                        </div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Medalhas</span><h3 id="cardTotalMedalhas" class="text-2xl font-black text-white mt-2">0</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</span><h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Escolas Atendidas</span><h3 id="cardTotalEscolas" class="text-2xl font-black text-purple-400 mt-2">0</h3></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Cidades Mapeadas</span><h3 id="cardTotalCidades" class="text-2xl font-black text-emerald-400 mt-2">0</h3></div>
                     </div>
-
                     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl flex flex-col justify-center min-h-[300px]">
                             <h3 class="text-sm font-bold mb-4 text-gray-300 uppercase tracking-wider">Distribuição de Prêmios</h3>
@@ -143,16 +144,7 @@
                             <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Histórico de Alunos Premiados</h3></div>
                             <div class="overflow-x-auto flex-1">
                                 <table class="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                            <th class="p-4">Estudante</th>
-                                            <th class="p-4">Escola de Origem</th>
-                                            <th class="p-4">Município</th>
-                                            <th class="p-4">Série</th>
-                                            <th class="p-4">Olimpíada</th>
-                                            <th class="p-4">Resultado</th>
-                                        </tr>
-                                    </thead>
+                                    <thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Estudante</th><th class="p-4">Escola de Origem</th><th class="p-4">Município</th><th class="p-4">Série</th><th class="p-4">Olimpíada</th><th class="p-4">Resultado</th></tr></thead>
                                     <tbody id="tablePremiadosCorpo" class="divide-y divide-gray-700/40 text-sm"></tbody>
                                 </table>
                             </div>
@@ -160,244 +152,215 @@
                     </div>
                 </section>
 
+                <!-- ===================== CALENDÁRIO ===================== -->
                 <section id="view-calendario" class="tab-view hidden space-y-6">
                     <div id="admCronogramaPanel" class="hidden grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
                             <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-clock text-blue-400 mr-2"></i> Adicionar Evento Manual</h3>
                             <form id="formCadCronograma" class="space-y-3" onsubmit="salvarNovoCronograma(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada Homologada</label>
-                                    <select id="addCroOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Etapa / Fase</label>
-                                    <input type="text" id="addCroEtapa" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Fase 1 - Prova Objetiva" required>
-                                </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Janela / Data</label>
-                                        <input type="text" id="addCroData" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 09/06/2026" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Elegíveis</label>
-                                        <input type="text" id="addCroSegmento" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º EF ao 3º EM" required>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Observação Crítica / Diretriz</label>
-                                    <textarea id="addCroAcao" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white h-16 focus:outline-none" placeholder="Diretrizes para a aplicação..." required></textarea>
-                                </div>
-                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Publicar Etapa</button>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada Homologada</label><select id="addCroOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Etapa / Fase</label><input type="text" id="addCroEtapa" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Fase 1 — Escolar" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Data / Período</label><input type="text" id="addCroData" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 09/06/2026" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Elegíveis</label><input type="text" id="addCroSegmento" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º EF a 3ª EM" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Diretriz Operacional</label><textarea id="addCroAcao" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none resize-none" rows="3" placeholder="Instruções e observações..." required></textarea></div>
+                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Registrar Evento</button>
                             </form>
                         </div>
-                        
-                        <div class="lg:col-span-2 bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl flex flex-col items-center justify-center text-center space-y-4">
-                            <div class="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl"><i class="fa-solid fa-file-excel"></i></div>
-                            <div>
-                                <h3 class="text-sm font-bold text-white uppercase tracking-wider">Carga de Planilha de Cronograma</h3>
-                                <p class="text-xs text-gray-400 mt-1">Arrastar arquivo Excel correspondente para mapeamento de fases em lote.</p>
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-file-excel text-emerald-400 mr-2"></i> Importar via Excel</h3>
+                            <div id="dropZoneCronograma" class="border-2 border-dashed border-gray-700 rounded-xl p-6 text-center cursor-pointer hover:border-emerald-500 transition">
+                                <i class="fa-solid fa-cloud-arrow-up text-2xl text-gray-600 mb-2"></i>
+                                <p class="text-xs text-gray-500">Arraste ou clique para selecionar</p>
+                                <input type="file" id="fileInputCronograma" accept=".xlsx,.xls" class="hidden">
                             </div>
-                            <div id="dropZoneCronograma" class="w-full border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-6 bg-gray-900/40 cursor-pointer transition">
-                                <input type="file" id="fileInputCronograma" class="hidden" accept=".xlsx, .xls">
-                                <p class="text-xs text-gray-400">Arraste a planilha de cronograma (.xlsx) ou <span class="text-blue-400 font-semibold underline">clique aqui</span></p>
-                            </div>
-                            <button onclick="downloadCronogramaTemplate()" class="px-3 py-1.5 text-[11px] font-bold border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1"></i> Baixar Modelo .XLSX</button>
+                            <button onclick="downloadCronogramaTemplate()" class="w-full py-2 bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 border border-emerald-800/40 font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-download mr-2"></i>Baixar Modelo</button>
                         </div>
                     </div>
-
                     <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
-                        <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cronograma Geral de Aplicações 2026</h3></div>
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-calendar-check text-blue-400 mr-2"></i>Calendário Operacional de Olimpíadas</h3></div>
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                        <th class="p-4">Olimpíada Mapeada</th>
-                                        <th class="p-4">Fase / Etapa</th>
-                                        <th class="p-4">Janela Crítica</th>
-                                        <th class="p-4">Público Alvo</th>
-                                        <th class="p-4">Diretriz Operacional</th>
-                                        <th class="p-4 text-right">Ações</th>
-                                    </tr>
-                                </thead>
+                            <table class="w-full text-left border-collapse min-w-max">
+                                <thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Olimpíada</th><th class="p-4">Fase / Etapa</th><th class="p-4">Data</th><th class="p-4">Público</th><th class="p-4">Ação</th><th class="p-4 text-right">Editar</th></tr></thead>
                                 <tbody id="tableCronogramaCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
                             </table>
                         </div>
                     </div>
                 </section>
 
+                <!-- ===================== IMPORTAR RESULTADOS ===================== -->
                 <section id="view-importar" class="tab-view hidden space-y-6">
-                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                        <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl text-center space-y-6">
-                            <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                            <div>
-                                <h3 class="text-lg font-bold text-white">Importação Massiva de Medalhistas</h3>
-                                <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formato Excel (.xlsx) seguindo o modelo oficial com listas suspensas.</p>
-                            </div>
-                            <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition">
-                                <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls">
-                                <p class="text-sm text-gray-400">Arraste a planilha aqui ou <span class="text-blue-400 font-semibold underline">clique para procurar</span></p>
-                            </div>
-                            <button onclick="downloadResultadosTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Resultados .XLSX</button>
-                        </div>
-
-                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
-                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-medal text-amber-400 mr-2"></i> Adicionar Resultado Manual</h3>
-                            <form id="formCadResultadoManual" class="space-y-3" onsubmit="salvarResultadoManual(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome do Aluno</label>
-                                    <input type="text" id="addResAluno" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Digite o nome completo" required>
+                    <!-- Painel add manual (visível só para ADM) -->
+                    <div id="secaoAddManualResultado" class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-user-plus text-blue-400 mr-2"></i> Registrar Resultado Manual</h3>
+                            <form id="formResultadoManual" class="space-y-3">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome do Aluno</label><input type="text" id="addResAluno" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade</label><select id="addResCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escola</label><select id="addResEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada</label><select id="addResOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Série</label><select id="addResSerieSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Prêmio</label><select id="addResPremioSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
                                 </div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade</label>
-                                        <select id="addResCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Escola</label>
-                                        <select id="addResEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada</label>
-                                    <select id="addResOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                </div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Série do Aluno</label>
-                                        <select id="addResSerieSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de Premiação</label>
-                                        <select id="addResPremioSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                    </div>
-                                </div>
-                                <p class="text-[11px] text-gray-500 leading-relaxed">Em caso de duplicidade para o mesmo aluno, escola, cidade, olimpíada e série, o registro mais novo substitui o anterior automaticamente.</p>
-                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Salvar Resultado</button>
+                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Registrar Resultado</button>
                             </form>
                         </div>
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-file-excel text-emerald-400 mr-2"></i> Importar via Planilha</h3>
+                            <div id="dropZone" class="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 transition">
+                                <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-600 mb-3"></i>
+                                <p class="text-sm text-gray-400 font-semibold">Arraste sua planilha aqui</p>
+                                <p class="text-xs text-gray-600 mt-1">ou clique para selecionar</p>
+                                <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
+                            </div>
+                            <button onclick="downloadTemplate()" class="w-full py-2 bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 border border-emerald-800/40 font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-download mr-2"></i>Baixar Modelo .xlsx</button>
+                        </div>
                     </div>
-
-                    <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
-                        <div class="p-5 border-b border-gray-700 bg-gray-800/50 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-                            <div>
-                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Resultados Olímpicos Lançados</h3>
-                                <p id="contadorResultadosImportacao" class="text-xs text-gray-500 mt-1">0 resultado(s) listado(s)</p>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-4 gap-2 w-full xl:w-auto">
-                                <input type="text" id="filterResultadoNome" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Filtrar por aluno...">
-                                <select id="filterResultadoCidade" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
-                                <select id="filterResultadoEscola" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
-                                <select id="filterResultadoPremio" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
-                            </div>
+                    <!-- Filtros e tabela de resultados (todos os níveis com acesso veem) -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden">
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/50 flex flex-wrap gap-3 items-center">
+                            <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider mr-auto"><i class="fa-solid fa-list-check text-blue-400 mr-2"></i>Resultados Registrados</h3>
+                            <input type="text" id="filterResultadoNome" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300 focus:outline-none" placeholder="Buscar aluno...">
+                            <select id="filterResultadoCidade" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300 focus:outline-none"></select>
+                            <select id="filterResultadoEscola" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300 focus:outline-none"></select>
+                            <select id="filterResultadoPremio" class="p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300 focus:outline-none"></select>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left border-collapse min-w-max">
-                                <thead>
-                                    <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                        <th class="p-4">Aluno</th>
-                                        <th class="p-4">Escola</th>
-                                        <th class="p-4">Cidade</th>
-                                        <th class="p-4">Série</th>
-                                        <th class="p-4">Olimpíada</th>
-                                        <th class="p-4">Premiação</th>
-                                        <th class="p-4 text-right">Ações</th>
-                                    </tr>
-                                </thead>
+                                <thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Aluno</th><th class="p-4">Escola</th><th class="p-4">Cidade</th><th class="p-4">Série</th><th class="p-4">Olimpíada</th><th class="p-4">Prêmio</th><th class="p-4 text-right">Ações</th></tr></thead>
                                 <tbody id="tableResultadosImportacaoCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
                             </table>
                         </div>
                     </div>
                 </section>
 
+                <!-- ===================== PLATAFORMA DE ENSINO ===================== -->
+                <section id="view-plataforma" class="tab-view hidden space-y-6">
+                    <!-- Painel ADM para adicionar material -->
+                    <div id="painelAddMaterial" class="hidden bg-gray-800 border border-gray-700 rounded-2xl p-6 shadow-xl">
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-3 mb-4"><i class="fa-solid fa-circle-plus text-blue-400 mr-2"></i> Publicar Novo Material</h3>
+                        <form id="formAddMaterial" onsubmit="salvarNovoMaterial(event)" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div class="space-y-3">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Título</label><input type="text" id="matTitulo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Título do material" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de Conteúdo</label>
+                                    <select id="matTipo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" onchange="ajustarCamposFormMaterial()">
+                                        <option value="video">Vídeo (YouTube)</option>
+                                        <option value="link">Link / Material externo</option>
+                                        <option value="arquivo">Upload de arquivo (PDF)</option>
+                                    </select>
+                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Área Temática</label>
+                                    <select id="matArea" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
+                                        <option value="">Geral</option>
+                                        <option value="Matemática">Matemática</option>
+                                        <option value="Física">Física</option>
+                                        <option value="Química">Química</option>
+                                        <option value="Astronomia">Astronomia</option>
+                                        <option value="Ciências">Ciências</option>
+                                        <option value="Linguagem">Linguagem</option>
+                                        <option value="Humanas">Humanas</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Descrição (opcional)</label><textarea id="matDescricao" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none resize-none" rows="3" placeholder="Breve descrição do conteúdo..."></textarea></div>
+                                <div id="divMatUrl"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">URL / Link</label><input type="url" id="matUrl" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="https://www.youtube.com/..."></div>
+                                <div id="divMatArquivo" class="hidden"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Arquivo (PDF)</label><input type="file" id="matArquivo" accept=".pdf" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300"></div>
+                            </div>
+                            <div class="flex items-end">
+                                <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-lg"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar Material</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Grade de materiais -->
+                    <div>
+                        <div class="flex items-center gap-3 mb-4">
+                            <i class="fa-solid fa-chalkboard-user text-blue-400 text-lg"></i>
+                            <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Materiais Disponíveis</h3>
+                        </div>
+                        <div id="gridMateriais" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+                    </div>
+                </section>
+
+                <!-- ===================== MONITORIA ===================== -->
+                <section id="view-monitoria" class="tab-view hidden space-y-6">
+                    <!-- Aviso de configuração Firebase -->
+                    <div id="avisoFirebase" class="bg-amber-900/20 border border-amber-700/40 rounded-2xl p-5">
+                        <div class="flex items-start gap-3">
+                            <i class="fa-solid fa-triangle-exclamation text-amber-400 text-xl mt-0.5"></i>
+                            <div>
+                                <h4 class="font-bold text-amber-300 text-sm mb-1">Configuração Firebase necessária</h4>
+                                <p class="text-amber-200/70 text-xs leading-relaxed">Para o chat em tempo real funcionar, você precisa configurar um projeto Firebase gratuito. Siga os passos abaixo:</p>
+                                <ol class="text-amber-200/60 text-xs mt-2 space-y-1 list-decimal list-inside">
+                                    <li>Acesse <strong class="text-amber-300">console.firebase.google.com</strong> e crie um projeto gratuito</li>
+                                    <li>Ative o <strong class="text-amber-300">Realtime Database</strong> em modo de teste</li>
+                                    <li>Vá em Configurações do Projeto → Seus apps → Adicione um app Web</li>
+                                    <li>Copie as credenciais e cole na função <strong class="text-amber-300">initFirebase()</strong> no <code class="bg-amber-900/40 px-1 rounded">app.js</code></li>
+                                </ol>
+                                <p class="text-amber-200/50 text-xs mt-2">Enquanto não configurado, as salas ficam visíveis mas o chat não conecta.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center gap-3 mb-4">
+                            <i class="fa-solid fa-headset text-blue-400 text-lg"></i>
+                            <div>
+                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Salas de Monitoria</h3>
+                                <p class="text-xs text-gray-500 mt-0.5">Cada sala suporta até 2 participantes — 1 monitor e 1 aluno/usuário</p>
+                            </div>
+                        </div>
+                        <div id="gridSalasMonitoria" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+                    </div>
+                </section>
+
+                <!-- ===================== USUÁRIOS ===================== -->
                 <section id="view-usuarios" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
                             <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-user-plus text-blue-400 mr-2"></i> Criar Operador</h3>
                             <form id="formCadUsuario" class="space-y-3" onsubmit="salvarNovoUsuario(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nível de Acesso</label>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nível de Acesso</label>
                                     <select id="addUserNivel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" onchange="ajustarCamposFormUsuario()" required>
                                         <option value="ADM">Administrador</option>
                                         <option value="Gestor">Gestor Municipal</option>
                                         <option value="Escola">Escola</option>
                                         <option value="Aluno">Aluno</option>
+                                        <option value="Monitor">Monitor</option>
                                     </select>
                                 </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome Completo</label>
-                                    <input type="text" id="addUserNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome Completo</label><input type="text" id="addUserNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Login</label><input type="text" id="addUserLogin" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Senha</label><input type="password" id="addUserSenha" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 </div>
                                 <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Login</label>
-                                        <input type="text" id="addUserLogin" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Senha</label>
-                                        <input type="password" id="addUserSenha" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label><input type="email" id="addUserEmail" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Telefone</label><input type="text" id="addUserTelefone" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="(86) 99999-9999" required></div>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label>
-                                        <input type="email" id="addUserEmail" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Telefone</label>
-                                        <input type="text" id="addUserTelefone" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="(86) 99999-9999" required>
-                                    </div>
-                                </div>
-                                
-                                <div id="divVinculoCidade" class="hidden">
-                                    <label class="block text-xs font-semibold text-amber-400 uppercase mb-1">Vincular a uma Cidade Polo</label>
-                                    <select id="addUserCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-amber-500/30 text-sm text-gray-300 focus:outline-none"></select>
-                                </div>
-                                <div id="divVinculoEscola" class="hidden">
-                                    <label class="block text-xs font-semibold text-purple-400 uppercase mb-1">Vincular a uma Escola Conveniada</label>
-                                    <select id="addUserEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-purple-500/30 text-sm text-gray-300 focus:outline-none"></select>
-                                </div>
-
+                                <div id="divVinculoCidade" class="hidden"><label class="block text-xs font-semibold text-amber-400 uppercase mb-1">Vincular a uma Cidade Polo</label><select id="addUserCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-amber-500/30 text-sm text-gray-300 focus:outline-none"></select></div>
+                                <div id="divVinculoEscola" class="hidden"><label class="block text-xs font-semibold text-purple-400 uppercase mb-1">Vincular a uma Escola Conveniada</label><select id="addUserEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-purple-500/30 text-sm text-gray-300 focus:outline-none"></select></div>
                                 <button type="submit" class="w-full py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow transition">Homologar Credencial</button>
                             </form>
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
                             <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Credenciais Ativas na Plataforma</h3></div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                            <th class="p-4">Operador</th>
-                                            <th class="p-4">Login / Nível</th>
-                                            <th class="p-4">E-mail / Telefone</th>
-                                            <th class="p-4">Vínculo Territorial</th>
-                                            <th class="p-4 text-right">Ações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tableUsuariosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
-                                </table>
-                            </div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Operador</th><th class="p-4">Login / Nível</th><th class="p-4">E-mail / Telefone</th><th class="p-4">Vínculo Territorial</th><th class="p-4 text-right">Ações</th></tr></thead><tbody id="tableUsuariosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
 
+                <!-- ===================== OLIMPÍADAS ===================== -->
                 <section id="view-olimpiadas" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
+                        <div id="painelAddOlimpiada" class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
                             <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-blue-400 mr-1.5"></i> Homologar Competição</h3>
                             <form id="formCadOlimpiada" class="space-y-4" onsubmit="salvarNovaOlimpiada(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Olimpíada</label>
-                                    <input type="text" id="addOliNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Olimpíada Brasileira de Física" required>
-                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Olimpíada</label><input type="text" id="addOliNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Olimpíada Brasileira de Física" required></div>
                                 <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Frente (Sigla)</label>
-                                        <input type="text" id="addOliCategoria" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: FÍS" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Atendidas</label>
-                                        <input type="text" id="addOliSeries" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º ao 9º Ano" required>
-                                    </div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Frente (Sigla)</label><input type="text" id="addOliCategoria" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: FÍS" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Atendidas</label><input type="text" id="addOliSeries" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º ao 9º Ano" required></div>
                                 </div>
                                 <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Homologar Olimpíada</button>
                             </form>
@@ -409,6 +372,7 @@
                     </div>
                 </section>
 
+                <!-- ===================== CIDADES ===================== -->
                 <section id="view-cidades" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
@@ -429,6 +393,7 @@
                     </div>
                 </section>
 
+                <!-- ===================== ESCOLAS ===================== -->
                 <section id="view-escolas" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-3">
@@ -448,10 +413,7 @@
                                     <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Diretor</label><input type="text" id="addEscDiretor" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                     <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label><input type="email" id="addEscEmail" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade Vinculada</label>
-                                    <select id="addEscCidadeSelect" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
-                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade Vinculada</label><select id="addEscCidadeSelect" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select></div>
                                 <button type="submit" class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-md">Homologar Unidade</button>
                             </form>
                         </div>
@@ -466,9 +428,50 @@
         </div>
     </div>
 
+    <!-- ===================== MODAL EDIÇÃO GENÉRICO ===================== -->
+    <div id="modalEdicao" class="hidden fixed inset-0 z-50 items-center justify-center px-4">
+        <div id="modalEdicaoOverlay" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+        <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b border-gray-700 flex items-center justify-between">
+                <h3 id="modalEdicaoTitulo" class="text-base font-bold text-white capitalize"></h3>
+                <button onclick="fecharModalEdicao()" class="text-gray-500 hover:text-gray-300"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div id="modalEdicaoCampos" class="p-6 space-y-4"></div>
+            <div class="p-6 border-t border-gray-700 flex gap-3">
+                <button id="modalEdicaoBtnSalvar" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Salvar alterações</button>
+                <button id="modalEdicaoBtnApagar" class="py-2.5 px-4 bg-red-900/30 hover:bg-red-900/60 text-red-400 border border-red-900/40 font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>
+                <button id="modalEdicaoBtnCancelar" class="py-2.5 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold text-xs uppercase tracking-wider rounded-xl transition">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== MODAL CHAT MONITORIA ===================== -->
+    <div id="modalMonitoria" class="hidden fixed inset-0 z-50 items-center justify-center px-4">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="fecharModalMonitoria()"></div>
+        <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style="height: 600px; max-height: 90vh;">
+            <!-- Header -->
+            <div class="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                <h3 id="monitoriaModalTitulo" class="text-sm font-bold text-white"></h3>
+                <button onclick="fecharModalMonitoria()" class="text-gray-500 hover:text-gray-300"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <!-- Mensagens -->
+            <div id="monitoriaMessages" class="flex-1 overflow-y-auto p-4 space-y-1"></div>
+            <!-- Input -->
+            <div class="p-4 border-t border-gray-700 shrink-0">
+                <div class="flex gap-2">
+                    <input type="text" id="monitoriaInput" class="flex-1 p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter') enviarMensagemMonitoria()">
+                    <button onclick="enviarMensagemMonitoria()" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-bold text-sm transition"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== SCRIPTS ===================== -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <script src="database.js"></script>
     <script src="app.js"></script>
 </body>
