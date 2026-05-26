@@ -1,269 +1,430 @@
-/* app.js - Inteligência de Negócio, Escopo e Gestão de Níveis */
-
-// Bancos de Dados em Memória Volátil de Inicialização
 let USUARIOS_LOGADOS = { ...USERS_DB };
+
 let MUNICIPIOS_DATA = ["São Braz - PI", "Teresina - PI", "Picos - PI"];
-let ESCOLAS_DATA = ["U.E. Polo Municipal", "C.E. Estadual São Braz", "U.E. Clarindo Lopes"];
+
+let ESCOLAS_DATA = [
+  "U.E. Polo Municipal",
+  "C.E. Estadual São Braz",
+  "U.E. Clarindo Lopes"
+];
+
 let ALUNOS_REPOSITORIO = [
-    { aluno: "Carlos Eduardo", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Canguru de Matemática", premio: "Ouro" },
-    { aluno: "Ana Clara", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Canguru de Matemática", premio: "Prata" },
-    { aluno: "Mariana Souza", escola: "U.E. Polo Municipal", municipio: "São Braz - PI", olimpiada: "Olimpíada Brasileira de Matemática Financeira", premio: "Ouro" },
-    { aluno: "Mateus Lima", escola: "C.E. Estadual São Braz", municipio: "São Braz - PI", olimpiada: "Olimpíada Brasileira de Geopolítica", premio: "Ouro" }
+  {
+    aluno: "Carlos Eduardo",
+    escola: "U.E. Polo Municipal",
+    municipio: "São Braz - PI",
+    olimpiada: "Olimpíada Canguru de Matemática",
+    premio: "Ouro"
+  },
+  {
+    aluno: "Ana Clara",
+    escola: "U.E. Polo Municipal",
+    municipio: "São Braz - PI",
+    olimpiada: "Olimpíada Canguru de Matemática",
+    premio: "Prata"
+  },
+  {
+    aluno: "Mariana Souza",
+    escola: "U.E. Polo Municipal",
+    municipio: "São Braz - PI",
+    olimpiada: "Olimpíada Brasileira de Matemática Financeira",
+    premio: "Ouro"
+  },
+  {
+    aluno: "Mateus Lima",
+    escola: "C.E. Estadual São Braz",
+    municipio: "São Braz - PI",
+    olimpiada: "Olimpíada Brasileira de Geopolítica",
+    premio: "Ouro"
+  }
 ];
 
 let currentUser = null;
 let chartInstance = null;
 
-// Lógica de Autenticação com Controle de Escopo
 function executarLogin() {
-    const userField = document.getElementById("auth-user").value.trim().toLowerCase();
-    const passField = document.getElementById("auth-pass").value;
+  const userField = document.getElementById("auth-user").value.trim().toLowerCase();
+  const passField = document.getElementById("auth-pass").value;
 
-    if (USUARIOS_LOGADOS[userField] && USUARIOS_LOGADOS[userField].senha === passField) {
-        currentUser = USUARIOS_LOGADOS[userField];
-        document.getElementById("auth-screen").style.display = "none";
-        document.getElementById("app-container").classList.add("app-active");
-        
-        // Atualiza elementos visuais de identificação corporativa
-        document.getElementById("nav-user-name").innerText = currentUser.nome;
-        document.getElementById("nav-user-role").innerText = `Nível: ${currentUser.role}`;
+  if (USUARIOS_LOGADOS[userField] && USUARIOS_LOGADOS[userField].senha === passField) {
+    currentUser = USUARIOS_LOGADOS[userField];
 
-        // Trata os menus restritos de governança baseando-se no nível
-        aplicarRestricoesDeNivel();
-        
-        // Inicializa as views
-        renderizarFiltrosSelects();
-        renderizarDashboard();
-        renderizarCalendarioMestre();
-        
-        // Carrega as tabelas de gestão interna
-        renderizarGestaoUsuarios();
-        renderizarGestaoMunicipios();
-        renderizarGestaoEscolas();
-        renderizarGestaoAlunos();
-    } else {
-        alert("❌ Credenciais inválidas! Tente novamente.");
-    }
+    document.getElementById("auth-screen").style.display = "none";
+    document.getElementById("app-container").classList.add("app-active");
+
+    document.getElementById("nav-user-name").innerText = currentUser.nome;
+    document.getElementById("nav-user-role").innerText = `Nível: ${currentUser.role}`;
+
+    aplicarRestricoesDeNivel();
+    renderizarFiltrosSelects();
+    renderizarDashboard();
+    renderizarCalendarioMestre();
+    renderizarGestaoUsuarios();
+    renderizarGestaoMunicipios();
+    renderizarGestaoEscolas();
+    renderizarGestaoAlunos();
+  } else {
+    alert("❌ Credenciais inválidas! Tente novamente.");
+  }
 }
 
 function executarLogout() {
-    currentUser = null;
-    document.getElementById("app-container").classList.remove("app-active");
-    document.getElementById("auth-screen").style.display = "flex";
-    document.getElementById("auth-pass").value = "";
+  currentUser = null;
+  document.getElementById("app-container").classList.remove("app-active");
+  document.getElementById("auth-screen").style.display = "flex";
+  document.getElementById("auth-pass").value = "";
 }
 
 function aplicarRestricoesDeNivel() {
-    // Abas Administrativas
-    const btnUser = document.getElementById("btn-tab-usuarios");
-    const btnMun = document.getElementById("btn-tab-municipios");
-    const btnEsc = document.getElementById("btn-tab-escolas");
+  const btnUser = document.getElementById("btn-tab-usuarios");
+  const btnMun = document.getElementById("btn-tab-municipios");
+  const btnEsc = document.getElementById("btn-tab-escolas");
 
-    if (currentUser.role === "ADM") {
-        btnUser.style.display = "block";
-        btnMun.style.display = "block";
-        btnEsc.style.display = "block";
-    } else if (currentUser.role === "Coordenador Municipal") {
-        btnUser.style.display = "none";
-        btnMun.style.display = "none";
-        btnEsc.style.display = "block"; // Coordenador do município gerencia suas escolas
-    } else { // Nível Escola
-        btnUser.style.display = "none";
-        btnMun.style.display = "none";
-        btnEsc.style.display = "none";
-    }
+  if (!btnUser || !btnMun || !btnEsc) return;
+
+  if (currentUser.role === "ADM") {
+    btnUser.style.display = "block";
+    btnMun.style.display = "block";
+    btnEsc.style.display = "block";
+  } else if (currentUser.role === "Coordenador Municipal") {
+    btnUser.style.display = "none";
+    btnMun.style.display = "none";
+    btnEsc.style.display = "block";
+  } else {
+    btnUser.style.display = "none";
+    btnMun.style.display = "none";
+    btnEsc.style.display = "none";
+  }
 }
 
-// Renderização dos Filtros Superiores Inteligentes
 function renderizarFiltrosSelects() {
-    const filterMun = document.getElementById("filtro-municipio");
-    filterMun.innerHTML = '<option value="todos">Todos os Municípios</option>';
-    
+  const filterMun = document.getElementById("filtro-municipio");
+  const filterOly = document.getElementById("filtro-olimpiada");
+
+  if (filterMun) {
+    filterMun.innerHTML = `<option value="todos">Todos os Municípios</option>`;
+
     MUNICIPIOS_DATA.forEach(m => {
-        filterMun.innerHTML += `<option value="${m}">${m}</option>`;
+      filterMun.innerHTML += `<option value="${m}">${m}</option>`;
     });
 
-    // Se o usuário tiver restrição de escopo por município, força o filtro e bloqueia
+    filterMun.disabled = false;
+
     if (currentUser.role === "Coordenador Municipal") {
-        filterMun.value = currentUser.escopo;
-        filterMun.disabled = true;
+      filterMun.value = currentUser.escopo;
+      filterMun.disabled = true;
     }
+  }
+
+  if (filterOly) {
+    filterOly.innerHTML = `<option value="todas">Todas as Olimpíadas</option>`;
+
+    OLYMPIADS_DB.forEach(o => {
+      filterOly.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
+    });
+  }
 }
 
-// Cálculo Analítico e Renderização de Gráficos (Chart.js)
 function renderizarDashboard() {
-    const mSel = document.getElementById("filtro-municipio").value;
-    const oSel = document.getElementById("filtro-olimpiada").value;
+  const mSel = document.getElementById("filtro-municipio")?.value || "todos";
+  const oSel = document.getElementById("filtro-olimpiada")?.value || "todas";
 
-    let filtrados = ALUNOS_REPOSITORIO.filter(item => {
-        const bMun = (mSel === "todos" || item.municipio === mSel);
-        const bOly = (oSel === "todas" || item.olimpiada === oSel);
-        
-        // Filtro cascata do nível de Escola logado
-        if (currentUser.role === "Escola" && item.escola !== currentUser.escopo) return false;
-        
-        return bMun && bOly;
-    });
+  let filtrados = ALUNOS_REPOSITORIO.filter(item => {
+    const bMun = mSel === "todos" || item.municipio === mSel;
+    const bOly = oSel === "todas" || item.olimpiada === oSel;
 
-    let o = 0, p = 0, b = 0, m = 0;
-    filtrados.forEach(item => {
-        if (item.premio === "Ouro") o++;
-        else if (item.premio === "Prata") p++;
-        else if (item.premio === "Bronze") b++;
-        else if (item.premio === "Menção Honrosa") m++;
-    });
+    if (currentUser.role === "Escola" && item.escola !== currentUser.escopo) {
+      return false;
+    }
 
-    document.getElementById("card-ouro").innerText = o;
-    document.getElementById("card-prata").innerText = p;
-    document.getElementById("card-bronze").innerText = b;
-    document.getElementById("card-mencao").innerText = m;
-    document.getElementById("card-total").innerText = o + p + b + m;
-    document.getElementById("card-medalhas").innerText = o + p + b;
+    return bMun && bOly;
+  });
 
-    // Inicialização segura do gráfico de barras
-    const ctx = document.getElementById('chartCanvas').getContext('2d');
-    if (chartInstance) chartInstance.destroy();
-    
+  let ouro = 0;
+  let prata = 0;
+  let bronze = 0;
+  let mencao = 0;
+
+  filtrados.forEach(item => {
+    if (item.premio === "Ouro") ouro++;
+    else if (item.premio === "Prata") prata++;
+    else if (item.premio === "Bronze") bronze++;
+    else if (item.premio === "Menção Honrosa") mencao++;
+  });
+
+  document.getElementById("card-ouro").innerText = ouro;
+  document.getElementById("card-prata").innerText = prata;
+  document.getElementById("card-bronze").innerText = bronze;
+  document.getElementById("card-mencao").innerText = mencao;
+  document.getElementById("card-total").innerText = ouro + prata + bronze + mencao;
+  document.getElementById("card-medalhas").innerText = ouro + prata + bronze;
+
+  const canvas = document.getElementById("chartCanvas");
+
+  if (canvas && typeof Chart !== "undefined") {
+    const ctx = canvas.getContext("2d");
+
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+
     chartInstance = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['🥇 Ouro', '🥈 Prata', '🥉 Bronze', '🏅 Menção'],
-            datasets: [{
-                label: 'Volume de Premiações 2026',
-                data: [o, p, b, m],
-                backgroundColor: ['#eab308', '#94a3b8', '#ea580c', '#8b5cf6']
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
+      type: "bar",
+      data: {
+        labels: ["Ouro", "Prata", "Bronze", "Menção"],
+        datasets: [
+          {
+            label: "Volume de Premiações 2026",
+            data: [ouro, prata, bronze, mencao],
+            backgroundColor: ["#eab308", "#94a3b8", "#ea580c", "#8b5cf6"]
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false
+      }
     });
+  }
 }
 
-// Injeção de Dados do Mestre Calendário (45 Olimpíadas de database.js)
 function renderizarCalendarioMestre() {
-    let html = "";
-    OLYMPIADS_DB.forEach(oly => {
-        html += `<tr>
-            <td><span class="badge bg-${oly.cat.toLowerCase()}">${oly.cat}</span> <b>${oly.nome}</b></td>
-            <td>${oly.target}</td>
-            <td style="font-weight:bold; color:#1e2a6b;">${oly.data}</td>
-            <td><a href="${oly.site}" target="_blank" class="btn" style="padding:4px 8px; font-size:11px;">Acessar Portal</a></td>
-        </tr>`;
-    });
-    document.getElementById("tabela-calendario").innerHTML = html;
+  const tabela = document.getElementById("tabela-calendario");
+  if (!tabela) return;
+
+  let html = "";
+
+  OLYMPIADS_DB.forEach(oly => {
+    html += `
+      <tr>
+        <td><strong>${oly.nome}</strong><br><small>${oly.cat}</small></td>
+        <td>${oly.target}</td>
+        <td>${oly.data}</td>
+        <td>
+          <a href="${oly.site}" target="_blank">Acessar Portal</a>
+        </td>
+      </tr>
+    `;
+  });
+
+  tabela.innerHTML = html;
 }
 
-// MÓDULOS DE GESTÃO DA PLATAFORMA
-
-// 1. Gestão de Usuários (Apenas ADM)
 function renderizarGestaoUsuarios() {
-    if (currentUser.role !== "ADM") return;
-    let html = "";
-    Object.keys(USUARIOS_LOGADOS).forEach(key => {
-        let u = USUARIOS_LOGADOS[key];
-        html += `<tr><td><b>${key}</b></td><td>${u.nome}</td><td>${u.role}</td><td>${u.escopo}</td></tr>`;
-    });
-    document.getElementById("tbody-usuarios").innerHTML = html;
+  const tbody = document.getElementById("tbody-usuarios");
+  if (!tbody) return;
+
+  if (currentUser.role !== "ADM") {
+    tbody.innerHTML = "";
+    return;
+  }
+
+  let html = "";
+
+  Object.keys(USUARIOS_LOGADOS).forEach(key => {
+    const u = USUARIOS_LOGADOS[key];
+
+    html += `
+      <tr>
+        <td>${key}</td>
+        <td>${u.nome}</td>
+        <td>${u.role}</td>
+        <td>${u.escopo}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
 }
 
 function cadastrarUsuario(e) {
-    e.preventDefault();
-    const user = document.getElementById("new-user").value.trim().toLowerCase();
-    const nome = document.getElementById("new-nome").value;
-    const role = document.getElementById("new-role").value;
-    const senha = document.getElementById("new-pass").value;
-    const escopo = document.getElementById("new-escopo").value;
+  e.preventDefault();
 
-    if (USUARIOS_LOGADOS[user]) { alert("Usuário já cadastrado!"); return; }
-    
-    USUARIOS_LOGADOS[user] = { senha, role, nome, escopo };
-    alert("✓ Usuário inserido com sucesso!");
-    document.getElementById("form-usuarios").reset();
-    renderizarGestaoUsuarios();
+  const user = document.getElementById("new-user").value.trim().toLowerCase();
+  const nome = document.getElementById("new-nome").value;
+  const role = document.getElementById("new-role").value;
+  const senha = document.getElementById("new-pass").value;
+  const escopo = document.getElementById("new-escopo").value;
+
+  if (USUARIOS_LOGADOS[user]) {
+    alert("Usuário já cadastrado!");
+    return;
+  }
+
+  USUARIOS_LOGADOS[user] = { senha, role, nome, escopo };
+
+  alert("✓ Usuário inserido com sucesso!");
+  document.getElementById("form-usuarios").reset();
+  renderizarGestaoUsuarios();
 }
 
-// 2. Gestão de Municípios (Apenas ADM)
 function renderizarGestaoMunicipios() {
-    let html = "";
-    MUNICIPIOS_DATA.forEach((m, idx) => {
-        html += `<tr><td>${idx+1}</td><td><b>${m}</b></td><td>Estado do Piauí</td></tr>`;
-    });
-    document.getElementById("tbody-municipios").innerHTML = html;
+  const tbody = document.getElementById("tbody-municipios");
+  if (!tbody) return;
+
+  let html = "";
+
+  MUNICIPIOS_DATA.forEach((m, idx) => {
+    html += `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${m}</td>
+        <td>Estado do Piauí</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
 }
 
 function cadastrarMunicipio(e) {
-    e.preventDefault();
-    const m = document.getElementById("new-mun-nome").value;
-    MUNICIPIOS_DATA.push(m);
-    alert("✓ Município cadastrado!");
-    document.getElementById("form-municipios").reset();
-    renderizarGestaoMunicipios();
-    renderizarFiltrosSelects();
+  e.preventDefault();
+
+  const m = document.getElementById("new-mun-nome").value.trim();
+
+  if (!m) return;
+
+  MUNICIPIOS_DATA.push(m);
+
+  alert("✓ Município cadastrado!");
+  document.getElementById("form-municipios").reset();
+
+  renderizarGestaoMunicipios();
+  renderizarFiltrosSelects();
 }
 
-// 3. Gestão de Escolas (ADM e Coordenador Municipal)
 function renderizarGestaoEscolas() {
-    let html = "";
-    ESCOLAS_DATA.forEach((esc, idx) => {
-        html += `<tr><td>${idx+1}</td><td><b>${esc}</b></td><td>Ativa</td></tr>`;
+  const tbody = document.getElementById("tbody-escolas");
+  if (!tbody) return;
+
+  let html = "";
+
+  ESCOLAS_DATA.forEach((esc, idx) => {
+    html += `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${esc}</td>
+        <td>Ativa</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  const selectEscola = document.getElementById("new-al-escola");
+
+  if (selectEscola) {
+    selectEscola.innerHTML = "";
+
+    ESCOLAS_DATA.forEach(esc => {
+      selectEscola.innerHTML += `<option value="${esc}">${esc}</option>`;
     });
-    document.getElementById("tbody-escolas").innerHTML = html;
+  }
 }
 
 function cadastrarEscola(e) {
-    e.preventDefault();
-    const esc = document.getElementById("new-esc-nome").value;
-    ESCOLAS_DATA.push(esc);
-    alert("✓ Escola integrada!");
-    document.getElementById("form-escolas").reset();
-    renderizarGestaoEscolas();
+  e.preventDefault();
+
+  const esc = document.getElementById("new-esc-nome").value.trim();
+
+  if (!esc) return;
+
+  ESCOLAS_DATA.push(esc);
+
+  alert("✓ Escola integrada!");
+  document.getElementById("form-escolas").reset();
+
+  renderizarGestaoEscolas();
 }
 
-// 4. Gestão de Alunos / Resultados (Todos conforme escopo)
 function renderizarGestaoAlunos() {
-    let html = "";
-    let filtrados = ALUNOS_REPOSITORIO;
-    if (currentUser.role === "Escola") {
-        filtrados = ALUNOS_REPOSITORIO.filter(a => a.escola === currentUser.escopo);
-    }
-    
-    filtrados.forEach((a, idx) => {
-        html += `<tr>
-            <td><b>${a.aluno}</b></td>
-            <td>${a.escola}</td>
-            <td>${a.olimpiada}</td>
-            <td><span class="badge bg-mat">${a.premio}</span></td>
-        </tr>`;
+  const tbody = document.getElementById("tbody-alunos");
+  if (!tbody) return;
+
+  let filtrados = [...ALUNOS_REPOSITORIO];
+
+  if (currentUser.role === "Escola") {
+    filtrados = ALUNOS_REPOSITORIO.filter(a => a.escola === currentUser.escopo);
+  }
+
+  let html = "";
+
+  filtrados.forEach(a => {
+    html += `
+      <tr>
+        <td>${a.aluno}</td>
+        <td>${a.escola}</td>
+        <td>${a.olimpiada}</td>
+        <td>${a.premio}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  const selectOly = document.getElementById("new-al-olimpiada");
+
+  if (selectOly) {
+    selectOly.innerHTML = `<option value="">Selecione a Competição</option>`;
+
+    OLYMPIADS_DB.forEach(o => {
+      selectOly.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
     });
-    document.getElementById("tbody-alunos").innerHTML = html;
-    
-    // Alimenta a lista de olimpíadas no formulário de cadastro de aluno
-    const selectOly = document.getElementById("new-al-olimpiada");
-    if(selectOly.options.length <= 1) {
-        OLYMPIADS_DB.forEach(o => {
-            selectOly.innerHTML += `<option value="${o.nome}">${o.nome}</option>`;
-        });
-    }
+  }
 }
 
 function cadastrarAluno(e) {
-    e.preventDefault();
-    const aluno = document.getElementById("new-al-nome").value;
-    const escola = currentUser.role === "Escola" ? currentUser.escopo : document.getElementById("new-al-escola").value;
-    const municipio = currentUser.role === "Escola" ? "São Braz - PI" : "São Braz - PI"; 
-    const olimpiada = document.getElementById("new-al-olimpiada").value;
-    const premio = document.getElementById("new-al-premio").value;
+  e.preventDefault();
 
-    ALUNOS_REPOSITORIO.push({ aluno, escola, municipio, olimpiada, premio });
-    alert("✓ Resultado olímpico computado!");
-    document.getElementById("form-alunos").reset();
-    renderizarGestaoAlunos();
-    renderizarDashboard();
+  const aluno = document.getElementById("new-al-nome").value.trim();
+  const olimpiada = document.getElementById("new-al-olimpiada").value;
+  const premio = document.getElementById("new-al-premio").value;
+
+  let escola;
+
+  if (currentUser.role === "Escola") {
+    escola = currentUser.escopo;
+  } else {
+    escola = document.getElementById("new-al-escola").value;
+  }
+
+  const municipio = "São Braz - PI";
+
+  if (!aluno || !escola || !olimpiada || !premio) {
+    alert("Preencha todos os campos.");
+    return;
+  }
+
+  ALUNOS_REPOSITORIO.push({
+    aluno,
+    escola,
+    municipio,
+    olimpiada,
+    premio
+  });
+
+  alert("✓ Resultado olímpico computado!");
+
+  document.getElementById("form-alunos").reset();
+
+  renderizarGestaoAlunos();
+  renderizarDashboard();
 }
 
-// Controle de Navegação de Abas Internas
-function switchTab(id) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-    event.target.classList.add('active');
+function switchTab(id, evt) {
+  document.querySelectorAll(".tab-content").forEach(el => {
+    el.classList.remove("active");
+  });
+
+  document.querySelectorAll(".tab-btn").forEach(el => {
+    el.classList.remove("active");
+  });
+
+  document.getElementById(id).classList.add("active");
+
+  if (evt && evt.target) {
+    evt.target.classList.add("active");
+  } else if (window.event && window.event.target) {
+    window.event.target.classList.add("active");
+  }
 }
