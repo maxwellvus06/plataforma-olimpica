@@ -178,12 +178,20 @@ function initLogin() {
             if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...'; }
             await sincronizarUsuariosFirebaseInicial();
             const usuariosCadastrados = getStorage("app_usuarios");
-            const contaEncontrada = usuariosCadastrados.find(u => normalizarTexto(u.login) === userInput && String(u.senha) === passInput);
+
+            const contaEncontrada = usuariosCadastrados.find(u => {
+                // Aceita tanto campos internos (login/senha) quanto campos do Firestore (username/password)
+                const loginUser   = normalizarTexto(u.login || u.username || "");
+                const senhaUser   = String(u.senha || u.password || "");
+                return loginUser === userInput && senhaUser === passInput;
+            });
 
             if (contaEncontrada) {
-                usuarioLogado = contaEncontrada;
-                sessionStorage.setItem("avance_session", JSON.stringify(contaEncontrada));
-                logarSucesso(contaEncontrada);
+                // Garante que o objeto salvo na sessão usa os campos internos do sistema
+                const usuarioNormalizado = normalizarUsuarioFirestore(contaEncontrada);
+                usuarioLogado = usuarioNormalizado;
+                sessionStorage.setItem("avance_session", JSON.stringify(usuarioNormalizado));
+                logarSucesso(usuarioNormalizado);
             } else {
                 alert("Erro de Autenticação: Login inválido.");
             }
@@ -542,20 +550,28 @@ async function sincronizarUsuariosFirebaseInicial() {
         const snap = await firebaseFirestore.collection(FIREBASE_USUARIOS_PATH).get();
 
         if (!snap.empty) {
-            // Firestore tem usuários → normaliza e mescla (aceita campos username/password/role)
+            // Normaliza todos os docs (converte username→login, password→senha, etc.)
             const remotos = snap.docs.map(d => normalizarUsuarioFirestore(d));
+
+            // Mescla: remotos têm prioridade, locais preenchem gaps
             const mapa = new Map();
-            remotos.forEach(u => mapa.set(u.id || u.login, u));
+            remotos.forEach(u => mapa.set(normalizarTexto(u.login), u));
             locais.forEach(u => {
-                const chave = u.id || u.login;
-                const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(u.login));
-                if (!mapa.has(chave) && !loginJaExiste) mapa.set(chave, u);
+                const chave = normalizarTexto(u.login || u.username || "");
+                if (!mapa.has(chave)) mapa.set(chave, normalizarUsuarioFirestore(u));
             });
-            const mesclados = Array.from(mapa.values()).filter(Boolean);
+
+            const mesclados = Array.from(mapa.values()).filter(u => u.login);
             setStorage("app_usuarios", mesclados);
-            if (mesclados.length !== remotos.length) {
-                await fsSetAll(FIREBASE_USUARIOS_PATH, mesclados);
-            }
+
+            // Atualiza cada doc no Firestore com os campos normalizados (sem apagar)
+            const batch = firebaseFirestore.batch();
+            snap.docs.forEach(d => {
+                const normalizado = normalizarUsuarioFirestore(d);
+                batch.set(d.ref, normalizado, { merge: true });
+            });
+            await batch.commit();
+
             return mesclados;
         }
 
