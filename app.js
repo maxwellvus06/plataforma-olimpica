@@ -1000,13 +1000,34 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
     campos.forEach(campo => {
         const wrap = document.createElement("div");
         wrap.className = "space-y-1";
+        wrap.id = `modalWrap_${campo.nome}`;
         const label = document.createElement("label");
         label.className = "block text-xs font-semibold text-gray-400 uppercase tracking-wider";
         label.innerText = campo.label;
         wrap.appendChild(label);
 
         let input;
-        if (campo.tipo === "select" || campo.tipo === "selectGrouped") {
+        if (campo.tipo === "checkboxGroup") {
+            input = document.createElement("div");
+            input.id = `modalCampo_${campo.nome}`;
+            input.className = "grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-xl bg-gray-900 border border-gray-700 p-3 text-xs text-gray-300";
+            const valoresAtuais = Array.isArray(campo.valor) ? campo.valor.map(v => normalizarTexto(v)) : [];
+            const opts = Array.isArray(campo.options) ? campo.options : [];
+            opts.forEach(opt => {
+                const valor = typeof opt === "object" ? opt.value : opt;
+                const texto = typeof opt === "object" ? opt.text : opt;
+                const labelOpt = document.createElement("label");
+                labelOpt.className = "flex items-center gap-2 leading-snug";
+                const chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.value = valor;
+                chk.className = "accent-blue-500";
+                chk.checked = valoresAtuais.includes(normalizarTexto(valor));
+                labelOpt.appendChild(chk);
+                labelOpt.appendChild(document.createTextNode(texto));
+                input.appendChild(labelOpt);
+            });
+        } else if (campo.tipo === "select" || campo.tipo === "selectGrouped") {
             input = document.createElement("select");
             input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none";
 
@@ -1025,7 +1046,7 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
         } else if (campo.tipo === "textarea") {
             input = document.createElement("textarea");
             input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none resize-none";
-            input.rows = 3;
+            input.rows = campo.rows || 3;
             input.value = campo.valor ?? "";
         } else {
             input = document.createElement("input");
@@ -1033,7 +1054,7 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
             input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none";
             input.value = campo.valor ?? "";
         }
-        input.id = `modalCampo_${campo.nome}`;
+        input.id = input.id || `modalCampo_${campo.nome}`;
         wrap.appendChild(input);
         corpo.appendChild(wrap);
     });
@@ -1046,7 +1067,14 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
 
     document.getElementById("modalEdicaoBtnSalvar").onclick = () => {
         const dados = {};
-        campos.forEach(c => { dados[c.nome] = document.getElementById(`modalCampo_${c.nome}`)?.value ?? ""; });
+        campos.forEach(c => {
+            const el = document.getElementById(`modalCampo_${c.nome}`);
+            if (c.tipo === "checkboxGroup") {
+                dados[c.nome] = Array.from(el?.querySelectorAll('input[type="checkbox"]:checked') || []).map(chk => chk.value);
+            } else {
+                dados[c.nome] = el?.value ?? "";
+            }
+        });
         const resultado = onSalvar(dados);
         if (resultado !== false) fecharModalEdicao();
     };
@@ -1251,6 +1279,35 @@ function editarEscola(id) {
     });
 }
 
+function valorOlimpiadaAtual(atual, campo, fallback = "") {
+    const v = atual?.[campo];
+    return v === undefined || v === null ? fallback : v;
+}
+
+function listaOlimpiadaAtual(atual, campo, fallbackCampoTexto = "") {
+    if (Array.isArray(atual?.[campo])) return atual[campo];
+    if (fallbackCampoTexto && typeof atual?.[fallbackCampoTexto] === "string") {
+        return atual[fallbackCampoTexto].split(",").map(x => x.trim()).filter(Boolean);
+    }
+    return [];
+}
+
+function sincronizarCondicionaisModalOlimpiada() {
+    const restricao = document.getElementById("modalCampo_possuiRestricaoIdade");
+    const idadeWrap = document.getElementById("modalWrap_idadeMaxima");
+    const modalidades = document.getElementById("modalCampo_possuiModalidades");
+    const modalidadesWrap = document.getElementById("modalWrap_modalidadesDescricao");
+
+    const aplicar = () => {
+        if (idadeWrap) idadeWrap.classList.toggle("hidden", restricao?.value !== "Sim");
+        if (modalidadesWrap) modalidadesWrap.classList.toggle("hidden", modalidades?.value !== "Sim");
+    };
+
+    if (restricao) restricao.onchange = aplicar;
+    if (modalidades) modalidades.onchange = aplicar;
+    aplicar();
+}
+
 function editarOlimpiada(id) {
     if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar olimpíadas.");
     const olimpiadas = getStorage("app_olimpiadas");
@@ -1261,23 +1318,81 @@ function editarOlimpiada(id) {
     const categoriaAntiga = atual.categoria;
 
     abrirModalEdicao({
-        titulo: "Editar olimpíada",
+        titulo: "Visualizar / editar olimpíada homologada",
         campos: [
-            { nome: "nome", label: "Nome da olimpíada", valor: atual.nome },
-            { nome: "categoria", label: "Frente / sigla", valor: atual.categoria || "" },
-            { nome: "series", label: "Séries atendidas", valor: atual.series || "" }
+            { nome: "nome", label: "Nome completo da olimpíada", valor: valorOlimpiadaAtual(atual, "nome") },
+            { nome: "categoria", label: "Sigla / Frente", valor: valorOlimpiadaAtual(atual, "categoria") },
+            { nome: "edicao", label: "Edição / Número", tipo: "number", valor: valorOlimpiadaAtual(atual, "edicao") },
+            { nome: "anoReferencia", label: "Ano de referência", tipo: "select", valor: valorOlimpiadaAtual(atual, "anoReferencia", anoDadosAtivo), options: OPCOES_OLIMPIADA.anos },
+            { nome: "areas", label: "Área / Disciplina", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "areas"), options: OPCOES_OLIMPIADA.areas },
+            { nome: "abrangencia", label: "Abrangência geográfica", tipo: "select", valor: valorOlimpiadaAtual(atual, "abrangencia", "Nacional"), options: OPCOES_OLIMPIADA.abrangencias },
+            { nome: "status", label: "Status", tipo: "select", valor: valorOlimpiadaAtual(atual, "status", "Ativa"), options: OPCOES_OLIMPIADA.status },
+
+            { nome: "organizadorPrincipal", label: "Organizador principal", valor: valorOlimpiadaAtual(atual, "organizadorPrincipal") },
+            { nome: "siteOficial", label: "Site oficial", tipo: "url", valor: valorOlimpiadaAtual(atual, "siteOficial") },
+            { nome: "instagramOficial", label: "Instagram oficial", valor: valorOlimpiadaAtual(atual, "instagramOficial") },
+            { nome: "tipoEscolaElegivel", label: "Tipo de escola elegível", tipo: "select", valor: valorOlimpiadaAtual(atual, "tipoEscolaElegivel", "Pública e privada"), options: OPCOES_OLIMPIADA.tiposEscola },
+            { nome: "inscricaoIndividual", label: "Inscrição pode ser individual?", tipo: "select", valor: valorOlimpiadaAtual(atual, "inscricaoIndividual", "Não"), options: OPCOES_OLIMPIADA.inscricaoIndividual },
+            { nome: "escolaPrecisaInscrever", label: "Escola precisa se inscrever?", tipo: "select", valor: valorOlimpiadaAtual(atual, "escolaPrecisaInscrever", "Sim, obrigatório"), options: OPCOES_OLIMPIADA.escolaInscricao },
+
+            { nome: "seriesAtendidas", label: "Séries atendidas", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "seriesAtendidas", "series"), options: OPCOES_OLIMPIADA.seriesAtendidas },
+            { nome: "segmentoPrincipal", label: "Segmento principal", tipo: "select", valor: valorOlimpiadaAtual(atual, "segmentoPrincipal", "Misto EF+EM"), options: OPCOES_OLIMPIADA.segmentos },
+            { nome: "possuiRestricaoIdade", label: "Possui restrição de idade?", tipo: "select", valor: valorOlimpiadaAtual(atual, "possuiRestricaoIdade", "Não"), options: OPCOES_OLIMPIADA.simNao },
+            { nome: "idadeMaxima", label: "Idade máxima do participante", tipo: "number", valor: valorOlimpiadaAtual(atual, "idadeMaxima") },
+            { nome: "possuiModalidades", label: "Possui modalidades/níveis internos?", tipo: "select", valor: valorOlimpiadaAtual(atual, "possuiModalidades", "Não"), options: OPCOES_OLIMPIADA.simNao },
+            { nome: "modalidadesDescricao", label: "Descrição das modalidades", tipo: "textarea", valor: valorOlimpiadaAtual(atual, "modalidadesDescricao") },
+
+            { nome: "numeroFases", label: "Número de fases", tipo: "select", valor: valorOlimpiadaAtual(atual, "numeroFases", "1 fase"), options: OPCOES_OLIMPIADA.numeroFases },
+            { nome: "tiposQuestao", label: "Tipo de questão (fase principal)", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "tiposQuestao"), options: OPCOES_OLIMPIADA.tiposQuestao },
+            { nome: "modalidadeAplicacao", label: "Modalidade de aplicação", tipo: "select", valor: valorOlimpiadaAtual(atual, "modalidadeAplicacao", "Presencial na escola"), options: OPCOES_OLIMPIADA.modalidadesAplicacao },
+            { nome: "duracaoProvaPrincipal", label: "Duração da prova principal", tipo: "select", valor: valorOlimpiadaAtual(atual, "duracaoProvaPrincipal", "2h"), options: OPCOES_OLIMPIADA.duracoes },
+            { nome: "materialProvaEnviadoComo", label: "Material de prova enviado como", tipo: "select", valor: valorOlimpiadaAtual(atual, "materialProvaEnviadoComo", "A definir"), options: OPCOES_OLIMPIADA.materiaisProva },
+            { nome: "correcaoRealizadaPor", label: "Correção realizada por", tipo: "select", valor: valorOlimpiadaAtual(atual, "correcaoRealizadaPor", "Correção centralizada pelo organizador"), options: OPCOES_OLIMPIADA.correcoes },
+
+            { nome: "gratuitaParaEscolaPublica", label: "É gratuita para escola pública?", tipo: "select", valor: valorOlimpiadaAtual(atual, "gratuitaParaEscolaPublica", "Sim"), options: OPCOES_OLIMPIADA.gratuitaPublica },
+            { nome: "custoEscolaPublica", label: "Custo para escola pública", valor: valorOlimpiadaAtual(atual, "custoEscolaPublica") },
+            { nome: "custoEscolaPrivada", label: "Custo para escola privada", valor: valorOlimpiadaAtual(atual, "custoEscolaPrivada") },
+            { nome: "formasPagamento", label: "Forma de pagamento", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "formasPagamento"), options: OPCOES_OLIMPIADA.formasPagamento },
+
+            { nome: "premiosOferecidos", label: "Tipos de prêmio oferecidos", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "premiosOferecidos"), options: OPCOES_OLIMPIADA.premios },
+            { nome: "categoriasPremiacao", label: "Categorias de premiação", tipo: "checkboxGroup", valor: listaOlimpiadaAtual(atual, "categoriasPremiacao"), options: OPCOES_OLIMPIADA.categoriasPremiacao },
+            { nome: "premiaProfessores", label: "Premia professores?", tipo: "select", valor: valorOlimpiadaAtual(atual, "premiaProfessores", "Não"), options: OPCOES_OLIMPIADA.simNao },
+            { nome: "premiaEscola", label: "Premia escola?", tipo: "select", valor: valorOlimpiadaAtual(atual, "premiaEscola", "Não"), options: OPCOES_OLIMPIADA.simNao },
+
+            { nome: "classificaPara", label: "Classifica para qual olimpíada?", valor: valorOlimpiadaAtual(atual, "classificaPara") },
+            { nome: "preRequisitoDe", label: "É pré-requisito de qual olimpíada?", valor: valorOlimpiadaAtual(atual, "preRequisitoDe") },
+            { nome: "olimpiadaInternacionalAssociada", label: "Olimpíada internacional associada", tipo: "select", valor: valorOlimpiadaAtual(atual, "olimpiadaInternacionalAssociada", "Nenhuma"), options: OPCOES_OLIMPIADA.internacionais },
+            { nome: "nivelFunil", label: "Nível de dificuldade / posição no funil", tipo: "select", valor: valorOlimpiadaAtual(atual, "nivelFunil", "Porta de entrada (fase única acessível)"), options: OPCOES_OLIMPIADA.niveisFunil }
         ],
+        onDepoisMontar: sincronizarCondicionaisModalOlimpiada,
         onSalvar: (d) => {
-            if (!d.nome || !d.categoria || !d.series) return alert("Nome, frente e séries são obrigatórios."), false;
+            if (!d.nome || !d.categoria) return alert("Nome completo e sigla/frente são obrigatórios."), false;
+            if (!Array.isArray(d.seriesAtendidas) || !d.seriesAtendidas.length) return alert("Selecione pelo menos uma série atendida."), false;
+            if (!Array.isArray(d.areas) || !d.areas.length) return alert("Selecione pelo menos uma área/disciplina."), false;
+
             const lista = getStorage("app_olimpiadas");
             if (lista.some(o => o.id !== id && normalizarTexto(o.nome) === normalizarTexto(d.nome))) return alert("Já existe outra olimpíada com esse nome."), false;
             const i = lista.findIndex(o => o.id === id);
-            lista[i] = { ...lista[i], nome: d.nome, categoria: d.categoria.toUpperCase(), series: d.series };
+            if (i === -1) return alert("Olimpíada não encontrada."), false;
+
+            const possuiRestricaoIdade = d.possuiRestricaoIdade === "Sim";
+            const possuiModalidades = d.possuiModalidades === "Sim";
+
+            lista[i] = {
+                ...lista[i],
+                ...d,
+                categoria: String(d.categoria || "").toUpperCase(),
+                series: d.seriesAtendidas.join(", "),
+                idadeMaxima: possuiRestricaoIdade ? d.idadeMaxima : "",
+                modalidadesDescricao: possuiModalidades ? d.modalidadesDescricao : "",
+                atualizadoEm: new Date().toISOString()
+            };
+
             setStorage("app_olimpiadas", lista);
             atualizarResultadosCampo("olimpiada", nomeAntigo, d.nome);
             atualizarResultadosCampo("olimpiada", categoriaAntiga, d.nome);
             popularSeletores(); renderizarTabelasGerenciais(); renderizarCronograma(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
-            alert("Olimpíada atualizada com sucesso.");
+            alert("Olimpíada atualizada com cadastro completo.");
         },
         onApagar: () => excluirOlimpiada(id)
     });
@@ -1506,6 +1621,7 @@ function montarDadosOlimpiadaFormulario() {
 
         organizadorPrincipal: valorCampo("addOliOrganizador"),
         siteOficial: valorCampo("addOliSite"),
+        instagramOficial: valorCampo("addOliInstagram"),
         tipoEscolaElegivel: valorCampo("addOliTipoEscola"),
         inscricaoIndividual: valorCampo("addOliInscricaoIndividual"),
         escolaPrecisaInscrever: valorCampo("addOliEscolaInscricao"),
@@ -1850,7 +1966,7 @@ function renderizarTabelasGerenciais() {
     if (document.getElementById("tableOlimpiadasCorpo")) {
         const podeEditar = nivel === "ADM";
         document.getElementById("tableOlimpiadasCorpo").innerHTML = olimpiadas.map(o => `
-            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(o.id)}</td><td class="p-4 font-bold text-white">${textoSeguro(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${textoSeguro(o.categoria)}</td><td class="p-4 text-gray-400 font-medium">${textoSeguro(o.series)}</td><td class="p-4 text-right">${podeEditar ? `<button onclick="editarOlimpiada('${textoSeguro(o.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td></tr>
+            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(o.id)}</td><td class="p-4 font-bold text-white">${textoSeguro(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${textoSeguro(o.categoria)}</td><td class="p-4 text-gray-400 font-medium">${textoSeguro(o.series)}</td><td class="p-4 text-right">${podeEditar ? `<button onclick="editarOlimpiada('${textoSeguro(o.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-eye mr-1"></i> Ver / editar</button>` : ""}</td></tr>
         `).join("");
     }
     if (document.getElementById("tableUsuariosCorpo")) {
@@ -2514,6 +2630,7 @@ function montarOlimpiadaDaLinhaPlanilha(linha, nl, erros) {
         status,
         organizadorPrincipal: lerLinhaPlanilha(linha, ["Organizador principal"], ""),
         siteOficial: lerLinhaPlanilha(linha, ["Site oficial"], ""),
+        instagramOficial: lerLinhaPlanilha(linha, ["Instagram oficial", "Instagram"], ""),
         tipoEscolaElegivel,
         inscricaoIndividual,
         escolaPrecisaInscrever,
@@ -2624,6 +2741,7 @@ async function downloadOlimpiadasTemplate() {
         { header: "Status", key: "status", width: 20 },
         { header: "Organizador principal", key: "organizador", width: 34 },
         { header: "Site oficial", key: "site", width: 34 },
+        { header: "Instagram oficial", key: "instagram", width: 34 },
         { header: "Tipo de escola elegível", key: "tipoEscola", width: 28 },
         { header: "Inscrição individual?", key: "inscricaoIndividual", width: 34 },
         { header: "Escola precisa se inscrever?", key: "escolaInscricao", width: 30 },
@@ -2673,6 +2791,7 @@ async function downloadOlimpiadasTemplate() {
         status: "Ativa",
         organizador: "Sociedade Brasileira de Física",
         site: "https://",
+        instagram: "@obf_oficial",
         tipoEscola: "Pública e privada",
         inscricaoIndividual: "Não",
         escolaInscricao: "Sim, obrigatório",
@@ -2738,27 +2857,27 @@ async function downloadOlimpiadasTemplate() {
     aplicarValidacaoColunas(ws, ["E", "F", "G"], 2, 151, ranges.areas, "Escolha uma área/disciplina.");
     aplicarListaSuspensa(ws, "H", 2, 151, ranges.abrangencias, "Escolha a abrangência.");
     aplicarListaSuspensa(ws, "I", 2, 151, ranges.status, "Escolha o status.");
-    aplicarListaSuspensa(ws, "L", 2, 151, ranges.tiposEscola, "Escolha o tipo de escola elegível.");
-    aplicarListaSuspensa(ws, "M", 2, 151, ranges.inscricaoIndividual, "Escolha uma opção.");
-    aplicarListaSuspensa(ws, "N", 2, 151, ranges.escolaInscricao, "Escolha uma opção.");
-    aplicarValidacaoColunas(ws, ["O", "P", "Q"], 2, 151, ranges.series, "Escolha uma série/segmento atendido.");
-    aplicarListaSuspensa(ws, "R", 2, 151, ranges.segmentos, "Escolha o segmento principal.");
-    aplicarListaSuspensa(ws, "S", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
-    aplicarListaSuspensa(ws, "U", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
-    aplicarListaSuspensa(ws, "W", 2, 151, ranges.numeroFases, "Escolha o número de fases.");
-    aplicarValidacaoColunas(ws, ["X", "Y", "Z"], 2, 151, ranges.tiposQuestao, "Escolha o tipo de questão.");
-    aplicarListaSuspensa(ws, "AA", 2, 151, ranges.modalidades, "Escolha a modalidade de aplicação.");
-    aplicarListaSuspensa(ws, "AB", 2, 151, ranges.duracoes, "Escolha a duração.");
-    aplicarListaSuspensa(ws, "AC", 2, 151, ranges.materiais, "Escolha como o material é enviado.");
-    aplicarListaSuspensa(ws, "AD", 2, 151, ranges.correcoes, "Escolha a forma de correção.");
-    aplicarListaSuspensa(ws, "AE", 2, 151, ranges.gratuita, "Escolha a gratuidade.");
-    aplicarValidacaoColunas(ws, ["AH", "AI", "AJ"], 2, 151, ranges.formasPagamento, "Escolha uma forma de pagamento.");
-    aplicarValidacaoColunas(ws, ["AK", "AL", "AM"], 2, 151, ranges.premios, "Escolha um prêmio oferecido.");
-    aplicarValidacaoColunas(ws, ["AN", "AO", "AP"], 2, 151, ranges.categorias, "Escolha uma categoria de premiação.");
-    aplicarListaSuspensa(ws, "AQ", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "M", 2, 151, ranges.tiposEscola, "Escolha o tipo de escola elegível.");
+    aplicarListaSuspensa(ws, "N", 2, 151, ranges.inscricaoIndividual, "Escolha uma opção.");
+    aplicarListaSuspensa(ws, "O", 2, 151, ranges.escolaInscricao, "Escolha uma opção.");
+    aplicarValidacaoColunas(ws, ["P", "Q", "R"], 2, 151, ranges.series, "Escolha uma série/segmento atendido.");
+    aplicarListaSuspensa(ws, "S", 2, 151, ranges.segmentos, "Escolha o segmento principal.");
+    aplicarListaSuspensa(ws, "T", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "V", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "X", 2, 151, ranges.numeroFases, "Escolha o número de fases.");
+    aplicarValidacaoColunas(ws, ["Y", "Z", "AA"], 2, 151, ranges.tiposQuestao, "Escolha o tipo de questão.");
+    aplicarListaSuspensa(ws, "AB", 2, 151, ranges.modalidades, "Escolha a modalidade de aplicação.");
+    aplicarListaSuspensa(ws, "AC", 2, 151, ranges.duracoes, "Escolha a duração.");
+    aplicarListaSuspensa(ws, "AD", 2, 151, ranges.materiais, "Escolha como o material é enviado.");
+    aplicarListaSuspensa(ws, "AE", 2, 151, ranges.correcoes, "Escolha a forma de correção.");
+    aplicarListaSuspensa(ws, "AF", 2, 151, ranges.gratuita, "Escolha a gratuidade.");
+    aplicarValidacaoColunas(ws, ["AI", "AJ", "AK"], 2, 151, ranges.formasPagamento, "Escolha uma forma de pagamento.");
+    aplicarValidacaoColunas(ws, ["AL", "AM", "AN"], 2, 151, ranges.premios, "Escolha um prêmio oferecido.");
+    aplicarValidacaoColunas(ws, ["AO", "AP", "AQ"], 2, 151, ranges.categorias, "Escolha uma categoria de premiação.");
     aplicarListaSuspensa(ws, "AR", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
-    aplicarListaSuspensa(ws, "AU", 2, 151, ranges.internacionais, "Escolha uma opção.");
-    aplicarListaSuspensa(ws, "AV", 2, 151, ranges.funil, "Escolha o nível no funil.");
+    aplicarListaSuspensa(ws, "AS", 2, 151, ranges.simNao, "Escolha Sim ou Não.");
+    aplicarListaSuspensa(ws, "AV", 2, 151, ranges.internacionais, "Escolha uma opção.");
+    aplicarListaSuspensa(ws, "AW", 2, 151, ranges.funil, "Escolha o nível no funil.");
 
     await baixarWorkbookExcelJS(workbook, `modelo_homologacao_olimpiadas_${anoDadosAtivo}_com_listas.xlsx`);
 }

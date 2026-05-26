@@ -442,7 +442,10 @@
                                 <div class="rounded-2xl border border-gray-700 bg-gray-900/40 p-4 space-y-3">
                                     <h4 class="text-[11px] font-black uppercase tracking-widest text-blue-300 flex items-center gap-2"><i class="fa-solid fa-building-columns"></i> 2. Organização</h4>
                                     <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Organizador principal</label><input type="text" id="addOliOrganizador" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Sociedade Brasileira de Física"></div>
-                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Site oficial</label><input type="url" id="addOliSite" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="https://..."></div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Site oficial</label><input type="url" id="addOliSite" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="https://..."></div>
+                                        <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Instagram oficial</label><input type="text" id="addOliInstagram" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="@olimpiada ou https://instagram.com/..."></div>
+                                    </div>
                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo de escola elegível</label><select id="addOliTipoEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option>Somente pública</option><option>Somente privada</option><option selected>Pública e privada</option></select></div>
                                         <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Inscrição individual?</label><select id="addOliInscricaoIndividual" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option>Sim</option><option selected>Não</option><option>Sim, somente se a escola não participar</option></select></div>
@@ -559,7 +562,7 @@
     <!-- ===================== MODAL EDIÇÃO GENÉRICO ===================== -->
     <div id="modalEdicao" class="hidden fixed inset-0 z-50 items-center justify-center px-4">
         <div id="modalEdicaoOverlay" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div class="p-6 border-b border-gray-700 flex items-center justify-between">
                 <h3 id="modalEdicaoTitulo" class="text-base font-bold text-white capitalize"></h3>
                 <button onclick="fecharModalEdicao()" class="text-gray-500 hover:text-gray-300"><i class="fa-solid fa-xmark text-xl"></i></button>

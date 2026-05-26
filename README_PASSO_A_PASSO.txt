@@ -1,24 +1,20 @@
-VERSÃO: Calendário avançado + tema claro/escuro
+VERSÃO — HOMOLOGAÇÃO COM INSTAGRAM + VISUALIZAÇÃO/EDIÇÃO COMPLETA
 
-Substitua no GitHub estes arquivos:
-- index.html
-- database.js
-- app.js
+1. Substitua no GitHub os arquivos:
+   - index.html
+   - database.js
+   - app.js
+   - firestore.rules, se desejar manter as regras alinhadas
 
-O que foi adicionado:
-1) Bloqueio/controle de duplicidade no calendário:
-   - A mesma olimpíada não pode ter a mesma etapa/fase duas vezes.
-   - Ao tentar cadastrar ou editar duplicado, o sistema pergunta se deseja substituir o evento existente.
-   - Na importação XLSX, duplicidades são substituídas automaticamente e o sistema informa quantas foram substituídas.
+2. O que foi adicionado:
+   - Campo Instagram oficial no cadastro manual de olimpíadas.
+   - Campo Instagram oficial na planilha modelo de homologação em lote.
+   - Importação XLSX agora lê a coluna "Instagram oficial".
+   - Botão da tabela de Olimpíadas agora abre "Ver / editar".
+   - A edição de olimpíadas agora mostra todos os campos do cadastro completo, não apenas nome/sigla/séries.
+   - Campos condicionais continuam funcionando no modal de edição:
+     * Idade máxima só aparece se houver restrição de idade.
+     * Descrição das modalidades só aparece se houver modalidades/níveis internos.
 
-2) Modo de exibição do Calendário Oficial:
-   - Por etapas / filtros: mantém o modo atual.
-   - Por data: ordena por proximidade operacional:
-     a) próximos 30 dias no topo;
-     b) eventos futuros, com mais de 30 dias, no meio;
-     c) eventos que já aconteceram no fim da lista.
-
-3) Tema claro/escuro:
-   - Botão no canto superior direito.
-   - Não usa localStorage nem sessionStorage.
-   - Ao recarregar a página, volta ao tema padrão escuro.
+3. Não foi adicionado localStorage/sessionStorage.
+   A plataforma continua usando Firestore como base externa dos dados.
