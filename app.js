@@ -206,27 +206,55 @@ function initLogin() {
 
 function verificarSessao() {
     const sessaoGuardada = sessionStorage.getItem("avance_session");
-    if (sessaoGuardada) {
-        usuarioLogado = JSON.parse(sessaoGuardada);
+    if (!sessaoGuardada) return;
+    try {
+        const dados = JSON.parse(sessaoGuardada);
+        if (!dados || !dados.login || !dados.nivel) {
+            sessionStorage.removeItem("avance_session");
+            return;
+        }
+        usuarioLogado = dados;
         logarSucesso(usuarioLogado);
+    } catch(e) {
+        console.warn("Sessão corrompida — limpando", e);
+        sessionStorage.removeItem("avance_session");
     }
 }
 
 function logarSucesso(usuario) {
-    document.getElementById("loginScreen").style.display = "none";
-    document.getElementById("mainPanel").style.display  = "flex";
-    document.getElementById("userLoggedNome").innerText  = usuario.nome;
-    document.getElementById("userLoggedNivel").innerText = usuario.nivel;
+    // 1) Mostra o painel IMEDIATAMENTE — antes de qualquer renderização que possa falhar
+    try {
+        document.getElementById("loginScreen").style.display = "none";
+    } catch(e) { console.warn("loginScreen não encontrado", e); }
+    try {
+        document.getElementById("mainPanel").style.display = "flex";
+    } catch(e) { console.warn("mainPanel não encontrado", e); }
 
-    aplicarPermissoesNavegacao(usuario);
-    popularSeletores();
-    renderizarPlataformaDashboard();
-    renderizarCronograma();
-    renderizarTabelasGerenciais();
-    renderizarResultadosImportacao();
-    ajustarCamposFormUsuario();
-    renderizarPlataformaEnsino();
-    ativarPrimeiraAbaPermitida();
+    // 2) Atualiza textos do usuário no header
+    try {
+        const elNome = document.getElementById("userLoggedNome");
+        if (elNome) elNome.innerText = usuario.nome || usuario.fullname || usuario.username || "Usuário";
+        const elNivel = document.getElementById("userLoggedNivel");
+        if (elNivel) elNivel.innerText = usuario.nivel || usuario.role || "—";
+    } catch(e) { console.warn("Falha ao atualizar header de usuário", e); }
+
+    // 3) Renderizações individuais — cada falha é isolada para não derrubar o painel inteiro
+    const passos = [
+        ["aplicarPermissoesNavegacao",   () => aplicarPermissoesNavegacao(usuario)],
+        ["popularSeletores",             () => popularSeletores()],
+        ["renderizarPlataformaDashboard",() => renderizarPlataformaDashboard()],
+        ["renderizarCronograma",         () => renderizarCronograma()],
+        ["renderizarTabelasGerenciais",  () => renderizarTabelasGerenciais()],
+        ["renderizarResultadosImportacao",() => renderizarResultadosImportacao()],
+        ["ajustarCamposFormUsuario",     () => ajustarCamposFormUsuario()],
+        ["renderizarPlataformaEnsino",   () => renderizarPlataformaEnsino()],
+        ["ativarPrimeiraAbaPermitida",   () => ativarPrimeiraAbaPermitida()]
+    ];
+
+    passos.forEach(([nome, fn]) => {
+        try { fn(); }
+        catch(e) { console.warn(`Falha em ${nome}:`, e); }
+    });
 }
 
 // ==================== SISTEMA DE PERMISSÕES ====================
