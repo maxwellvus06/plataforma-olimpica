@@ -1,454 +1,843 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { 
-    getFirestore, collection, addDoc, getDocs, doc, deleteDoc, query, where 
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  doc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-// Sua configuração oficial do Firebase de 2026
+const APP_VERSION = "APP FIREBASE NOVO - MAXWELL - 2026-05-26-01";
+console.log(APP_VERSION);
+
+// ========================================================
+// CONFIGURAÇÃO FIREBASE
+// ========================================================
+
 const firebaseConfig = {
-    apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
-    authDomain: "avanceolimpico.firebaseapp.com",
-    databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
-    projectId: "avanceolimpico",
-    storageBucket: "avanceolimpico.firebasestorage.app",
-    messagingSenderId: "895771266102",
-    appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
-    measurementId: "G-FPETQTFRZN"
+  apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
+  authDomain: "avanceolimpico.firebaseapp.com",
+  databaseURL: "https://avanceolimpico-default-rtdb.firebaseio.com",
+  projectId: "avanceolimpico",
+  storageBucket: "avanceolimpico.firebasestorage.app",
+  messagingSenderId: "895771266102",
+  appId: "1:895771266102:web:f4e6b32f7c631d3eb81c97",
+  measurementId: "G-FPETQTFRZN"
 };
 
-// Inicializa o Firebase e Firestore
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const storage = getStorage(firebaseApp);
 
-// Estado Global da Aplicação
+// ========================================================
+// ESTADO GLOBAL
+// ========================================================
+
 let currentUser = null;
 let cachedCidades = [];
 let cachedEscolas = [];
 let cachedOlimpiadas = [];
 let cachedUsuarios = [];
+let cachedArquivos = [];
+let lastError = "Nenhum";
 
-// Elementos do DOM
-const loginScreen = document.getElementById('login-screen');
-const mainSystem = document.getElementById('main-system');
-const loginForm = document.getElementById('login-form');
-const loginError = document.getElementById('login-error');
-const menuItems = document.querySelectorAll('.menu-item');
-const contentSections = document.querySelectorAll('.content-section');
-const btnLogout = document.getElementById('btn-logout');
+// ========================================================
+// ATALHOS DE DOM
+// ========================================================
 
-// ==========================================
-// 🔐 SESSÃO E LOGIN (GOVERNANÇA DE ACESSO)
-// ==========================================
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => document.querySelectorAll(selector);
 
-window.addEventListener('DOMContentLoaded', async () => {
-    setupMenuNavigation();
-    setupFormListeners();
-    
-    // Auto-login se já houver sessão salva
-    const session = localStorage.getItem('avance_session');
-    if (session) {
-        currentUser = JSON.parse(session);
-        await bootSystem();
-    }
+const loginScreen = $("#login-screen");
+const mainSystem = $("#main-system");
+const loginForm = $("#login-form");
+const loginError = $("#login-error");
+const btnLogout = $("#btn-logout");
+
+// ========================================================
+// BOOT
+// ========================================================
+
+document.addEventListener("DOMContentLoaded", async () => {
+  setupMenuNavigation();
+  setupFormListeners();
+  fillDiagnostics();
+
+  const session = safeParse(localStorage.getItem("avance_session"));
+
+  if (session?.username && session?.role) {
+    currentUser = session;
+    await bootSystem();
+  }
 });
 
-loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const userInp = document.getElementById('username').value.trim();
-    const passInp = document.getElementById('password').value;
-    
-    loginError.textContent = "Autenticando...";
+// ========================================================
+// LOGIN
+// ========================================================
 
-    // Carga de contingência master caso o banco esteja vazio
-    if (userInp === 'admin' && passInp === '123') {
-        currentUser = { username: 'admin', fullname: 'Administrador Master', role: 'ADM' };
-        localStorage.setItem('avance_session', JSON.stringify(currentUser));
-        await bootSystem();
-        return;
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const username = $("#username").value.trim();
+  const password = $("#password").value;
+
+  if (!username || !password) {
+    showLoginError("Informe usuário e senha.");
+    return;
+  }
+
+  showLoginError("Conectando ao Firebase...");
+
+  try {
+    const userQuery = query(
+      collection(db, "usuarios"),
+      where("username", "==", username),
+      where("password", "==", password)
+    );
+
+    const snap = await getDocs(userQuery);
+
+    if (snap.empty) {
+      showLoginError("Usuário ou senha inválidos. Verifique a coleção usuarios no Firestore.");
+      return;
     }
 
-    try {
-        const q = query(collection(db, "usuarios"), where("username", "==", userInp), where("password", "==", passInp));
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-            const userDoc = querySnapshot.docs[0].data();
-            currentUser = {
-                username: userDoc.username,
-                fullname: userDoc.fullname,
-                role: userDoc.role,
-                vinculo: userDoc.vinculo || ''
-            };
-            localStorage.setItem('avance_session', JSON.stringify(currentUser));
-            await bootSystem();
-        } else {
-            loginError.textContent = "Usuário ou senha inválidos corporativos.";
-        }
-    } catch (err) {
-        console.error(err);
-        loginError.textContent = "Erro ao conectar com o banco de dados na nuvem.";
-    }
+    const userDoc = snap.docs[0];
+    const user = userDoc.data();
+
+    currentUser = {
+      id: userDoc.id,
+      username: user.username,
+      fullname: user.fullname || user.username,
+      role: user.role || "Aluno",
+      vinculo: user.vinculo || "",
+      vinculoNome: user.vinculoNome || "Sem vínculo"
+    };
+
+    localStorage.setItem("avance_session", JSON.stringify(currentUser));
+    showLoginError("");
+    await bootSystem();
+  } catch (error) {
+    registerError(error);
+    showLoginError("Erro ao acessar o Firestore. Veja o Console/F12 e as regras do Firebase.");
+  }
 });
 
-btnLogout.addEventListener('click', () => {
-    localStorage.removeItem('avance_session');
-    currentUser = null;
-    mainSystem.style.display = 'none';
-    loginScreen.style.display = 'flex';
-    document.getElementById('username').value = '';
-    document.getElementById('password').value = '';
-    loginError.textContent = '';
+btnLogout.addEventListener("click", () => {
+  localStorage.removeItem("avance_session");
+  currentUser = null;
+  mainSystem.classList.add("hidden");
+  loginScreen.classList.remove("hidden");
+  $("#username").value = "";
+  $("#password").value = "";
+  showLoginError("");
 });
 
-// Inicialização de Dados após Login Valido
 async function bootSystem() {
-    loginScreen.style.display = 'none';
-    mainSystem.style.display = 'flex';
-    
-    document.getElementById('user-display-name').textContent = currentUser.fullname;
-    document.getElementById('user-role-badge').textContent = `Painel ${currentUser.role}`;
+  loginScreen.classList.add("hidden");
+  mainSystem.classList.remove("hidden");
 
-    // Restrições de Visibilidade de Menu conforme Governança de Nível de Acesso
-    if (currentUser.role !== 'ADM') {
-        document.getElementById('menu-cidades').style.display = 'none';
-        document.getElementById('menu-escolas').style.display = 'none';
-        document.getElementById('menu-usuarios').style.display = 'none';
-        document.getElementById('container-add-olimpiada').style.display = 'none';
-    } else {
-        document.getElementById('menu-cidades').style.display = 'block';
-        document.getElementById('menu-escolas').style.display = 'block';
-        document.getElementById('menu-usuarios').style.display = 'block';
-        document.getElementById('container-add-olimpiada').style.display = 'block';
-    }
+  $("#user-display-name").textContent = currentUser.fullname;
+  $("#user-role-badge").textContent = `Painel ${currentUser.role}`;
 
-    await refreshAllData();
-    showSection('view-dashboard');
+  applyRolePermissions();
+  await refreshAllData();
+  showSection("view-dashboard");
 }
 
-// ==========================================
-// 📡 CARGA E SINCRONIZAÇÃO COM FIRESTORE
-// ==========================================
+function applyRolePermissions() {
+  const isAdm = currentUser?.role === "ADM";
+
+  toggleElement("#menu-cidades", isAdm);
+  toggleElement("#menu-escolas", isAdm);
+  toggleElement("#menu-usuarios", isAdm);
+  toggleElement("#container-add-olimpiada", isAdm);
+}
+
+// ========================================================
+// FIRESTORE: LEITURA
+// ========================================================
 
 async function refreshAllData() {
-    try {
-        // Puxa tudo da nuvem em paralelo
-        const [snapCid, snapEsc, snapOlimp, snapUser] = await Promise.all([
-            getDocs(collection(db, "cidades")),
-            getDocs(collection(db, "escolas")),
-            getDocs(collection(db, "olimpiadas")),
-            getDocs(collection(db, "usuarios"))
-        ]);
+  try {
+    const [
+      snapCidades,
+      snapEscolas,
+      snapOlimpiadas,
+      snapUsuarios,
+      snapArquivos
+    ] = await Promise.all([
+      getDocs(collection(db, "cidades")),
+      getDocs(collection(db, "escolas")),
+      getDocs(collection(db, "olimpiadas")),
+      getDocs(collection(db, "usuarios")),
+      getArquivosSnapshot()
+    ]);
 
-        cachedCidades = snapCid.docs.map(d => ({ id: d.id, ...d.data() }));
-        cachedEscolas = snapEsc.docs.map(d => ({ id: d.id, ...d.data() }));
-        cachedOlimpiadas = snapOlimp.docs.map(d => ({ id: d.id, ...d.data() }));
-        cachedUsuarios = snapUser.docs.map(d => ({ id: d.id, ...d.data() }));
+    cachedCidades = mapSnapshot(snapCidades);
+    cachedEscolas = mapSnapshot(snapEscolas);
+    cachedOlimpiadas = mapSnapshot(snapOlimpiadas);
+    cachedUsuarios = mapSnapshot(snapUsuarios);
+    cachedArquivos = mapSnapshot(snapArquivos);
 
-        updateDashboardCounters();
-        renderCidadesTable();
-        renderEscolasTable();
-        renderOlimpiadasTable();
-        renderUsuariosTable();
-        populateDropdowns();
-    } catch (error) {
-        console.error("Erro ao sincronizar com o Cloud Firestore: ", error);
-    }
+    updateDashboardCounters();
+    populateDropdowns();
+
+    renderCidadesTable();
+    renderEscolasTable();
+    renderUsuariosTable();
+    renderOlimpiadasTable();
+    renderArquivosTable();
+
+    $("#diag-last-sync").textContent = new Date().toLocaleString("pt-BR");
+    $("#diag-last-error").textContent = lastError;
+  } catch (error) {
+    registerError(error);
+    alert("Erro ao sincronizar com Firebase. Abra o Console/F12 para ver detalhes.");
+  }
+}
+
+async function getArquivosSnapshot() {
+  try {
+    return await getDocs(query(collection(db, "arquivos"), orderBy("createdAt", "desc")));
+  } catch {
+    return await getDocs(collection(db, "arquivos"));
+  }
+}
+
+function mapSnapshot(snapshot) {
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 function updateDashboardCounters() {
-    document.getElementById('dash-count-cidades').textContent = cachedCidades.length;
-    document.getElementById('dash-count-escolas').textContent = cachedEscolas.length;
-    document.getElementById('dash-count-olimpiadas').textContent = cachedOlimpiadas.length;
-    document.getElementById('dash-count-usuarios').textContent = cachedUsuarios.length + 1; // +1 devido ao admin contingência
+  $("#dash-count-cidades").textContent = cachedCidades.length;
+  $("#dash-count-escolas").textContent = cachedEscolas.length;
+  $("#dash-count-olimpiadas").textContent = cachedOlimpiadas.length;
+  $("#dash-count-usuarios").textContent = cachedUsuarios.length;
 }
 
-// ==========================================
-// 🛠️ CONTROLADORES DE RENDERIZAÇÃO DE TABELAS
-// ==========================================
+// ========================================================
+// RENDERIZAÇÃO
+// ========================================================
 
 function renderCidadesTable() {
-    const tbody = document.getElementById('table-cidades-body');
-    tbody.innerHTML = '';
-    cachedCidades.forEach(c => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><small>${c.id.substring(0,8)}...</small></td>
-            <td><strong>${c.nome}</strong></td>
-            <td>${c.uf}</td>
-            <td><button class="btn-action-delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button></td>
-        `;
-        tbody.appendChild(tr);
-    });
+  const tbody = $("#table-cidades-body");
+  tbody.innerHTML = "";
+
+  if (!cachedCidades.length) {
+    renderEmptyRow(tbody, 4, "Nenhuma cidade cadastrada no Firestore.");
+    return;
+  }
+
+  cachedCidades.forEach((cidade) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><small>${escapeHtml(cidade.id.slice(0, 8))}...</small></td>
+      <td><strong>${escapeHtml(cidade.nome)}</strong></td>
+      <td>${escapeHtml(cidade.uf)}</td>
+      <td>${deleteButton("cidades", cidade.id)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function renderEscolasTable() {
-    const tbody = document.getElementById('table-escolas-body');
-    tbody.innerHTML = '';
-    
-    // Filtragem de dados caso o usuário seja Gestor da Cidade
-    let escolasFiltradas = cachedEscolas;
-    if (currentUser && currentUser.role === 'Gestor') {
-        escolasFiltradas = cachedEscolas.filter(e => e.cidadeId === currentUser.vinculo);
-    }
+  const tbody = $("#table-escolas-body");
+  tbody.innerHTML = "";
 
-    escolasFiltradas.forEach(e => {
-        const cid = cachedCidades.find(c => c.id === e.cidadeId);
-        const nomeCidade = cid ? `${cid.nome}-${cid.uf}` : 'Desconhecida';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><strong>${e.razaoSocial}</strong></td>
-            <td>${nomeCidade}</td>
-            <td>${e.inep}</td>
-            <td>${e.diretor || '-'}</td>
-            <td>
-                ${currentUser.role === 'ADM' ? `<button class="btn-action-delete" data-id="${e.id}"><i class="fa-solid fa-trash"></i></button>` : `<i class="fa-solid fa-lock text-muted"></i>`}
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
-}
+  let escolas = [...cachedEscolas];
 
-function renderOlimpiadasTable() {
-    const tbody = document.getElementById('table-olimpiadas-body');
-    tbody.innerHTML = '';
+  if (currentUser?.role === "Gestor") {
+    escolas = escolas.filter((e) => e.cidadeId === currentUser.vinculo);
+  }
 
-    // Filtragem para Escolas/Alunos verem apenas o cronograma delas se necessário
-    cachedOlimpiadas.forEach(o => {
-        const tr = document.createElement('tr');
-        const hoje = new Date().toISOString().split('T')[0];
-        let statusTag = `<span class="badge badge-success">Ativa</span>`;
-        if (hoje > o.dataFim) statusTag = `<span class="badge badge-danger">Encerrada</span>`;
-        else if (hoje < o.dataInicio) statusTag = `<span class="badge badge-warning">Futura</span>`;
+  if (!escolas.length) {
+    renderEmptyRow(tbody, 5, "Nenhuma escola cadastrada no Firestore.");
+    return;
+  }
 
-        tr.innerHTML = `
-            <td><strong>${o.nome}</strong></td>
-            <td>${o.fase}</td>
-            <td>${formatarDataBR(o.dataInicio)}</td>
-            <td>${formatarDataBR(o.dataFim)}</td>
-            <td>${statusTag}</td>
-            <td>
-                ${currentUser.role === 'ADM' ? `<button class="btn-action-delete" data-id="${o.id}"><i class="fa-solid fa-trash"></i></button>` : `<i class="fa-solid fa-eye"></i>`}
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
+  escolas.forEach((escola) => {
+    const cidade = cachedCidades.find((c) => c.id === escola.cidadeId);
+    const nomeCidade = cidade ? `${cidade.nome}-${cidade.uf}` : "Sem cidade";
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${escapeHtml(escola.razaoSocial)}</strong></td>
+      <td>${escapeHtml(nomeCidade)}</td>
+      <td>${escapeHtml(escola.inep || "-")}</td>
+      <td>${escapeHtml(escola.diretor || "-")}</td>
+      <td>${currentUser?.role === "ADM" ? deleteButton("escolas", escola.id) : `<span class="muted">Sem permissão</span>`}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function renderUsuariosTable() {
-    const tbody = document.getElementById('table-usuarios-body');
-    tbody.innerHTML = '';
-    cachedUsuarios.forEach(u => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><code>${u.username}</code></td>
-            <td>${u.fullname}</td>
-            <td><span class="badge badge-neutral">${u.role}</span></td>
-            <td><small>${u.vinculoNome || 'Geral/Master'}</small></td>
-            <td><button class="btn-action-delete" data-id="${u.id}"><i class="fa-solid fa-trash"></i></button></td>
-        `;
-        tbody.appendChild(tr);
+  const tbody = $("#table-usuarios-body");
+  tbody.innerHTML = "";
+
+  if (!cachedUsuarios.length) {
+    renderEmptyRow(tbody, 5, "Nenhum usuário cadastrado no Firestore.");
+    return;
+  }
+
+  cachedUsuarios.forEach((user) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><code>${escapeHtml(user.username)}</code></td>
+      <td>${escapeHtml(user.fullname || "-")}</td>
+      <td><span class="badge badge-neutral">${escapeHtml(user.role || "-")}</span></td>
+      <td><small>${escapeHtml(user.vinculoNome || "Geral/Master")}</small></td>
+      <td>${deleteButton("usuarios", user.id)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderOlimpiadasTable() {
+  const tbody = $("#table-olimpiadas-body");
+  tbody.innerHTML = "";
+
+  if (!cachedOlimpiadas.length) {
+    renderEmptyRow(tbody, 6, "Nenhum evento cadastrado no Firestore.");
+    return;
+  }
+
+  cachedOlimpiadas
+    .sort((a, b) => String(a.dataInicio || "").localeCompare(String(b.dataInicio || "")))
+    .forEach((evento) => {
+      const hoje = new Date().toISOString().split("T")[0];
+
+      let status = `<span class="badge badge-success">Ativa</span>`;
+      if (evento.dataFim && hoje > evento.dataFim) status = `<span class="badge badge-danger">Encerrada</span>`;
+      if (evento.dataInicio && hoje < evento.dataInicio) status = `<span class="badge badge-warning">Futura</span>`;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(evento.nome)}</strong></td>
+        <td>${escapeHtml(evento.fase)}</td>
+        <td>${formatarDataBR(evento.dataInicio)}</td>
+        <td>${formatarDataBR(evento.dataFim)}</td>
+        <td>${status}</td>
+        <td>${currentUser?.role === "ADM" ? deleteButton("olimpiadas", evento.id) : `<i class="fa-solid fa-eye"></i>`}</td>
+      `;
+      tbody.appendChild(tr);
     });
+}
+
+function renderArquivosTable() {
+  const tbody = $("#table-arquivos-body");
+  tbody.innerHTML = "";
+
+  if (!cachedArquivos.length) {
+    renderEmptyRow(tbody, 5, "Nenhum arquivo enviado ao Firebase Storage.");
+    return;
+  }
+
+  cachedArquivos.forEach((arquivo) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${escapeHtml(arquivo.title || "-")}</strong></td>
+      <td>${escapeHtml(arquivo.originalName || "-")}</td>
+      <td>${formatBytes(arquivo.size || 0)}</td>
+      <td>${formatTimestamp(arquivo.createdAt)}</td>
+      <td>
+        <a class="btn-action-open" href="${arquivo.url}" target="_blank" rel="noopener">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir
+        </a>
+        ${deleteButton("arquivos", arquivo.id, arquivo.storagePath || "")}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderEmptyRow(tbody, colspan, message) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td colspan="${colspan}" class="muted">${message}</td>`;
+  tbody.appendChild(tr);
+}
+
+function deleteButton(collectionName, id, storagePath = "") {
+  if (currentUser?.role !== "ADM") return `<span class="muted">Sem permissão</span>`;
+
+  return `
+    <button
+      class="btn-action-delete"
+      data-collection="${escapeHtml(collectionName)}"
+      data-id="${escapeHtml(id)}"
+      data-storage-path="${escapeHtml(storagePath)}"
+      title="Excluir"
+    >
+      <i class="fa-solid fa-trash"></i>
+    </button>
+  `;
 }
 
 function populateDropdowns() {
-    const escCidSelect = document.getElementById('esc-cidade-select');
-    if(escCidSelect) {
-        escCidSelect.innerHTML = '<option value="">Selecione uma cidade...</option>';
-        cachedCidades.forEach(c => {
-            escCidSelect.innerHTML += `<option value="${c.id}">${c.nome} (${c.uf})</option>`;
-        });
-    }
+  const cidadeSelect = $("#esc-cidade-select");
+  if (cidadeSelect) {
+    cidadeSelect.innerHTML = `<option value="">Selecione uma cidade...</option>`;
+    cachedCidades.forEach((cidade) => {
+      cidadeSelect.innerHTML += `<option value="${cidade.id}">${escapeHtml(cidade.nome)} (${escapeHtml(cidade.uf)})</option>`;
+    });
+  }
+
+  rebuildDynamicUserFields();
 }
 
-// ==========================================
-// 📥 SUBMISSÃO DE FORMULÁRIOS (GRAVAÇÃO NA NUVEM)
-// ==========================================
+// ========================================================
+// FORMULÁRIOS
+// ========================================================
 
 function setupFormListeners() {
-    // Cadastro de Cidade
-    document.getElementById('form-cidade').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const nome = document.getElementById('cid-nome').value.trim();
-        const uf = document.getElementById('cid-uf').value;
-        
-        await addDoc(collection(db, "cidades"), { nome, uf });
-        document.getElementById('form-cidade').reset();
-        await refreshAllData();
-    });
+  $("#btn-refresh")?.addEventListener("click", refreshAllData);
 
-    // Cadastro de Escola
-    document.getElementById('form-escola').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const escolaData = {
-            razaoSocial: document.getElementById('esc-razao').value.trim(),
-            cidadeId: document.getElementById('esc-cidade-select').value,
-            cnpj: document.getElementById('esc-cnpj').value.trim(),
-            inep: document.getElementById('esc-inep').value.trim(),
-            endereco: document.getElementById('esc-endereco').value.trim(),
-            cep: document.getElementById('esc-cep').value.trim(),
-            diretor: document.getElementById('esc-diretor').value.trim(),
-            email: document.getElementById('esc-email').value.trim()
-        };
+  $("#form-cidade").addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-        if(!escolaData.cidadeId) return alert("Selecione uma Cidade homologada previa!");
+    await safeAction(async () => {
+      const nome = $("#cid-nome").value.trim();
+      const uf = $("#cid-uf").value;
 
-        await addDoc(collection(db, "escolas"), escolaData);
-        document.getElementById('form-escola').reset();
-        await refreshAllData();
-    });
+      await addDoc(collection(db, "cidades"), {
+        nome,
+        uf,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "sistema"
+      });
 
-    // Cadastro de Olimpíada Manual
-    document.getElementById('form-olimpiada').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const olimpData = {
-            nome: document.getElementById('olimp-nome').value.trim(),
-            fase: document.getElementById('olimp-fase').value.trim(),
-            dataInicio: document.getElementById('olimp-start').value,
-            dataFim: document.getElementById('olimp-end').value
-        };
+      event.target.reset();
+      await refreshAllData();
+    }, "Cidade salva no Firestore.");
+  });
 
-        await addDoc(collection(db, "olimpiadas"), olimpData);
-        document.getElementById('form-olimpiada').reset();
-        await refreshAllData();
-    });
+  $("#form-escola").addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-    // Governança Dinâmica no Form de Usuários
-    const roleSelect = document.getElementById('user-role-select');
-    const dynamicFields = document.getElementById('dynamic-user-fields');
+    await safeAction(async () => {
+      const data = {
+        razaoSocial: $("#esc-razao").value.trim(),
+        cidadeId: $("#esc-cidade-select").value,
+        cnpj: $("#esc-cnpj").value.trim(),
+        inep: $("#esc-inep").value.trim(),
+        endereco: $("#esc-endereco").value.trim(),
+        cep: $("#esc-cep").value.trim(),
+        diretor: $("#esc-diretor").value.trim(),
+        email: $("#esc-email").value.trim(),
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "sistema"
+      };
 
-    roleSelect.addEventListener('change', () => {
-        const val = roleSelect.value;
-        dynamicFields.innerHTML = '';
-        if (val === 'Gestor') {
-            let options = cachedCidades.map(c => `<option value="${c.id}">${c.nome}-${c.uf}</option>`).join('');
-            dynamicFields.innerHTML = `<div class="input-group"><label>Cidade Vinculada</label><select id="user-vinculo-id" required>${options}</select></div>`;
-        } else if (val === 'Escola' || val === 'Aluno') {
-            let options = cachedEscolas.map(e => `<option value="${e.id}">${e.razaoSocial}</option>`).join('');
-            dynamicFields.innerHTML = `<div class="input-group"><label>Escola Vinculada</label><select id="user-vinculo-id" required>${options}</select></div>`;
+      if (!data.cidadeId) throw new Error("Selecione uma cidade antes de salvar a escola.");
+
+      await addDoc(collection(db, "escolas"), data);
+      event.target.reset();
+      await refreshAllData();
+    }, "Escola salva no Firestore.");
+  });
+
+  $("#form-usuario").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    await safeAction(async () => {
+      const username = $("#user-username").value.trim();
+      const password = $("#user-password").value;
+      const fullname = $("#user-fullname").value.trim();
+      const role = $("#user-role-select").value;
+
+      const exists = await getDocs(query(collection(db, "usuarios"), where("username", "==", username)));
+      if (!exists.empty) throw new Error("Já existe um usuário com esse login.");
+
+      const vinculoElement = $("#user-vinculo-id");
+      let vinculo = "";
+      let vinculoNome = "Geral/Master";
+
+      if (vinculoElement) {
+        vinculo = vinculoElement.value;
+        vinculoNome = vinculoElement.options[vinculoElement.selectedIndex]?.text || "";
+      }
+
+      await addDoc(collection(db, "usuarios"), {
+        username,
+        password,
+        fullname,
+        role,
+        vinculo,
+        vinculoNome,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "sistema"
+      });
+
+      event.target.reset();
+      $("#dynamic-user-fields").innerHTML = "";
+      await refreshAllData();
+    }, "Usuário criado no Firestore.");
+  });
+
+  $("#form-olimpiada").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    await safeAction(async () => {
+      const data = {
+        nome: $("#olimp-nome").value.trim(),
+        fase: $("#olimp-fase").value.trim(),
+        dataInicio: $("#olimp-start").value,
+        dataFim: $("#olimp-end").value,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "sistema"
+      };
+
+      if (data.dataFim < data.dataInicio) throw new Error("A data final não pode ser anterior à data inicial.");
+
+      await addDoc(collection(db, "olimpiadas"), data);
+      event.target.reset();
+      await refreshAllData();
+    }, "Evento publicado no Firestore.");
+  });
+
+  $("#form-arquivo").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    await safeAction(async () => {
+      const title = $("#file-title").value.trim();
+      const file = $("#file-input").files[0];
+
+      if (!file) throw new Error("Selecione um arquivo.");
+
+      $("#upload-status").textContent = "Enviando arquivo ao Firebase Storage...";
+
+      const safeName = sanitizeFileName(file.name);
+      const storagePath = `uploads/${Date.now()}-${safeName}`;
+      const fileRef = ref(storage, storagePath);
+
+      await uploadBytes(fileRef, file, {
+        contentType: file.type || "application/octet-stream"
+      });
+
+      const url = await getDownloadURL(fileRef);
+
+      await addDoc(collection(db, "arquivos"), {
+        title,
+        originalName: file.name,
+        storagePath,
+        url,
+        size: file.size,
+        type: file.type || "",
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "sistema"
+      });
+
+      $("#upload-status").textContent = "Upload concluído.";
+      event.target.reset();
+      await refreshAllData();
+    }, "Arquivo enviado ao Firebase Storage.");
+  });
+
+  $("#user-role-select").addEventListener("change", rebuildDynamicUserFields);
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".btn-action-delete");
+    if (!button) return;
+
+    const collectionName = button.dataset.collection;
+    const id = button.dataset.id;
+    const storagePath = button.dataset.storagePath || "";
+
+    if (!collectionName || !id) return;
+
+    if (currentUser?.role !== "ADM") {
+      alert("Você não tem permissão para excluir registros.");
+      return;
+    }
+
+    if (!confirm("Tem certeza que deseja excluir este registro permanentemente?")) return;
+
+    await safeAction(async () => {
+      if (collectionName === "cidades") {
+        const hasSchool = cachedEscolas.some((school) => school.cidadeId === id);
+        if (hasSchool) throw new Error("Não é possível apagar cidade com escola vinculada.");
+      }
+
+      if (collectionName === "arquivos" && storagePath) {
+        try {
+          await deleteObject(ref(storage, storagePath));
+        } catch (storageError) {
+          console.warn("Arquivo não removido do Storage, removendo metadados:", storageError);
         }
-    });
+      }
 
-    // Cadastro de Usuários
-    document.getElementById('form-usuario').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const username = document.getElementById('user-username').value.trim();
-        const fullname = document.getElementById('user-fullname').value.trim();
-        const password = document.getElementById('user-password').value;
-        const role = roleSelect.value;
-        
-        let vinculo = '';
-        let vinculoNome = 'Geral/Master';
+      await deleteDoc(doc(db, collectionName, id));
+      await refreshAllData();
+    }, "Registro excluído.");
+  });
 
-        const vinculoElem = document.getElementById('user-vinculo-id');
-        if (vinculoElem) {
-            vinculo = vinculoElem.value;
-            vinculoNome = vinculoElem.options[vinculoElem.selectedIndex].text;
-        }
+  $("#excel-file-input").addEventListener("change", handleExcelImport);
+  $("#btn-export-template").addEventListener("click", exportExcelTemplate);
 
-        await addDoc(collection(db, "usuarios"), { username, fullname, password, role, vinculo, vinculoNome });
-        document.getElementById('form-usuario').reset();
-        dynamicFields.innerHTML = '';
-        await refreshAllData();
-    });
+  $("#btn-clear-session").addEventListener("click", () => {
+    localStorage.removeItem("avance_session");
+    sessionStorage.clear();
+    alert("Sessão local limpa. A página será recarregada.");
+    location.reload();
+  });
 
-    // Eventos de Deleção Generica (Captura na Tabela via Event Bubbling)
-    document.addEventListener('click', async (e) => {
-        const targetBtn = e.target.closest('.btn-action-delete');
-        if (!targetBtn) return;
-        
-        const id = targetBtn.getAttribute('data-id');
-        const tr = targetBtn.closest('tr');
-        const tableId = tr.parentElement.id;
-
-        if (!confirm("Tem certeza que deseja remover este registro permanentemente da nuvem?")) return;
-
-        if (tableId === 'table-cidades-body') {
-            const possuiEscola = cachedEscolas.some(esc => esc.cidadeId === id);
-            if (possuiEscola) return alert("Erro de Integridade: Impossível apagar cidade com escolas vinculadas!");
-            await deleteDoc(doc(db, "cidades", id));
-        } else if (tableId === 'table-escolas-body') {
-            await deleteDoc(doc(db, "escolas", id));
-        } else if (tableId === 'table-olimpiadas-body') {
-            await deleteDoc(doc(db, "olimpiadas", id));
-        } else if (tableId === 'table-usuarios-body') {
-            await deleteDoc(doc(db, "usuarios", id));
-        }
-
-        await refreshAllData();
-    });
-
-    // INTERFACE DE EXCEL (PROCESSAMENTO SHEETJS)
-    document.getElementById('excel-file-input').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload = async function(e) {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-
-            for (const row of jsonData) {
-                if (row.Olimpíada && row.Fase) {
-                    await addDoc(collection(db, "olimpiadas"), {
-                        nome: row.Olimpíada,
-                        fase: row.Fase,
-                        dataInicio: converterDataExcel(row.Inicio),
-                        dataFim: converterDataExcel(row.Fim)
-                    });
-                }
-            }
-            alert("Cronograma importado com sucesso para a nuvem!");
-            await refreshAllData();
-        };
-        reader.readAsArrayBuffer(file);
-    });
-
-    // GERAÇÃO DE TEMPLATE INTELIGENTE EXCEL
-    document.getElementById('btn-export-template').addEventListener('click', () => {
-        const ws_data = [
-            ["Olimpíada", "Fase", "Inicio", "Fim"],
-            ["Olimpíada Canguru de Matemática", "Fase Única - Prova", "2026-03-20", "2026-03-22"],
-            ["OBMEP", "1ª Fase - Aplicação", "2026-06-02", "2026-06-03"]
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(ws_data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Inscrições");
-        XLSX.writeFile(wb, "Template_Cronograma_Avance.xlsx");
-    });
+  $("#btn-test-firestore").addEventListener("click", async () => {
+    await safeAction(async () => {
+      await getDocs(collection(db, "usuarios"));
+      alert("Conexão com Firestore OK. O site está acessando o projeto: " + firebaseConfig.projectId);
+    }, null);
+  });
 }
 
-// ==========================================
-// 🧮 UTILITÁRIOS E NAVEGAÇÃO
-// ==========================================
+function rebuildDynamicUserFields() {
+  const role = $("#user-role-select")?.value;
+  const container = $("#dynamic-user-fields");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  if (role === "Gestor") {
+    if (!cachedCidades.length) {
+      container.innerHTML = `<p class="muted">Cadastre uma cidade antes de criar gestor.</p>`;
+      return;
+    }
+
+    const options = cachedCidades
+      .map((cidade) => `<option value="${cidade.id}">${escapeHtml(cidade.nome)}-${escapeHtml(cidade.uf)}</option>`)
+      .join("");
+
+    container.innerHTML = `
+      <div class="input-group">
+        <label>Cidade Vinculada</label>
+        <select id="user-vinculo-id" required>${options}</select>
+      </div>
+    `;
+  }
+
+  if (role === "Escola" || role === "Aluno") {
+    if (!cachedEscolas.length) {
+      container.innerHTML = `<p class="muted">Cadastre uma escola antes de criar usuário de escola/aluno.</p>`;
+      return;
+    }
+
+    const options = cachedEscolas
+      .map((escola) => `<option value="${escola.id}">${escapeHtml(escola.razaoSocial)}</option>`)
+      .join("");
+
+    container.innerHTML = `
+      <div class="input-group">
+        <label>Escola Vinculada</label>
+        <select id="user-vinculo-id" required>${options}</select>
+      </div>
+    `;
+  }
+}
+
+// ========================================================
+// EXCEL
+// ========================================================
+
+async function handleExcelImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  await safeAction(async () => {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+
+    let count = 0;
+
+    for (const row of rows) {
+      const nome = row["Olimpíada"] || row["Olimpiada"] || row["olimpiada"];
+      const fase = row["Fase"] || row["fase"];
+      const inicio = row["Inicio"] || row["Início"] || row["inicio"];
+      const fim = row["Fim"] || row["fim"];
+
+      if (!nome || !fase) continue;
+
+      await addDoc(collection(db, "olimpiadas"), {
+        nome: String(nome),
+        fase: String(fase),
+        dataInicio: converterDataExcel(inicio),
+        dataFim: converterDataExcel(fim),
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.username || "importacao-xlsx"
+      });
+
+      count++;
+    }
+
+    event.target.value = "";
+    await refreshAllData();
+    alert(`${count} evento(s) importado(s) para o Firestore.`);
+  }, null);
+}
+
+function exportExcelTemplate() {
+  const data = [
+    ["Olimpíada", "Fase", "Inicio", "Fim"],
+    ["Canguru de Matemática", "Fase Única", "2026-03-20", "2026-03-20"],
+    ["OBMEP", "1ª Fase", "2026-06-02", "2026-06-02"]
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(wb, ws, "Cronograma");
+  XLSX.writeFile(wb, "Template_Cronograma_Avance.xlsx");
+}
+
+// ========================================================
+// NAVEGAÇÃO
+// ========================================================
 
 function setupMenuNavigation() {
-    menuItems.forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.preventDefault();
-            menuItems.forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-            showSection(item.getAttribute('data-target'));
-        });
+  $$(".menu-item").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+
+      $$(".menu-item").forEach((i) => i.classList.remove("active"));
+      item.classList.add("active");
+
+      showSection(item.dataset.target);
     });
+  });
 }
 
 function showSection(id) {
-    contentSections.forEach(sec => {
-        sec.style.display = sec.id === id ? 'block' : 'none';
-    });
+  $$(".content-section").forEach((section) => {
+    section.classList.toggle("hidden", section.id !== id);
+  });
 }
 
-function formatarDataBR(dataStr) {
-    if(!dataStr) return '-';
-    const parts = dataStr.split('-');
-    if(parts.length !== 3) return dataStr;
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+// ========================================================
+// UTILITÁRIOS
+// ========================================================
+
+async function safeAction(action, successMessage = "Operação concluída.") {
+  try {
+    await action();
+    if (successMessage) alert(successMessage);
+  } catch (error) {
+    registerError(error);
+    alert(error.message || "Erro inesperado. Veja o Console/F12.");
+  }
 }
 
-function converterDataExcel(val) {
-    if(!val) return '';
-    if(typeof val === 'string') return val;
-    // Caso o Excel converta a data em número serial
-    const date = new Date((val - 25569) * 86400 * 1000);
-    return date.toISOString().split('T')[0];
+function registerError(error) {
+  console.error(error);
+  lastError = error?.message || String(error);
+  const diag = $("#diag-last-error");
+  if (diag) diag.textContent = lastError;
+}
+
+function showLoginError(message) {
+  loginError.textContent = message;
+}
+
+function fillDiagnostics() {
+  $("#diag-project-id").textContent = firebaseConfig.projectId;
+  $("#diag-project-id-2").textContent = firebaseConfig.projectId;
+  $("#diag-storage-bucket").textContent = firebaseConfig.storageBucket;
+  $("#diag-auth-domain").textContent = firebaseConfig.authDomain;
+  $("#diag-app-version").textContent = APP_VERSION;
+  $("#diag-data-source").textContent = "Firebase Firestore";
+}
+
+function toggleElement(selector, shouldShow) {
+  const element = $(selector);
+  if (!element) return;
+  element.classList.toggle("hidden", !shouldShow);
+}
+
+function safeParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function sanitizeFileName(name) {
+  return String(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function formatarDataBR(dateString) {
+  if (!dateString) return "-";
+
+  const parts = String(dateString).split("-");
+  if (parts.length !== 3) return escapeHtml(dateString);
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function converterDataExcel(value) {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    if (value.includes("/")) {
+      const [day, month, year] = value.split("/");
+      if (day && month && year) return `${year.padStart(4, "20")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    }
+    return value;
+  }
+
+  if (typeof value === "number") {
+    const date = new Date((value - 25569) * 86400 * 1000);
+    return date.toISOString().split("T")[0];
+  }
+
+  return "";
+}
+
+function formatBytes(bytes) {
+  const size = Number(bytes);
+  if (!size) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
+  const value = size / Math.pow(1024, index);
+
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "-";
+
+  if (typeof value.toDate === "function") {
+    return value.toDate().toLocaleString("pt-BR");
+  }
+
+  if (value.seconds) {
+    return new Date(value.seconds * 1000).toLocaleString("pt-BR");
+  }
+
+  return "-";
 }

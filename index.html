@@ -1,358 +1,997 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Avance Consultoria - Plataforma Olímpica</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avance Consultoria - Plataforma Olímpica</title>
+
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#f4f7fb;
+      --panel:#ffffff;
+      --ink:#172033;
+      --muted:#667085;
+      --line:#e5e7eb;
+      --primary:#0f62fe;
+      --primary-dark:#0842a0;
+      --danger:#dc2626;
+      --success:#16a34a;
+      --warning:#d97706;
+      --shadow:0 14px 35px rgba(15, 23, 42, .08);
+      --radius:18px;
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      font-family:Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
+
+    button, input, select{
+      font-family:inherit;
+    }
+
+    .login-container{
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      background:
+        radial-gradient(circle at top left, rgba(15,98,254,.22), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(22,163,74,.16), transparent 30%),
+        #0b1020;
+    }
+
+    .login-box{
+      width:min(430px, 100%);
+      background:rgba(255,255,255,.96);
+      border:1px solid rgba(255,255,255,.35);
+      box-shadow:0 25px 70px rgba(0,0,0,.28);
+      border-radius:24px;
+      padding:34px;
+    }
+
+    .login-header{
+      text-align:center;
+      margin-bottom:24px;
+    }
+
+    .login-logo-icon{
+      font-size:42px;
+      color:var(--primary);
+      margin-bottom:12px;
+    }
+
+    .login-header h2{
+      margin:0;
+      font-size:26px;
+      letter-spacing:-.04em;
+    }
+
+    .login-header p{
+      margin:8px 0 0;
+      color:var(--muted);
+      font-size:14px;
+    }
+
+    .input-group{
+      margin-bottom:16px;
+    }
+
+    .input-row{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:14px;
+    }
+
+    label{
+      display:block;
+      font-weight:700;
+      color:#344054;
+      font-size:13px;
+      margin-bottom:7px;
+    }
+
+    input, select{
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:13px;
+      padding:12px 13px;
+      font-size:14px;
+      outline:none;
+      background:#fff;
+      color:var(--ink);
+    }
+
+    input:focus, select:focus{
+      border-color:var(--primary);
+      box-shadow:0 0 0 4px rgba(15,98,254,.1);
+    }
+
+    .btn-login, .btn-save, .btn-export, .btn-secondary, .btn-danger, .btn-logout, .btn-excel-label{
+      border:0;
+      border-radius:13px;
+      padding:12px 15px;
+      font-weight:800;
+      cursor:pointer;
+      transition:.18s ease;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:9px;
+      text-decoration:none;
+      font-size:14px;
+    }
+
+    .btn-login, .btn-save{
+      width:100%;
+      background:var(--primary);
+      color:#fff;
+    }
+
+    .btn-login:hover, .btn-save:hover, .btn-export:hover, .btn-secondary:hover{
+      transform:translateY(-1px);
+      filter:brightness(.96);
+    }
+
+    .btn-export, .btn-secondary, .btn-excel-label{
+      background:#eef4ff;
+      color:#0b3b8c;
+      border:1px solid #c7d7fe;
+    }
+
+    .btn-danger{
+      background:#fee2e2;
+      color:#991b1b;
+      border:1px solid #fecaca;
+    }
+
+    .login-error-msg{
+      min-height:22px;
+      color:#b42318;
+      text-align:center;
+      font-weight:700;
+      font-size:13px;
+      margin-top:14px;
+    }
+
+    .system-container{
+      min-height:100vh;
+      display:flex;
+    }
+
+    .sidebar{
+      width:280px;
+      background:#101828;
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      padding:22px;
+      position:sticky;
+      top:0;
+      height:100vh;
+    }
+
+    .sidebar-brand{
+      display:flex;
+      align-items:center;
+      gap:13px;
+      padding-bottom:20px;
+      border-bottom:1px solid rgba(255,255,255,.1);
+    }
+
+    .sidebar-brand i{
+      font-size:26px;
+      color:#8bb8ff;
+    }
+
+    .sidebar-brand h3{
+      margin:0;
+      font-size:20px;
+    }
+
+    .sidebar-brand span{
+      color:#b8c2d6;
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .user-profile-summary{
+      margin:22px 0;
+      padding:16px;
+      background:rgba(255,255,255,.06);
+      border-radius:16px;
+    }
+
+    .welcome-txt{
+      margin:0;
+      color:#b8c2d6;
+      font-size:12px;
+    }
+
+    .user-name-txt{
+      margin:5px 0 0;
+      font-weight:800;
+    }
+
+    .sidebar-menu{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .menu-item{
+      color:#d0d5dd;
+      text-decoration:none;
+      padding:12px;
+      border-radius:13px;
+      display:flex;
+      align-items:center;
+      gap:11px;
+      font-weight:700;
+      font-size:14px;
+    }
+
+    .menu-item.active, .menu-item:hover{
+      background:#1d2939;
+      color:#fff;
+    }
+
+    .sidebar-footer{
+      margin-top:auto;
+      padding-top:18px;
+    }
+
+    .btn-logout{
+      width:100%;
+      background:#1d2939;
+      color:#fff;
+      border:1px solid rgba(255,255,255,.1);
+    }
+
+    .main-content{
+      flex:1;
+      padding:30px;
+      overflow:auto;
+    }
+
+    .section-header{
+      margin-bottom:22px;
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:16px;
+    }
+
+    .section-header h1{
+      margin:0;
+      font-size:30px;
+      letter-spacing:-.04em;
+    }
+
+    .section-header p{
+      margin:7px 0 0;
+      color:var(--muted);
+    }
+
+    .analytics-cards{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:16px;
+      margin-bottom:18px;
+    }
+
+    .card, .form-container, .table-container{
+      background:var(--panel);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
+    }
+
+    .card{
+      padding:20px;
+      display:flex;
+      gap:15px;
+      align-items:center;
+    }
+
+    .card-icon{
+      width:52px;
+      height:52px;
+      border-radius:16px;
+      background:#e8efff;
+      color:var(--primary);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      flex:0 0 auto;
+    }
+
+    .card-info h3{
+      margin:0;
+      font-size:27px;
+    }
+
+    .card-info p{
+      margin:5px 0 0;
+      color:var(--muted);
+      font-weight:700;
+      font-size:13px;
+    }
+
+    .grid-form-table{
+      display:grid;
+      grid-template-columns:380px minmax(0,1fr);
+      gap:18px;
+      align-items:start;
+    }
+
+    .grid-form-table-wide{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:18px;
+    }
+
+    .form-container, .table-container{
+      padding:20px;
+    }
+
+    .form-container h3, .table-container h3{
+      margin:0 0 16px;
+      letter-spacing:-.02em;
+    }
+
+    .responsive-table{
+      overflow:auto;
+    }
+
+    .data-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:14px;
+    }
+
+    .data-table th{
+      text-align:left;
+      color:#475467;
+      background:#f8fafc;
+      border-bottom:1px solid var(--line);
+      padding:12px;
+      white-space:nowrap;
+    }
+
+    .data-table td{
+      border-bottom:1px solid var(--line);
+      padding:12px;
+      vertical-align:middle;
+    }
+
+    .data-table tr:last-child td{
+      border-bottom:0;
+    }
+
+    .btn-action-delete, .btn-action-open{
+      border:0;
+      border-radius:10px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-weight:800;
+    }
+
+    .btn-action-delete{
+      background:#fee2e2;
+      color:#b42318;
+    }
+
+    .btn-action-open{
+      background:#e0f2fe;
+      color:#075985;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      padding:5px 9px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
+    .badge-success{ background:#dcfce7; color:#166534; }
+    .badge-danger{ background:#fee2e2; color:#991b1b; }
+    .badge-warning{ background:#fef3c7; color:#92400e; }
+    .badge-neutral{ background:#eef2ff; color:#3730a3; }
+
+    .action-bar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      margin-bottom:16px;
+    }
+
+    .firebase-health{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:12px;
+    }
+
+    .health-item{
+      padding:15px;
+      border:1px solid var(--line);
+      border-radius:15px;
+      background:#fff;
+    }
+
+    .health-item small{
+      display:block;
+      color:var(--muted);
+      font-weight:800;
+      margin-bottom:5px;
+    }
+
+    .health-item strong{
+      word-break:break-word;
+    }
+
+    .muted{
+      color:var(--muted);
+    }
+
+    .hidden{
+      display:none !important;
+    }
+
+    @media (max-width: 1050px){
+      .analytics-cards, .firebase-health{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+      .grid-form-table{
+        grid-template-columns:1fr;
+      }
+    }
+
+    @media (max-width: 760px){
+      .system-container{
+        flex-direction:column;
+      }
+      .sidebar{
+        width:100%;
+        height:auto;
+        position:relative;
+      }
+      .main-content{
+        padding:18px;
+      }
+      .input-row, .analytics-cards, .firebase-health{
+        grid-template-columns:1fr;
+      }
+      .section-header{
+        display:block;
+      }
+    }
+  </style>
 </head>
+
 <body>
+  <div id="login-screen" class="login-container">
+    <div class="login-box">
+      <div class="login-header">
+        <i class="fa-solid fa-graduation-cap login-logo-icon"></i>
+        <h2>Avance Consultoria</h2>
+        <p>Plataforma de Gestão Olímpica</p>
+      </div>
 
-    <div id="login-screen" class="login-container">
-        <div class="login-box">
-            <div class="login-header">
-                <i class="fa-solid fa-graduation-cap login-logo-icon"></i>
-                <h2>Avance Consultoria</h2>
-                <p>Plataforma de Gestão Olímpica 2026</p>
-            </div>
-            <form id="login-form">
-                <div class="input-group">
-                    <label for="username"><i class="fa-solid fa-user"></i> Usuário ou E-mail</label>
-                    <input type="text" id="username" required placeholder="Digite seu usuário">
-                </div>
-                <div class="input-group">
-                    <label for="password"><i class="fa-solid fa-lock"></i> Senha</label>
-                    <input type="password" id="password" required placeholder="Digite sua senha">
-                </div>
-                <button type="submit" class="btn-login">Acessar Sistema <i class="fa-solid fa-arrow-right-to-bracket"></i></button>
-                <div id="login-error" class="login-error-msg"></div>
-            </form>
+      <form id="login-form">
+        <div class="input-group">
+          <label for="username"><i class="fa-solid fa-user"></i> Usuário</label>
+          <input type="text" id="username" autocomplete="username" required placeholder="Ex: admin">
         </div>
+
+        <div class="input-group">
+          <label for="password"><i class="fa-solid fa-lock"></i> Senha</label>
+          <input type="password" id="password" autocomplete="current-password" required placeholder="Digite sua senha">
+        </div>
+
+        <button type="submit" class="btn-login">
+          Acessar Sistema <i class="fa-solid fa-arrow-right-to-bracket"></i>
+        </button>
+
+        <div id="login-error" class="login-error-msg"></div>
+      </form>
     </div>
+  </div>
 
-    <div id="main-system" class="system-container" style="display: none;">
-        
-        <aside class="sidebar">
-            <div class="sidebar-brand">
-                <i class="fa-solid fa-layer-group"></i>
-                <div>
-                    <h3>Avance</h3>
-                    <span id="user-role-badge">Painel ADM</span>
-                </div>
+  <div id="main-system" class="system-container hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <i class="fa-solid fa-layer-group"></i>
+        <div>
+          <h3>Avance</h3>
+          <span id="user-role-badge">Painel</span>
+        </div>
+      </div>
+
+      <div class="user-profile-summary">
+        <p class="welcome-txt">Bem-vindo,</p>
+        <p id="user-display-name" class="user-name-txt">Usuário</p>
+      </div>
+
+      <nav class="sidebar-menu">
+        <a href="#" class="menu-item active" data-target="view-dashboard"><i class="fa-solid fa-chart-pie"></i> Painel Geral</a>
+        <a href="#" class="menu-item" data-target="view-cidades" id="menu-cidades"><i class="fa-solid fa-city"></i> Cidades</a>
+        <a href="#" class="menu-item" data-target="view-escolas" id="menu-escolas"><i class="fa-solid fa-school"></i> Escolas</a>
+        <a href="#" class="menu-item" data-target="view-usuarios" id="menu-usuarios"><i class="fa-solid fa-users-gear"></i> Usuários</a>
+        <a href="#" class="menu-item" data-target="view-olimpiadas"><i class="fa-solid fa-trophy"></i> Cronograma</a>
+        <a href="#" class="menu-item" data-target="view-arquivos"><i class="fa-solid fa-cloud-arrow-up"></i> Arquivos</a>
+        <a href="#" class="menu-item" data-target="view-diagnostico"><i class="fa-solid fa-plug-circle-check"></i> Diagnóstico Firebase</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="btn-logout" class="btn-logout">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i> Sair
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <section id="view-dashboard" class="content-section">
+        <div class="section-header">
+          <div>
+            <h1>Painel Geral</h1>
+            <p>Indicadores carregados diretamente do Firebase Firestore.</p>
+          </div>
+          <button id="btn-refresh" class="btn-secondary">
+            <i class="fa-solid fa-rotate"></i> Atualizar dados
+          </button>
+        </div>
+
+        <div class="analytics-cards">
+          <div class="card">
+            <div class="card-icon"><i class="fa-solid fa-city"></i></div>
+            <div class="card-info">
+              <h3 id="dash-count-cidades">0</h3>
+              <p>Cidades</p>
             </div>
-            
-            <div class="user-profile-summary">
-                <p class="welcome-txt">Bem-vindo,</p>
-                <p id="user-display-name" class="user-name-txt">Administrador</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon"><i class="fa-solid fa-school"></i></div>
+            <div class="card-info">
+              <h3 id="dash-count-escolas">0</h3>
+              <p>Escolas</p>
             </div>
+          </div>
 
-            <nav class="sidebar-menu">
-                <a href="#" class="menu-item active" data-target="view-dashboard">
-                    <i class="fa-solid fa-chart-pie"></i> Painel Geral
-                </a>
-                <a href="#" class="menu-item" data-target="view-cidades" id="menu-cidades">
-                    <i class="fa-solid fa-city"></i> Gerenciar Cidades
-                </a>
-                <a href="#" class="menu-item" data-target="view-escolas" id="menu-escolas">
-                    <i class="fa-solid fa-school"></i> Gerenciar Escolas
-                </a>
-                <a href="#" class="menu-item" data-target="view-usuarios" id="menu-usuarios">
-                    <i class="fa-solid fa-users-gear"></i> Gerenciar Usuários
-                </a>
-                <a href="#" class="menu-item" data-target="view-olimpiadas">
-                    <i class="fa-solid fa-trophy"></i> Cronograma Olímpico
-                </a>
-            </nav>
-
-            <div class="sidebar-footer">
-                <button id="btn-logout" class="btn-logout">
-                    <i class="fa-solid fa-arrow-right-from-bracket"></i> Sair do Sistema
-                </button>
+          <div class="card">
+            <div class="card-icon"><i class="fa-solid fa-trophy"></i></div>
+            <div class="card-info">
+              <h3 id="dash-count-olimpiadas">0</h3>
+              <p>Olimpíadas</p>
             </div>
-        </aside>
+          </div>
 
-        <main class="main-content">
-            
-            <section id="view-dashboard" class="content-section">
-                <div class="section-header">
-                    <h1>Painel Analítico Geral</h1>
-                    <p>Indicadores consolidados em tempo real na nuvem</p>
-                </div>
-                
-                <div class="analytics-cards">
-                    <div class="card">
-                        <div class="card-icon"><i class="fa-solid fa-city"></i></div>
-                        <div class="card-info">
-                            <h3 id="dash-count-cidades">0</h3>
-                            <p>Cidades Atendidas</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-icon" style="background: #e3f2fd; color: #0d47a1;"><i class="fa-solid fa-school"></i></div>
-                        <div class="card-info">
-                            <h3 id="dash-count-escolas">0</h3>
-                            <p>Escolas Parceiras</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-icon" style="background: #e8f5e9; color: #1b5e20;"><i class="fa-solid fa-trophy"></i></div>
-                        <div class="card-info">
-                            <h3 id="dash-count-olimpiadas">0</h3>
-                            <p>Olimpíadas Mapeadas</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-icon" style="background: #fff3e0; color: #e65100;"><i class="fa-solid fa-user-graduate"></i></div>
-                        <div class="card-info">
-                            <h3 id="dash-count-usuarios">0</h3>
-                            <p>Usuários Ativos</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+          <div class="card">
+            <div class="card-icon"><i class="fa-solid fa-user-graduate"></i></div>
+            <div class="card-info">
+              <h3 id="dash-count-usuarios">0</h3>
+              <p>Usuários</p>
+            </div>
+          </div>
+        </div>
 
-            <section id="view-cidades" class="content-section" style="display: none;">
-                <div class="section-header">
-                    <h1>Homologação de Cidades</h1>
-                    <p>Cadastre as cidades de atuação da Avance Consultoria</p>
-                </div>
-                <div class="grid-form-table">
-                    <div class="form-container">
-                        <h3>Nova Cidade</h3>
-                        <form id="form-cidade">
-                            <div class="input-group">
-                                <label>Nome da Cidade</label>
-                                <input type="text" id="cid-nome" required placeholder="Ex: Teresina">
-                            </div>
-                            <div class="input-group">
-                                <label>Estado (UF)</label>
-                                <select id="cid-uf" required>
-                                    <option value="PI">Piauí (PI)</option>
-                                    <option value="MA">Maranhão (MA)</option>
-                                    <option value="CE">Ceará (CE)</option>
-                                    <option value="PE">Pernambuco (PE)</option>
-                                    <option value="BA">Bahia (BA)</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="btn-save">Salvar Cidade <i class="fa-solid fa-check"></i></button>
-                        </form>
-                    </div>
-                    <div class="table-container">
-                        <h3>Cidades Homologadas</h3>
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>ID único</th>
-                                    <th>Cidade</th>
-                                    <th>UF</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="table-cidades-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
+        <div class="table-container">
+          <h3>Status da Conexão</h3>
+          <div class="firebase-health">
+            <div class="health-item">
+              <small>Origem dos dados</small>
+              <strong id="diag-data-source">Firebase Firestore</strong>
+            </div>
+            <div class="health-item">
+              <small>Projeto</small>
+              <strong id="diag-project-id">-</strong>
+            </div>
+            <div class="health-item">
+              <small>Storage Bucket</small>
+              <strong id="diag-storage-bucket">-</strong>
+            </div>
+            <div class="health-item">
+              <small>Última sincronização</small>
+              <strong id="diag-last-sync">-</strong>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            <section id="view-escolas" class="content-section" style="display: none;">
-                <div class="section-header">
-                    <h1>Cadastro de Unidades Escolares</h1>
-                    <p>Vincule escolas corporativas a uma cidade homologada</p>
-                </div>
-                <div class="grid-form-table-wide">
-                    <div class="form-container">
-                        <h3>Dados da Escola</h3>
-                        <form id="form-escola">
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>Razão Social</label>
-                                    <input type="text" id="esc-razao" required placeholder="Ex: Colégio Propósito Ltda">
-                                </div>
-                                <div class="input-group">
-                                    <label>Cidade Vinculada</label>
-                                    <select id="esc-cidade-select" required></select>
-                                </div>
-                            </div>
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>CNPJ</label>
-                                    <input type="text" id="esc-cnpj" required placeholder="00.000.000/0001-00">
-                                </div>
-                                <div class="input-group">
-                                    <label>Código INEP</label>
-                                    <input type="text" id="esc-inep" required placeholder="Ex: 22034512">
-                                </div>
-                            </div>
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>Endereço Completo</label>
-                                    <input type="text" id="esc-endereco" placeholder="Rua, Número, Bairro">
-                                </div>
-                                <div class="input-group">
-                                    <label>CEP</label>
-                                    <input type="text" id="esc-cep" placeholder="00000-000">
-                                </div>
-                            </div>
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>Nome do Diretor(a)</label>
-                                    <input type="text" id="esc-diretor" placeholder="Nome completo do gestor">
-                                </div>
-                                <div class="input-group">
-                                    <label>E-mail Institucional</label>
-                                    <input type="email" id="esc-email" placeholder="escola@dominio.com">
-                                </div>
-                            </div>
-                            <button type="submit" class="btn-save">Homologar Escola <i class="fa-solid fa-school"></i></button>
-                        </form>
-                    </div>
-                    <div class="table-container style-margin-top">
-                        <h3>Escolas Cadastradas</h3>
-                        <div class="responsive-table">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Razão Social</th>
-                                        <th>Cidade</th>
-                                        <th>INEP</th>
-                                        <th>Diretor</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-escolas-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </section>
+      <section id="view-cidades" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Gerenciar Cidades</h1>
+            <p>Cadastro salvo na coleção <strong>cidades</strong> do Firestore.</p>
+          </div>
+        </div>
 
-            <section id="view-usuarios" class="content-section" style="display: none;">
-                <div class="section-header">
-                    <h1>Governança e Níveis de Acesso</h1>
-                    <p>Controle estrito de privilégios corporativos</p>
-                </div>
-                <div class="grid-form-table">
-                    <div class="form-container">
-                        <h3>Criar Novo Usuário</h3>
-                        <form id="form-usuario">
-                            <div class="input-group">
-                                <label>Nível de Permissão</label>
-                                <select id="user-role-select" required>
-                                    <option value="ADM">Administrador Geral (ADM)</option>
-                                    <option value="Gestor">Gestor Municipal/Regional</option>
-                                    <option value="Escola">Coordenador de Escola</option>
-                                    <option value="Aluno">Acesso Aluno</option>
-                                </select>
-                            </div>
-                            <div class="input-group">
-                                <label>Nome de Usuário (Login)</label>
-                                <input type="text" id="user-username" required placeholder="Ex: maxwell.adm">
-                            </div>
-                            <div class="input-group">
-                                <label>Nome Exibição</label>
-                                <input type="text" id="user-fullname" required placeholder="Ex: Maxwell Silva">
-                            </div>
-                            <div class="input-group">
-                                <label>Senha Secreta</label>
-                                <input type="password" id="user-password" required placeholder="Defina a senha">
-                            </div>
+        <div class="grid-form-table">
+          <div class="form-container">
+            <h3>Nova Cidade</h3>
+            <form id="form-cidade">
+              <div class="input-group">
+                <label>Nome da Cidade</label>
+                <input type="text" id="cid-nome" required placeholder="Ex: Teresina">
+              </div>
 
-                            <div id="dynamic-user-fields"></div>
+              <div class="input-group">
+                <label>Estado</label>
+                <select id="cid-uf" required>
+                  <option value="PI">Piauí (PI)</option>
+                  <option value="MA">Maranhão (MA)</option>
+                  <option value="CE">Ceará (CE)</option>
+                  <option value="PE">Pernambuco (PE)</option>
+                  <option value="BA">Bahia (BA)</option>
+                </select>
+              </div>
 
-                            <button type="submit" class="btn-save">Criar Conta Segura <i class="fa-solid fa-user-shield"></i></button>
-                        </form>
-                    </div>
-                    <div class="table-container">
-                        <h3>Usuários do Ecossistema</h3>
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Login</th>
-                                    <th>Nome</th>
-                                    <th>Nível</th>
-                                    <th>Vínculo</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="table-usuarios-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
+              <button type="submit" class="btn-save">
+                Salvar Cidade <i class="fa-solid fa-check"></i>
+              </button>
+            </form>
+          </div>
 
-            <section id="view-olimpiadas" class="content-section" style="display: none;">
-                <div class="section-header">
-                    <h1>Cronograma Oficial de Olimpíadas 2026</h1>
-                    <p>Acompanhamento estratégico de janelas de inscrições e fases</p>
-                </div>
-                
-                <div class="action-bar-olimpiadas">
-                    <div class="import-box">
-                        <label for="excel-file-input" class="btn-excel-label">
-                            <i class="fa-solid fa-file-excel"></i> Importar Cronograma (.xlsx)
-                        </label>
-                        <input type="file" id="excel-file-input" accept=".xlsx, .xls" style="display:none;">
-                    </div>
-                    <button id="btn-export-template" class="btn-export">
-                        <i class="fa-solid fa-download"></i> Baixar Planilha Inteligente de Inscrição
-                    </button>
+          <div class="table-container">
+            <h3>Cidades Cadastradas</h3>
+            <div class="responsive-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Cidade</th>
+                    <th>UF</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="table-cidades-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-escolas" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Gerenciar Escolas</h1>
+            <p>Cadastro salvo na coleção <strong>escolas</strong> do Firestore.</p>
+          </div>
+        </div>
+
+        <div class="grid-form-table-wide">
+          <div class="form-container">
+            <h3>Nova Escola</h3>
+            <form id="form-escola">
+              <div class="input-row">
+                <div class="input-group">
+                  <label>Razão Social</label>
+                  <input type="text" id="esc-razao" required placeholder="Ex: Colégio Propósito">
                 </div>
 
-                <div class="grid-form-table-wide style-margin-top">
-                    <div class="form-container" id="container-add-olimpiada">
-                        <h3>Adicionar Fase/Evento Manual</h3>
-                        <form id="form-olimpiada">
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>Nome da Olimpíada</label>
-                                    <input type="text" id="olimp-nome" required placeholder="Ex: Canguru de Matemática">
-                                </div>
-                                <div class="input-group">
-                                    <label>Fase / Evento</label>
-                                    <input type="text" id="olimp-fase" required placeholder="Ex: Fase 1 - Aplicação">
-                                </div>
-                            </div>
-                            <div class="input-row">
-                                <div class="input-group">
-                                    <label>Data de Início</label>
-                                    <input type="date" id="olimp-start" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Data de Término</label>
-                                    <input type="date" id="olimp-end" required>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn-save">Publicar no Calendário <i class="fa-solid fa-calendar-plus"></i></button>
-                        </form>
-                    </div>
-
-                    <div class="table-container style-margin-top">
-                        <h3>Prazos e Janelas Ativas</h3>
-                        <div class="responsive-table">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Olimpíada</th>
-                                        <th>Fase / Evento</th>
-                                        <th>Início</th>
-                                        <th>Fim</th>
-                                        <th>Status</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-olimpiadas-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
+                <div class="input-group">
+                  <label>Cidade Vinculada</label>
+                  <select id="esc-cidade-select" required></select>
                 </div>
-            </section>
+              </div>
 
-        </main>
-    </div>
+              <div class="input-row">
+                <div class="input-group">
+                  <label>CNPJ</label>
+                  <input type="text" id="esc-cnpj" placeholder="00.000.000/0001-00">
+                </div>
 
-    <script type="module" src="app.js"></script>
+                <div class="input-group">
+                  <label>Código INEP</label>
+                  <input type="text" id="esc-inep" placeholder="Ex: 22034512">
+                </div>
+              </div>
+
+              <div class="input-row">
+                <div class="input-group">
+                  <label>Endereço</label>
+                  <input type="text" id="esc-endereco" placeholder="Rua, número, bairro">
+                </div>
+
+                <div class="input-group">
+                  <label>CEP</label>
+                  <input type="text" id="esc-cep" placeholder="00000-000">
+                </div>
+              </div>
+
+              <div class="input-row">
+                <div class="input-group">
+                  <label>Diretor(a)</label>
+                  <input type="text" id="esc-diretor" placeholder="Nome completo">
+                </div>
+
+                <div class="input-group">
+                  <label>E-mail Institucional</label>
+                  <input type="email" id="esc-email" placeholder="escola@dominio.com">
+                </div>
+              </div>
+
+              <button type="submit" class="btn-save">
+                Salvar Escola <i class="fa-solid fa-school"></i>
+              </button>
+            </form>
+          </div>
+
+          <div class="table-container">
+            <h3>Escolas Cadastradas</h3>
+            <div class="responsive-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Razão Social</th>
+                    <th>Cidade</th>
+                    <th>INEP</th>
+                    <th>Diretor</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="table-escolas-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-usuarios" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Gerenciar Usuários</h1>
+            <p>Cadastro salvo na coleção <strong>usuarios</strong> do Firestore.</p>
+          </div>
+        </div>
+
+        <div class="grid-form-table">
+          <div class="form-container">
+            <h3>Novo Usuário</h3>
+            <form id="form-usuario">
+              <div class="input-group">
+                <label>Nível de Acesso</label>
+                <select id="user-role-select" required>
+                  <option value="ADM">Administrador Geral</option>
+                  <option value="Gestor">Gestor Municipal/Regional</option>
+                  <option value="Escola">Coordenador de Escola</option>
+                  <option value="Aluno">Aluno</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label>Nome de Usuário</label>
+                <input type="text" id="user-username" required placeholder="Ex: maxwell.adm">
+              </div>
+
+              <div class="input-group">
+                <label>Nome de Exibição</label>
+                <input type="text" id="user-fullname" required placeholder="Ex: Maxwell Uchôa">
+              </div>
+
+              <div class="input-group">
+                <label>Senha</label>
+                <input type="password" id="user-password" required placeholder="Defina uma senha">
+              </div>
+
+              <div id="dynamic-user-fields"></div>
+
+              <button type="submit" class="btn-save">
+                Criar Usuário <i class="fa-solid fa-user-shield"></i>
+              </button>
+            </form>
+          </div>
+
+          <div class="table-container">
+            <h3>Usuários Cadastrados</h3>
+            <div class="responsive-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Login</th>
+                    <th>Nome</th>
+                    <th>Nível</th>
+                    <th>Vínculo</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="table-usuarios-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-olimpiadas" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Cronograma Olímpico</h1>
+            <p>Eventos salvos na coleção <strong>olimpiadas</strong> do Firestore.</p>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <label for="excel-file-input" class="btn-excel-label">
+            <i class="fa-solid fa-file-excel"></i> Importar Cronograma XLSX
+          </label>
+          <input type="file" id="excel-file-input" accept=".xlsx,.xls" class="hidden">
+
+          <button id="btn-export-template" class="btn-export">
+            <i class="fa-solid fa-download"></i> Baixar Modelo XLSX
+          </button>
+        </div>
+
+        <div class="grid-form-table-wide">
+          <div class="form-container" id="container-add-olimpiada">
+            <h3>Adicionar Evento Manual</h3>
+            <form id="form-olimpiada">
+              <div class="input-row">
+                <div class="input-group">
+                  <label>Nome da Olimpíada</label>
+                  <input type="text" id="olimp-nome" required placeholder="Ex: OBMEP">
+                </div>
+
+                <div class="input-group">
+                  <label>Fase / Evento</label>
+                  <input type="text" id="olimp-fase" required placeholder="Ex: 1ª Fase">
+                </div>
+              </div>
+
+              <div class="input-row">
+                <div class="input-group">
+                  <label>Data de Início</label>
+                  <input type="date" id="olimp-start" required>
+                </div>
+
+                <div class="input-group">
+                  <label>Data de Término</label>
+                  <input type="date" id="olimp-end" required>
+                </div>
+              </div>
+
+              <button type="submit" class="btn-save">
+                Publicar no Calendário <i class="fa-solid fa-calendar-plus"></i>
+              </button>
+            </form>
+          </div>
+
+          <div class="table-container">
+            <h3>Eventos Cadastrados</h3>
+            <div class="responsive-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Olimpíada</th>
+                    <th>Fase / Evento</th>
+                    <th>Início</th>
+                    <th>Fim</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="table-olimpiadas-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-arquivos" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Arquivos</h1>
+            <p>Upload no <strong>Firebase Storage</strong> e metadados na coleção <strong>arquivos</strong>.</p>
+          </div>
+        </div>
+
+        <div class="grid-form-table">
+          <div class="form-container">
+            <h3>Enviar Arquivo</h3>
+            <form id="form-arquivo">
+              <div class="input-group">
+                <label>Título / Descrição</label>
+                <input type="text" id="file-title" required placeholder="Ex: Lista OBMEP - Divisibilidade">
+              </div>
+
+              <div class="input-group">
+                <label>Arquivo</label>
+                <input type="file" id="file-input" required>
+              </div>
+
+              <button type="submit" class="btn-save">
+                Enviar para o Storage <i class="fa-solid fa-cloud-arrow-up"></i>
+              </button>
+            </form>
+            <p class="muted" id="upload-status"></p>
+          </div>
+
+          <div class="table-container">
+            <h3>Arquivos Enviados</h3>
+            <div class="responsive-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Título</th>
+                    <th>Arquivo</th>
+                    <th>Tamanho</th>
+                    <th>Enviado em</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="table-arquivos-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-diagnostico" class="content-section hidden">
+        <div class="section-header">
+          <div>
+            <h1>Diagnóstico Firebase</h1>
+            <p>Use esta tela para confirmar se o site publicado está lendo o Firebase novo.</p>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <h3>Informações Técnicas</h3>
+          <div class="firebase-health">
+            <div class="health-item">
+              <small>App JS</small>
+              <strong id="diag-app-version">-</strong>
+            </div>
+            <div class="health-item">
+              <small>Project ID</small>
+              <strong id="diag-project-id-2">-</strong>
+            </div>
+            <div class="health-item">
+              <small>Auth Domain</small>
+              <strong id="diag-auth-domain">-</strong>
+            </div>
+            <div class="health-item">
+              <small>Último erro</small>
+              <strong id="diag-last-error">Nenhum</strong>
+            </div>
+          </div>
+
+          <div class="action-bar" style="margin-top:18px;">
+            <button id="btn-test-firestore" class="btn-secondary">
+              <i class="fa-solid fa-database"></i> Testar Firestore
+            </button>
+            <button id="btn-clear-session" class="btn-danger">
+              <i class="fa-solid fa-broom"></i> Limpar sessão local
+            </button>
+          </div>
+
+          <p class="muted">
+            Se os dados antigos aparecerem com o Firestore vazio, o problema é cache, arquivo antigo publicado ou outro projeto Firebase.
+          </p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./app.js?v=20260526-01"></script>
 </body>
 </html>
