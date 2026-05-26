@@ -1,4 +1,97 @@
-// Gerenciador e Inteligência do Sistema Olímpico 2026
+// ==================== CONFIGURAÇÃO E SEMENTES DO SISTEMA ====================
+// Sementes usadas apenas na primeira carga (quando Firebase estiver vazio)
+const DATABASE = {
+    usuarios: [
+        { id: "1", login: "admin",   senha: "123",    nivel: "ADM",     nome: "Administrador Master",      email: "admin@avance.com",            telefone: "(86) 99999-9999", vinculoId: "" },
+        { id: "2", login: "gestor",  senha: "456",    nivel: "Gestor",  nome: "Coord. Regional São Braz",  email: "gestor@saobraz.pi.gov.br",    telefone: "(89) 98888-8888", vinculoId: "1" },
+        { id: "3", login: "escola",  senha: "789",    nivel: "Escola",  nome: "Resp. Escola Polo",         email: "polo@escola.com",             telefone: "(89) 97777-7777", vinculoId: "1" },
+        { id: "4", login: "monitor", senha: "mon123", nivel: "Monitor", nome: "Monitor de Matemática",     email: "monitor@avance.com",          telefone: "(86) 98888-0001", vinculoId: "" }
+    ],
+    olimpiadas: [
+        { id: "1", nome: "Canguru de Matemática Brasil",                                         categoria: "MAT",   series: "3º Ano EF ao 3º Ano EM" },
+        { id: "2", nome: "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)",      categoria: "MAT",   series: "6º Ano EF ao 3º Ano EM" },
+        { id: "3", nome: "OBA (Olimpíada Brasileira de Astronomia e Astronáutica)",              categoria: "AST",   series: "1º Ano EF ao 3º Ano EM" },
+        { id: "4", nome: "ONC (Olimpíada Nacional de Ciências)",                                 categoria: "INTEG", series: "6º Ano EF ao 3º Ano EM" }
+    ],
+    cronograma: [
+        { id: "1", olimpiadaId: "2", etapa: "Fase 1 - Escolar (prova objetiva)", data: "09/06/2026",         segmento: "6º EF a 3ª EM", acao: "Imprimir provas; enviar cartões-resposta via aplicativo oficial." },
+        { id: "2", olimpiadaId: "1", etapa: "Prova Única (múltipla escolha)",    data: "19/03 a 25/03/2026", segmento: "3º EF a 3ª EM", acao: "Aplicação presencial dos exames lógicos nas salas de aula." }
+    ],
+    premiados: [
+        { aluno: "Carlos Eduardo Silva", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "OBMEP",                       serie: "6º Ano EF", premio: "Ouro"  },
+        { aluno: "Ana Beatriz Rocha",    escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "Canguru de Matemática Brasil", serie: "7º Ano EF", premio: "Prata" }
+    ]
+};
+
+const CONFIG_CIDADES_INICIAIS = [
+    { id: "1", nome: "São Braz", sigla: "SBZ", uf: "PI" }
+];
+
+const CONFIG_ESCOLAS_INICIAIS = [
+    { id: "1", nome: "U. E. São Braz", razaoSocial: "Unidade Escolar São Braz LTDA", cnpj: "12.345.678/0001-99",
+      inep: "2201923", endereco: "Rua Central, 100", cep: "64.758-000",
+      diretor: "Prof. Antônio Silva", email: "polo@saobraz.pi.gov.br", cidadeId: "1" }
+];
+
+// ==================== TABELA DE PERMISSÕES POR NÍVEL ====================
+const PERMISSOES = {
+    ADM: {
+        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas", "cidades", "escolas"],
+        dashboard: { filtroTravado: false },
+        calendario: { podeEditar: true },
+        resultados: { podeEditar: true },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor"] },
+        plataforma: { podeGerenciar: true }
+    },
+    Gestor: {
+        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas"],
+        dashboard: { filtroTravado: true },
+        calendario: { podeEditar: false },
+        resultados: { podeEditar: false },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["Escola", "Aluno"] },
+        plataforma: { podeGerenciar: false }
+    },
+    Escola: {
+        abas: ["dashboard", "calendario", "importar", "plataforma", "monitoria", "usuarios", "olimpiadas"],
+        dashboard: { filtroTravado: true },
+        calendario: { podeEditar: false },
+        resultados: { podeEditar: false },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["Aluno"] },
+        plataforma: { podeGerenciar: false }
+    },
+    Aluno: {
+        abas: ["plataforma", "monitoria"],
+        dashboard: { filtroTravado: true },
+        calendario: { podeEditar: false },
+        resultados: { podeEditar: false },
+        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
+        plataforma: { podeGerenciar: false }
+    },
+    Monitor: {
+        abas: ["plataforma", "monitoria"],
+        dashboard: { filtroTravado: true },
+        calendario: { podeEditar: false },
+        resultados: { podeEditar: false },
+        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
+        plataforma: { podeGerenciar: false }
+    }
+};
+
+// Salas fixas de Monitoria
+const SALAS_MONITORIA = [
+    { id: "mat-1", nome: "Matemática — Sala 1", area: "matematica",  icone: "fa-square-root-variable", cor: "blue"    },
+    { id: "mat-2", nome: "Matemática — Sala 2", area: "matematica",  icone: "fa-square-root-variable", cor: "blue"    },
+    { id: "fis-1", nome: "Física — Sala 1",     area: "fisica",      icone: "fa-atom",                 cor: "purple"  },
+    { id: "fis-2", nome: "Física — Sala 2",     area: "fisica",      icone: "fa-atom",                 cor: "purple"  },
+    { id: "qui-1", nome: "Química — Sala 1",    area: "quimica",     icone: "fa-flask",                cor: "emerald" },
+    { id: "qui-2", nome: "Química — Sala 2",    area: "quimica",     icone: "fa-flask",                cor: "emerald" },
+    { id: "lin-1", nome: "Linguagem — Sala 1",  area: "linguagem",   icone: "fa-book-open",            cor: "amber"   },
+    { id: "lin-2", nome: "Linguagem — Sala 2",  area: "linguagem",   icone: "fa-book-open",            cor: "amber"   },
+    { id: "hum-1", nome: "Humanas — Sala 1",    area: "humanas",     icone: "fa-landmark",             cor: "rose"    },
+    { id: "hum-2", nome: "Humanas — Sala 2",    area: "humanas",     icone: "fa-landmark",             cor: "rose"    }
+];
+
+// ==================== GERENCIADOR DO SISTEMA OLÍMPICO 2026 ====================
 let chartInstance = null;
 let dadosTrabalho = [];
 let usuarioLogado = null;
@@ -443,25 +536,25 @@ function salvarUsuariosSistema(usuarios) {
 
 function garantirCadastrosBasicos() {
     const sementes = [
-        { chave: "app_usuarios", dados: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [] },
-        { chave: "app_cidades", dados: typeof CONFIG_CIDADES_INICIAIS !== "undefined" ? CONFIG_CIDADES_INICIAIS : [] },
-        { chave: "app_escolas", dados: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [] },
-        { chave: "app_olimpiadas", dados: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [] },
-        { chave: "app_cronograma", dados: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [] },
-        { chave: "app_plataforma", dados: [] }
+        { chave: "app_usuarios",   dados: DATABASE.usuarios         },
+        { chave: "app_cidades",    dados: CONFIG_CIDADES_INICIAIS   },
+        { chave: "app_escolas",    dados: CONFIG_ESCOLAS_INICIAIS   },
+        { chave: "app_olimpiadas", dados: DATABASE.olimpiadas       },
+        { chave: "app_cronograma", dados: DATABASE.cronograma       },
+        { chave: "app_plataforma", dados: []                        }
     ];
 
     sementes.forEach(({ chave, dados }) => {
         const atual = getStorage(chave, null);
         if (!Array.isArray(atual) || atual.length === 0) {
-            setStorage(chave, Array.isArray(dados) ? [...dados] : []);
+            setStorage(chave, [...dados]);
         }
     });
 
-    // Garantir que novo usuário Monitor existe
+    // Garantir que usuário Monitor existe no cache local
     const usuarios = getStorage("app_usuarios");
     if (!usuarios.some(u => u.nivel === "Monitor")) {
-        const monitorBase = typeof DATABASE !== "undefined" ? DATABASE.usuarios.find(u => u.nivel === "Monitor") : null;
+        const monitorBase = DATABASE.usuarios.find(u => u.nivel === "Monitor");
         if (monitorBase && !usuarios.some(u => u.id === monitorBase.id)) {
             usuarios.push(monitorBase);
             salvarUsuariosSistema(usuarios);
@@ -472,7 +565,7 @@ function garantirCadastrosBasicos() {
 function carregarPremiados() {
     const salvos = getStorage("app_premiados", null);
     if (Array.isArray(salvos) && salvos.length > 0) return salvos;
-    const base = (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.premiados)) ? [...DATABASE.premiados] : [];
+    const base = [...DATABASE.premiados];
     setStorage("app_premiados", base);
     return base;
 }
@@ -2005,7 +2098,7 @@ function renderizarSalasMonitoria() {
     const container = document.getElementById("gridSalasMonitoria");
     if (!container) return;
 
-    const salas = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
+    const salas = SALAS_MONITORIA;
     const coresBorder = { blue: "border-blue-700/40 hover:border-blue-500/60", purple: "border-purple-700/40 hover:border-purple-500/60", emerald: "border-emerald-700/40 hover:border-emerald-500/60", amber: "border-amber-700/40 hover:border-amber-500/60", rose: "border-rose-700/40 hover:border-rose-500/60" };
     const coresIcone = { blue: "text-blue-400 bg-blue-500/10", purple: "text-purple-400 bg-purple-500/10", emerald: "text-emerald-400 bg-emerald-500/10", amber: "text-amber-400 bg-amber-500/10", rose: "text-rose-400 bg-rose-500/10" };
     const coresBtn = { blue: "bg-blue-600 hover:bg-blue-500", purple: "bg-purple-600 hover:bg-purple-500", emerald: "bg-emerald-600 hover:bg-emerald-500", amber: "bg-amber-600 hover:bg-amber-500", rose: "bg-rose-600 hover:bg-rose-500" };
@@ -2037,7 +2130,7 @@ function verificarStatusSalas() {
         document.querySelectorAll("[id^='status-']").forEach(el => { el.textContent = "Firebase não configurado"; el.classList.add("text-amber-500"); });
         return;
     }
-    const salas = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
+    const salas = SALAS_MONITORIA;
     salas.forEach(sala => {
         firebaseDB.ref(`monitoria/${sala.id}/participantes`).on("value", snap => {
             const statusEl = document.getElementById(`status-${sala.id}`);
@@ -2057,7 +2150,7 @@ function entrarSalaMonitoria(salaId) {
         return alert("⚠️ Firebase ainda não configurado.\n\nVeja o guia de configuração na aba Monitoria.");
     }
 
-    const sala = (typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : []).find(s => s.id === salaId);
+    const sala = (SALAS_MONITORIA).find(s => s.id === salaId);
     if (!sala) return;
 
     firebaseDB.ref(`monitoria/${salaId}/participantes`).once("value", async snap => {
