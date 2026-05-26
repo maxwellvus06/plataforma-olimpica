@@ -214,6 +214,269 @@ function excluirOlimpiada(id) {
     renderizarPlataforma();
 }
 
+function escolherEditarOuApagar(titulo) {
+    const escolha = prompt(`${titulo}\n\nDigite 1 para EDITAR.\nDigite 2 para APAGAR.\n\nCancelar não altera nada.`);
+    if (escolha === null) return null;
+    const valor = String(escolha).trim();
+    if (valor === "1") return "editar";
+    if (valor === "2") return "apagar";
+    alert("Opção inválida. Nada foi alterado.");
+    return null;
+}
+
+function promptValor(rotulo, valorAtual) {
+    const resposta = prompt(rotulo, valorAtual ?? "");
+    if (resposta === null) return null;
+    return resposta.trim();
+}
+
+function atualizarSessaoUsuario(usuarioAtualizado) {
+    if (usuarioLogado?.id === usuarioAtualizado.id) {
+        usuarioLogado = usuarioAtualizado;
+        sessionStorage.setItem("avance_session", JSON.stringify(usuarioAtualizado));
+        document.getElementById("userLoggedNome").innerText = usuarioAtualizado.nome;
+        document.getElementById("userLoggedNivel").innerText = usuarioAtualizado.nivel;
+    }
+}
+
+function atualizarResultadosCampo(campo, valorAntigo, valorNovo) {
+    const antigo = normalizarTexto(valorAntigo);
+    dadosTrabalho = dadosTrabalho.map(item => {
+        if (normalizarTexto(item[campo]) === antigo) return { ...item, [campo]: valorNovo };
+        return item;
+    });
+    salvarPremiados();
+}
+
+function editarUsuario(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar usuários.");
+    const acao = escolherEditarOuApagar("Editar usuário");
+    if (!acao) return;
+    if (acao === "apagar") return excluirUsuario(id);
+
+    const usuarios = getStorage("app_usuarios");
+    const idx = usuarios.findIndex(u => u.id === id);
+    if (idx === -1) return alert("Usuário não encontrado.");
+    const atual = usuarios[idx];
+
+    const nome = promptValor("Nome completo:", atual.nome);
+    if (nome === null) return;
+    const login = promptValor("Login:", atual.login)?.toLowerCase();
+    if (login === null) return;
+    if (!nome || !login) return alert("Nome e login são obrigatórios.");
+    if (usuarios.some(u => u.id !== id && normalizarTexto(u.login) === normalizarTexto(login))) return alert("Erro: já existe outro usuário com esse login.");
+
+    const nivel = promptValor("Nível de acesso: ADM, Gestor, Escola ou Aluno", atual.nivel);
+    if (nivel === null) return;
+    const niveisValidos = ["ADM", "Gestor", "Escola", "Aluno"];
+    const nivelCorrigido = niveisValidos.find(n => normalizarTexto(n) === normalizarTexto(nivel));
+    if (!nivelCorrigido) return alert("Nível inválido. Use ADM, Gestor, Escola ou Aluno.");
+
+    const email = promptValor("E-mail:", atual.email || "");
+    if (email === null) return;
+    const telefone = promptValor("Telefone:", atual.telefone || "");
+    if (telefone === null) return;
+
+    let vinculoId = "";
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    if (nivelCorrigido === "Gestor") {
+        const lista = cidades.map(c => `${c.id} - ${c.nome} (${c.uf})`).join("\n");
+        vinculoId = promptValor(`Vínculo da cidade. Digite o ID:\n\n${lista}`, atual.vinculoId || "");
+        if (vinculoId === null) return;
+        if (!cidades.some(c => c.id === vinculoId)) return alert("Cidade inválida para vínculo.");
+    } else if (nivelCorrigido === "Escola" || nivelCorrigido === "Aluno") {
+        const lista = escolas.map(e => `${e.id} - ${e.nome}`).join("\n");
+        vinculoId = promptValor(`Vínculo da escola. Digite o ID:\n\n${lista}`, atual.vinculoId || "");
+        if (vinculoId === null) return;
+        if (!escolas.some(e => e.id === vinculoId)) return alert("Escola inválida para vínculo.");
+    }
+
+    const novaSenha = prompt("Senha: por segurança, a senha atual não é exibida.\nDigite uma NOVA senha somente se quiser trocar.\nDeixe em branco para manter a senha atual.", "");
+    if (novaSenha === null) return;
+
+    const usuarioAtualizado = {
+        ...atual,
+        nome,
+        login,
+        nivel: nivelCorrigido,
+        email,
+        telefone,
+        vinculoId,
+        senha: novaSenha.trim() ? novaSenha.trim() : atual.senha
+    };
+
+    usuarios[idx] = usuarioAtualizado;
+    setStorage("app_usuarios", usuarios);
+    atualizarSessaoUsuario(usuarioAtualizado);
+    renderizarTabelasGerenciais();
+    alert("Usuário atualizado com sucesso.");
+}
+
+function editarCidade(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar cidades.");
+    const acao = escolherEditarOuApagar("Editar cidade");
+    if (!acao) return;
+    if (acao === "apagar") return excluirCidade(id);
+
+    const cidades = getStorage("app_cidades");
+    const idx = cidades.findIndex(c => c.id === id);
+    if (idx === -1) return alert("Cidade não encontrada.");
+    const atual = cidades[idx];
+    const municipioAntigo = `${atual.nome} - ${atual.uf}`;
+
+    const nome = promptValor("Nome da cidade:", atual.nome);
+    if (nome === null) return;
+    const sigla = promptValor("Sigla:", atual.sigla || "")?.toUpperCase();
+    if (sigla === null) return;
+    const uf = promptValor("UF:", atual.uf || "")?.toUpperCase();
+    if (uf === null) return;
+    if (!nome || !sigla || !uf) return alert("Nome, sigla e UF são obrigatórios.");
+    if (cidades.some(c => c.id !== id && normalizarTexto(c.nome) === normalizarTexto(nome) && normalizarTexto(c.uf) === normalizarTexto(uf))) return alert("Erro: já existe outra cidade com esse nome e UF.");
+
+    cidades[idx] = { ...atual, nome, sigla, uf };
+    setStorage("app_cidades", cidades);
+    atualizarResultadosCampo("municipio", municipioAntigo, `${nome} - ${uf}`);
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarPlataforma();
+    renderizarResultadosImportacao();
+    alert("Cidade atualizada com sucesso.");
+}
+
+function editarEscola(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar escolas.");
+    const acao = escolherEditarOuApagar("Editar escola");
+    if (!acao) return;
+    if (acao === "apagar") return excluirEscola(id);
+
+    const escolas = getStorage("app_escolas");
+    const cidades = getStorage("app_cidades");
+    const idx = escolas.findIndex(e => e.id === id);
+    if (idx === -1) return alert("Escola não encontrada.");
+    const atual = escolas[idx];
+    const nomeAntigo = atual.nome;
+
+    const nome = promptValor("Nome da escola:", atual.nome);
+    if (nome === null) return;
+    const razaoSocial = promptValor("Razão social:", atual.razaoSocial || "");
+    if (razaoSocial === null) return;
+    const cnpj = promptValor("CNPJ:", atual.cnpj || "");
+    if (cnpj === null) return;
+    const inep = promptValor("INEP:", atual.inep || "");
+    if (inep === null) return;
+    const endereco = promptValor("Endereço:", atual.endereco || "");
+    if (endereco === null) return;
+    const cep = promptValor("CEP:", atual.cep || "");
+    if (cep === null) return;
+    const diretor = promptValor("Diretor:", atual.diretor || "");
+    if (diretor === null) return;
+    const email = promptValor("E-mail:", atual.email || "");
+    if (email === null) return;
+    const listaCidades = cidades.map(c => `${c.id} - ${c.nome} (${c.uf})`).join("\n");
+    const cidadeId = promptValor(`Cidade vinculada. Digite o ID:\n\n${listaCidades}`, atual.cidadeId || "");
+    if (cidadeId === null) return;
+
+    if (!nome || !razaoSocial || !cnpj || !inep || !cidadeId) return alert("Nome, razão social, CNPJ, INEP e cidade são obrigatórios.");
+    if (!cidades.some(c => c.id === cidadeId)) return alert("Cidade inválida.");
+    if (escolas.some(e => e.id !== id && normalizarTexto(e.inep) === normalizarTexto(inep))) return alert("Erro: já existe outra escola com esse INEP.");
+    if (escolas.some(e => e.id !== id && normalizarTexto(e.nome) === normalizarTexto(nome))) return alert("Erro: já existe outra escola com esse nome.");
+
+    escolas[idx] = { ...atual, nome, razaoSocial, cnpj, inep, endereco, cep, diretor, email, cidadeId };
+    setStorage("app_escolas", escolas);
+
+    const novaCidade = cidades.find(c => c.id === cidadeId);
+    dadosTrabalho = dadosTrabalho.map(r => {
+        if (normalizarTexto(r.escola) === normalizarTexto(nomeAntigo)) {
+            return { ...r, escola: nome, municipio: novaCidade ? `${novaCidade.nome} - ${novaCidade.uf}` : r.municipio };
+        }
+        return r;
+    });
+    salvarPremiados();
+
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarPlataforma();
+    renderizarResultadosImportacao();
+    alert("Escola atualizada com sucesso.");
+}
+
+function editarOlimpiada(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar olimpíadas.");
+    const acao = escolherEditarOuApagar("Editar olimpíada");
+    if (!acao) return;
+    if (acao === "apagar") return excluirOlimpiada(id);
+
+    const olimpiadas = getStorage("app_olimpiadas");
+    const idx = olimpiadas.findIndex(o => o.id === id);
+    if (idx === -1) return alert("Olimpíada não encontrada.");
+    const atual = olimpiadas[idx];
+    const nomeAntigo = atual.nome;
+    const categoriaAntiga = atual.categoria;
+
+    const nome = promptValor("Nome da olimpíada:", atual.nome);
+    if (nome === null) return;
+    const categoria = promptValor("Frente / sigla:", atual.categoria || "")?.toUpperCase();
+    if (categoria === null) return;
+    const series = promptValor("Séries atendidas:", atual.series || "");
+    if (series === null) return;
+    if (!nome || !categoria || !series) return alert("Nome, frente e séries são obrigatórios.");
+    if (olimpiadas.some(o => o.id !== id && normalizarTexto(o.nome) === normalizarTexto(nome))) return alert("Erro: já existe outra olimpíada com esse nome.");
+
+    olimpiadas[idx] = { ...atual, nome, categoria, series };
+    setStorage("app_olimpiadas", olimpiadas);
+    atualizarResultadosCampo("olimpiada", nomeAntigo, nome);
+    atualizarResultadosCampo("olimpiada", categoriaAntiga, nome);
+    popularSeletores();
+    renderizarTabelasGerenciais();
+    renderizarCronograma();
+    renderizarPlataforma();
+    renderizarResultadosImportacao();
+    alert("Olimpíada atualizada com sucesso.");
+}
+
+function excluirCronograma(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem apagar eventos.");
+    const cronograma = getStorage("app_cronograma");
+    const evento = cronograma.find(c => c.id === id);
+    if (!evento) return alert("Evento não encontrado.");
+    if (!confirmarExclusao("o evento do calendário", evento.etapa)) return;
+    setStorage("app_cronograma", cronograma.filter(c => c.id !== id));
+    renderizarCronograma();
+}
+
+function editarCronograma(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar eventos.");
+    const acao = escolherEditarOuApagar("Editar evento do calendário");
+    if (!acao) return;
+    if (acao === "apagar") return excluirCronograma(id);
+
+    const cronograma = getStorage("app_cronograma");
+    const olimpiadas = getStorage("app_olimpiadas");
+    const idx = cronograma.findIndex(c => c.id === id);
+    if (idx === -1) return alert("Evento não encontrado.");
+    const atual = cronograma[idx];
+
+    const listaOlimpiadas = olimpiadas.map(o => `${o.id} - ${o.nome}`).join("\n");
+    const olimpiadaId = promptValor(`Olimpíada vinculada. Digite o ID:\n\n${listaOlimpiadas}`, atual.olimpiadaId || "");
+    if (olimpiadaId === null) return;
+    if (!olimpiadas.some(o => o.id === olimpiadaId)) return alert("Olimpíada inválida.");
+    const etapa = promptValor("Etapa / fase:", atual.etapa || "");
+    if (etapa === null) return;
+    const data = promptValor("Data / janela crítica:", atual.data || "");
+    if (data === null) return;
+    const segmento = promptValor("Público-alvo / séries elegíveis:", atual.segmento || "");
+    if (segmento === null) return;
+    const acaoTexto = promptValor("Diretriz operacional:", atual.acao || "");
+    if (acaoTexto === null) return;
+    if (!olimpiadaId || !etapa || !data || !segmento || !acaoTexto) return alert("Todos os campos do evento são obrigatórios.");
+
+    cronograma[idx] = { ...atual, olimpiadaId, etapa, data, segmento, acao: acaoTexto };
+    setStorage("app_cronograma", cronograma);
+    renderizarCronograma();
+    alert("Evento atualizado com sucesso.");
+}
+
 // ==================== NAVEGAÇÃO ENTRE ABAS ====================\
 function navegarAba(abaId, botaoTarget) {
     document.querySelectorAll(".tab-view").forEach(view => view.classList.add("hidden"));
@@ -515,7 +778,7 @@ function renderizarResultadosImportacao() {
                 <td class="p-4 text-gray-300 font-medium">${textoSeguro(r.serie || "Não informada")}</td>
                 <td class="p-4 text-gray-400">${textoSeguro(r.olimpiada)}</td>
                 <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${textoSeguro(r.premio)}</span></td>
-                <td class="p-4 text-right"><button onclick="excluirResultado('${chave}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td>
+                <td class="p-4 text-right">${usuarioLogado?.nivel === "ADM" ? `<button onclick="editarResultado('${chave}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
             </tr>
         `;
     }).join("");
@@ -537,6 +800,55 @@ function excluirResultado(chaveCodificada) {
     renderizarResultadosImportacao();
 }
 
+function editarResultado(chaveCodificada) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar resultados.");
+    const chaveOriginal = decodeURIComponent(chaveCodificada);
+    const idx = dadosTrabalho.findIndex(r => chaveResultado(r) === chaveOriginal);
+    if (idx === -1) return alert("Resultado não encontrado.");
+
+    const acao = escolherEditarOuApagar("Editar resultado olímpico");
+    if (!acao) return;
+    if (acao === "apagar") return excluirResultado(chaveCodificada);
+
+    const atual = dadosTrabalho[idx];
+    const aluno = promptValor("Nome do aluno:", atual.aluno || "");
+    if (aluno === null) return;
+
+    const escolas = getStorage("app_escolas");
+    const cidades = getStorage("app_cidades");
+    const olimpiadas = getStorage("app_olimpiadas");
+    const listaCidades = cidades.map(c => `${c.nome} - ${c.uf}`).join("\n");
+    const municipio = promptValor(`Cidade / município. Copie exatamente uma opção:\n\n${listaCidades}`, atual.municipio || "");
+    if (municipio === null) return;
+    const listaEscolas = escolas.map(e => e.nome).join("\n");
+    const escola = promptValor(`Escola. Copie exatamente uma opção:\n\n${listaEscolas}`, atual.escola || "");
+    if (escola === null) return;
+    const listaOlimpiadas = olimpiadas.map(o => o.nome).join("\n");
+    const olimpiada = promptValor(`Olimpíada. Copie exatamente uma opção:\n\n${listaOlimpiadas}`, atual.olimpiada || "");
+    if (olimpiada === null) return;
+    const serie = promptValor(`Série. Copie exatamente uma opção:\n\n${SERIES_PADRAO.join("\n")}`, atual.serie || "");
+    if (serie === null) return;
+    const premio = promptValor(`Premiação. Copie exatamente uma opção:\n\n${PREMIOS_PADRAO.join("\n")}`, atual.premio || "");
+    if (premio === null) return;
+
+    if (!aluno || !municipio || !escola || !olimpiada || !serie || !premio) return alert("Todos os campos do resultado são obrigatórios.");
+    if (!cidades.some(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(municipio))) return alert("Cidade inválida.");
+    const escolaObj = escolas.find(e => normalizarTexto(e.nome) === normalizarTexto(escola));
+    const cidadeObj = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(municipio));
+    if (!escolaObj) return alert("Escola inválida.");
+    if (escolaObj.cidadeId !== cidadeObj.id) return alert("A escola selecionada não pertence à cidade escolhida.");
+    if (!olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(olimpiada))) return alert("Olimpíada inválida.");
+    if (!SERIES_PADRAO.some(s => normalizarTexto(s) === normalizarTexto(serie))) return alert("Série inválida.");
+    if (!PREMIOS_PADRAO.some(p => normalizarTexto(p) === normalizarTexto(premio))) return alert("Premiação inválida.");
+
+    dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chaveOriginal);
+    gravarResultadoComSobrescrita({ aluno, escola, municipio, olimpiada, serie, premio });
+    popularSeletores();
+    renderizarPlataforma();
+    renderizarResultadosImportacao();
+    alert("Resultado atualizado com sucesso.");
+}
+
 // ==================== RENDERS DE COMPONENTES E DATA VIS ====================\
 function renderizarCronograma() {
     const cronograma = getStorage("app_cronograma");
@@ -548,11 +860,12 @@ function renderizarCronograma() {
         const oli = olimpiadas.find(o => o.id === c.olimpiadaId);
         return `
             <tr class="hover:bg-gray-800/40 transition">
-                <td class="p-4 font-bold text-white">${oli ? oli.nome : "Desconhecida"}</td>
-                <td class="p-4 text-xs font-semibold"><span class="px-2 py-0.5 bg-gray-900 border border-gray-700 rounded text-gray-300">${c.etapa}</span></td>
-                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${c.data}</td>
-                <td class="p-4 text-xs text-gray-400 font-medium">${c.segmento}</td>
-                <td class="p-4 text-gray-400 text-xs leading-relaxed">${c.acao}</td>
+                <td class="p-4 font-bold text-white">${oli ? textoSeguro(oli.nome) : "Desconhecida"}</td>
+                <td class="p-4 text-xs font-semibold"><span class="px-2 py-0.5 bg-gray-900 border border-gray-700 rounded text-gray-300">${textoSeguro(c.etapa)}</span></td>
+                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${textoSeguro(c.data)}</td>
+                <td class="p-4 text-xs text-gray-400 font-medium">${textoSeguro(c.segmento)}</td>
+                <td class="p-4 text-gray-400 text-xs leading-relaxed">${textoSeguro(c.acao)}</td>
+                <td class="p-4 text-right">${usuarioLogado?.nivel === "ADM" ? `<button onclick="editarCronograma('${textoSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
             </tr>
         `;
     }).join("");
@@ -567,7 +880,7 @@ function renderizarTabelasGerenciais() {
     // Tabela de Cidades
     if (document.getElementById("tableCidadesCorpo")) {
         document.getElementById("tableCidadesCorpo").innerHTML = cidades.map(c => `
-            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(c.id)}</td><td class="p-4 font-semibold text-white">${textoSeguro(c.nome)}</td><td class="p-4 font-mono text-blue-400">${textoSeguro(c.sigla)}</td><td class="p-4 font-bold text-gray-400">${textoSeguro(c.uf)}</td><td class="p-4 text-right"><button onclick="excluirCidade('${textoSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
+            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(c.id)}</td><td class="p-4 font-semibold text-white">${textoSeguro(c.nome)}</td><td class="p-4 font-mono text-blue-400">${textoSeguro(c.sigla)}</td><td class="p-4 font-bold text-gray-400">${textoSeguro(c.uf)}</td><td class="p-4 text-right"><button onclick="editarCidade('${textoSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>
         `).join("");
     }
     // Tabela de Escolas
@@ -575,14 +888,14 @@ function renderizarTabelasGerenciais() {
         document.getElementById("tableEscolasCorpo").innerHTML = escolas.map(e => {
             const cid = cidades.find(c => c.id === e.cidadeId);
             return `
-                <tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${textoSeguro(e.inep)}</td><td class="p-4"><div class="font-bold text-white text-sm">${textoSeguro(e.nome)}</div><div class="text-gray-500">${textoSeguro(e.razaoSocial)}</div></td><td class="p-4 font-mono">${textoSeguro(e.cnpj)}</td><td class="p-4"><div>${textoSeguro(e.diretor)}</div><div class="text-blue-400 font-mono">${textoSeguro(e.email)}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${textoSeguro(cid.nome)} - ${textoSeguro(cid.uf)}` : "Desconhecido"}</td><td class="p-4 text-right"><button onclick="excluirEscola('${textoSeguro(e.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
+                <tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${textoSeguro(e.inep)}</td><td class="p-4"><div class="font-bold text-white text-sm">${textoSeguro(e.nome)}</div><div class="text-gray-500">${textoSeguro(e.razaoSocial)}</div></td><td class="p-4 font-mono">${textoSeguro(e.cnpj)}</td><td class="p-4"><div>${textoSeguro(e.diretor)}</div><div class="text-blue-400 font-mono">${textoSeguro(e.email)}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${textoSeguro(cid.nome)} - ${textoSeguro(cid.uf)}` : "Desconhecido"}</td><td class="p-4 text-right"><button onclick="editarEscola('${textoSeguro(e.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>
             `;
         }).join("");
     }
     // Tabela de Olimpíadas Base
     if (document.getElementById("tableOlimpiadasCorpo")) {
         document.getElementById("tableOlimpiadasCorpo").innerHTML = olimpiadas.map(o => `
-            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(o.id)}</td><td class="p-4 font-bold text-white">${textoSeguro(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${textoSeguro(o.categoria)}</td><td class="p-4 text-gray-400 font-medium">${textoSeguro(o.series)}</td><td class="p-4 text-right"><button onclick="excluirOlimpiada('${textoSeguro(o.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td></tr>
+            <tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${textoSeguro(o.id)}</td><td class="p-4 font-bold text-white">${textoSeguro(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${textoSeguro(o.categoria)}</td><td class="p-4 text-gray-400 font-medium">${textoSeguro(o.series)}</td><td class="p-4 text-right"><button onclick="editarOlimpiada('${textoSeguro(o.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>
         `).join("");
     }
     // Tabela de Usuários / Operadores
@@ -608,7 +921,7 @@ function renderizarTabelasGerenciais() {
                         <div class="text-gray-500 font-mono">${textoSeguro(u.telefone)}</div>
                     </td>
                     <td class="p-4 font-semibold ${u.nivel === 'ADM' ? 'text-blue-400' : 'text-amber-400'}">${textoSeguro(descVinculo)}</td>
-                    <td class="p-4 text-right"><button onclick="excluirUsuario('${textoSeguro(u.id)}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td>
+                    <td class="p-4 text-right"><button onclick="editarUsuario('${textoSeguro(u.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td>
                 </tr>
             `;
         }).join("");
