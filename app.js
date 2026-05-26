@@ -30,8 +30,10 @@ const RTC_CONFIG = {
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+    initFirebase();
     garantirCadastrosBasicos();
+    await sincronizarUsuariosFirebaseInicial();
     dadosTrabalho = carregarPremiados();
     initLogin();
     initDragAndDrop();
@@ -53,20 +55,30 @@ document.addEventListener("DOMContentLoaded", () => {
 function initLogin() {
     const form = document.getElementById("loginForm");
     if (!form) return;
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const userInput = document.getElementById("auth-user").value.trim().toLowerCase();
         const passInput = document.getElementById("auth-pass").value.trim();
+        const btn = form.querySelector('button[type="submit"]');
 
-        const usuariosCadastrados = getStorage("app_usuarios");
-        const contaEncontrada = usuariosCadastrados.find(u => u.login === userInput && u.senha === passInput);
+        try {
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...'; }
+            await sincronizarUsuariosFirebaseInicial();
+            const usuariosCadastrados = getStorage("app_usuarios");
+            const contaEncontrada = usuariosCadastrados.find(u => normalizarTexto(u.login) === userInput && String(u.senha) === passInput);
 
-        if (contaEncontrada) {
-            usuarioLogado = contaEncontrada;
-            sessionStorage.setItem("avance_session", JSON.stringify(contaEncontrada));
-            logarSucesso(contaEncontrada);
-        } else {
-            alert("Erro de Autenticação: Login inválido.");
+            if (contaEncontrada) {
+                usuarioLogado = contaEncontrada;
+                sessionStorage.setItem("avance_session", JSON.stringify(contaEncontrada));
+                logarSucesso(contaEncontrada);
+            } else {
+                alert("Erro de Autenticação: Login inválido.");
+            }
+        } catch (erro) {
+            console.error("Erro ao tentar login", erro);
+            alert(`Erro ao tentar login. Verifique conexão/Firebase.\n\n${erro.message || erro}`);
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
         }
     });
 }
@@ -375,6 +387,59 @@ function setStorage(chave, valor) {
     localStorage.setItem(chave, JSON.stringify(valor));
 }
 
+function normalizarListaUsuarios(valor) {
+    if (!valor) return [];
+    if (Array.isArray(valor)) return valor.filter(Boolean);
+    if (typeof valor === "object") return Object.values(valor).filter(Boolean);
+    return [];
+}
+
+async function sincronizarUsuariosFirebaseInicial() {
+    initFirebase();
+    const locais = getStorage("app_usuarios", []);
+    if (!firebaseDB) return locais;
+
+    try {
+        const snap = await firebaseDB.ref(FIREBASE_USUARIOS_PATH).once("value");
+        const remotos = normalizarListaUsuarios(snap.val());
+
+        if (remotos.length > 0) {
+            const mapa = new Map();
+            remotos.forEach(u => mapa.set(u.id || u.login, u));
+            locais.forEach(u => {
+                const chave = u.id || u.login;
+                const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(u.login));
+                if (!mapa.has(chave) && !loginJaExiste) mapa.set(chave, u);
+            });
+            const mesclados = Array.from(mapa.values()).filter(Boolean);
+            setStorage("app_usuarios", mesclados);
+            if (mesclados.length !== remotos.length) await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(mesclados);
+            return mesclados;
+        }
+
+        if (locais.length > 0) {
+            await firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(locais);
+            return locais;
+        }
+    } catch (erro) {
+        console.warn("Não foi possível sincronizar usuários no Firebase. Usando usuários locais.", erro);
+    }
+    return locais;
+}
+
+function salvarUsuariosFirebase(usuarios) {
+    initFirebase();
+    if (!firebaseDB) return Promise.resolve();
+    return firebaseDB.ref(FIREBASE_USUARIOS_PATH).set(usuarios).catch(erro => {
+        console.warn("Usuários salvos localmente, mas não sincronizados no Firebase.", erro);
+    });
+}
+
+function salvarUsuariosSistema(usuarios) {
+    setStorage("app_usuarios", usuarios);
+    salvarUsuariosFirebase(usuarios);
+}
+
 function garantirCadastrosBasicos() {
     const sementes = [
         { chave: "app_usuarios", dados: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [] },
@@ -398,7 +463,7 @@ function garantirCadastrosBasicos() {
         const monitorBase = typeof DATABASE !== "undefined" ? DATABASE.usuarios.find(u => u.nivel === "Monitor") : null;
         if (monitorBase && !usuarios.some(u => u.id === monitorBase.id)) {
             usuarios.push(monitorBase);
-            setStorage("app_usuarios", usuarios);
+            salvarUsuariosSistema(usuarios);
         }
     }
 }
@@ -448,7 +513,7 @@ function excluirUsuario(id) {
     const admins = usuarios.filter(u => u.nivel === "ADM");
     if (usuario.nivel === "ADM" && admins.length <= 1) return alert("Segurança: não é permitido apagar o último administrador do sistema.");
     if (!confirmarExclusao("o usuário", usuario.nome)) return;
-    setStorage("app_usuarios", usuarios.filter(u => u.id !== id));
+    salvarUsuariosSistema(usuarios.filter(u => u.id !== id));
     renderizarTabelasGerenciais();
 }
 
@@ -681,7 +746,7 @@ function editarUsuario(id) {
             const i = lista.findIndex(u => u.id === id);
             const senhaFinal = d.novaSenha ? d.novaSenha : lista[i].senha;
             lista[i] = { ...lista[i], nome: d.nome, login: d.login.toLowerCase(), senha: senhaFinal, nivel: d.nivel, email: d.email, telefone: d.telefone, vinculoId: precisaVinculo ? d.vinculoId : "" };
-            setStorage("app_usuarios", lista);
+            salvarUsuariosSistema(lista);
             atualizarSessaoUsuario(lista[i]);
             renderizarTabelasGerenciais();
             alert("Usuário atualizado com sucesso.");
@@ -946,7 +1011,7 @@ function salvarNovoUsuario(event) {
     if (usuarios.some(u => normalizarTexto(u.login) === login)) return alert("Erro: já existe um usuário com esse login.");
     usuarios.push({ id: novoId(), login, senha, nivel: nivelNovo, nome, email, telefone, vinculoId });
 
-    setStorage("app_usuarios", usuarios);
+    salvarUsuariosSistema(usuarios);
     document.getElementById("formCadUsuario").reset();
     ajustarCamposFormUsuario();
     renderizarTabelasGerenciais();
@@ -1511,6 +1576,7 @@ function downloadTemplate() {
 const DRIVE_UPLOAD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbylwI7NtKjHAhL20UEtpTuKn5P8j8umDAAsDWnUd52oNvHqdAoAMNEobh5U9zvaneaoFA/exec";
 const DRIVE_UPLOAD_TOKEN = "avance-olimpico-2026";
 const FIREBASE_MATERIAIS_PATH = "plataforma_materiais";
+const FIREBASE_USUARIOS_PATH = "sistema_usuarios";
 const LIMITE_ARQUIVO_DRIVE_MB = 15;
 const LIMITE_ANEXO_MONITORIA_MB = 10;
 
@@ -1617,40 +1683,83 @@ function arquivoParaDataURL(arquivo) {
     });
 }
 
-async function enviarArquivoParaGoogleDrive(arquivo) {
+function postParaAppsScript(payload, timeoutMs = 60000) {
     if (!DRIVE_UPLOAD_WEBAPP_URL || DRIVE_UPLOAD_WEBAPP_URL.includes("COLE_AQUI")) {
-        throw new Error("URL do Apps Script não configurada.");
+        return Promise.reject(new Error("URL do Apps Script não configurada."));
     }
 
+    return new Promise((resolve, reject) => {
+        const requestId = `req_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const iframeName = `iframe_upload_${requestId}`;
+        const iframe = document.createElement("iframe");
+        iframe.name = iframeName;
+        iframe.style.display = "none";
+
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = DRIVE_UPLOAD_WEBAPP_URL;
+        form.target = iframeName;
+        form.style.display = "none";
+
+        const input = document.createElement("textarea");
+        input.name = "payload";
+        input.value = JSON.stringify({ ...payload, requestId });
+        form.appendChild(input);
+
+        let finalizado = false;
+        const limpar = () => {
+            window.removeEventListener("message", onMessage);
+            setTimeout(() => { iframe.remove(); form.remove(); }, 200);
+        };
+
+        const timer = setTimeout(() => {
+            if (finalizado) return;
+            finalizado = true;
+            limpar();
+            reject(new Error("O Apps Script demorou demais para responder. Confira se ele foi reimplantado como App da Web e se a pasta do Drive está correta."));
+        }, timeoutMs);
+
+        function onMessage(event) {
+            const data = event.data || {};
+            if (!data || data.origem !== "avance-drive" || data.requestId !== requestId) return;
+            if (finalizado) return;
+            finalizado = true;
+            clearTimeout(timer);
+            limpar();
+            if (data.success) resolve(data);
+            else reject(new Error(data.error || "Falha no Apps Script."));
+        }
+
+        window.addEventListener("message", onMessage);
+        document.body.appendChild(iframe);
+        document.body.appendChild(form);
+        form.submit();
+    });
+}
+
+async function enviarArquivoParaGoogleDrive(arquivo) {
     const tamanhoMb = arquivo.size / (1024 * 1024);
     if (tamanhoMb > LIMITE_ARQUIVO_DRIVE_MB) {
-        throw new Error(`Arquivo muito grande para este modo de teste. Use PDF com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
+        throw new Error(`Arquivo muito grande para este modo de teste. Use arquivo com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
     }
 
     const fileBase64 = await arquivoParaDataURL(arquivo);
-    const payload = {
+    return postParaAppsScript({
+        action: "upload",
         token: DRIVE_UPLOAD_TOKEN,
         fileName: arquivo.name,
-        mimeType: arquivo.type || "application/pdf",
+        mimeType: arquivo.type || "application/octet-stream",
         fileBase64
-    };
+    }, 90000);
+}
 
-    // Não colocamos header application/json para evitar preflight/CORS no Apps Script.
-    const resposta = await fetch(DRIVE_UPLOAD_WEBAPP_URL, {
-        method: "POST",
-        body: JSON.stringify(payload)
-    });
-
-    const texto = await resposta.text();
-    let dados;
-    try { dados = JSON.parse(texto); }
-    catch (e) { throw new Error("O Apps Script não retornou JSON válido. Verifique a implantação como App da Web."); }
-
-    if (!dados.success) {
-        throw new Error(dados.error || "Falha ao enviar arquivo para o Google Drive.");
-    }
-
-    return dados;
+async function excluirArquivoGoogleDrive(fileId) {
+    if (!fileId) return { success: true };
+    return postParaAppsScript({
+        action: "delete",
+        token: DRIVE_UPLOAD_TOKEN,
+        fileId
+    }, 30000);
 }
 
 async function salvarNovoMaterial(event) {
@@ -1722,18 +1831,30 @@ async function excluirMaterial(id) {
     initFirebase();
 
     try {
+        let material = null;
         if (firebaseDB) {
-            await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
+            const snap = await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).once("value");
+            material = snap.val();
         } else {
-            const materiais = getStorage("app_plataforma").filter(m => m.id !== id);
-            setStorage("app_plataforma", materiais);
+            material = getStorage("app_plataforma").find(m => m.id === id) || null;
         }
 
+        if (material?.driveFileId) {
+            await excluirArquivoGoogleDrive(material.driveFileId);
+        }
+
+        if (firebaseDB) {
+            await firebaseDB.ref(`${FIREBASE_MATERIAIS_PATH}/${id}`).remove();
+        }
+
+        const materiaisLocais = getStorage("app_plataforma").filter(m => m.id !== id && m.driveFileId !== material?.driveFileId);
+        setStorage("app_plataforma", materiaisLocais);
+
         await renderizarPlataformaEnsino();
-        alert("Material removido da plataforma. Se era arquivo do Drive, o arquivo continua na pasta do Google Drive para segurança.");
+        alert("Material removido da plataforma e arquivo enviado para a lixeira do Google Drive.");
     } catch (erro) {
         console.error("Erro ao apagar material:", erro);
-        alert(`Erro ao apagar material.\n\n${erro.message || erro}`);
+        alert(`Erro ao apagar material.\n\n${erro.message || erro}\n\nSe você ainda não atualizou o Apps Script com a função de exclusão, faça essa atualização e reimplante o App da Web.`);
     }
 }
 
