@@ -1955,22 +1955,41 @@ function entrarSalaMonitoria(salaId) {
     const sala = (typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : []).find(s => s.id === salaId);
     if (!sala) return;
 
-    // Verificar lotação
-    firebaseDB.ref(`monitoria/${salaId}/participantes`).once("value", snap => {
+    firebaseDB.ref(`monitoria/${salaId}/participantes`).once("value", async snap => {
         const participantes = snap.val() || {};
-        const ativos = Object.entries(participantes).filter(([k, v]) => v.online);
-
-        // Verificar se já está dentro
+        const ativos = Object.entries(participantes).filter(([_, v]) => v && v.online);
         const meuId = usuarioLogado.id;
-        const jaEsta = ativos.find(([k]) => k === meuId);
+        const jaEsta = ativos.find(([id]) => id === meuId);
+        const ativosOutros = ativos.filter(([id]) => id !== meuId);
+        const usuarioEhMonitor = usuarioLogado.nivel === "Monitor";
+        const haMonitorNaSala = ativosOutros.some(([_, v]) => v.nivel === "Monitor");
+        const haNaoMonitorNaSala = ativosOutros.some(([_, v]) => v.nivel !== "Monitor");
 
-        if (!jaEsta && ativos.length >= 2) {
-            return alert("Esta sala está cheia (máximo 2 participantes).\nAguarde ou escolha outra sala.");
+        if (!jaEsta) {
+            if (ativosOutros.length >= 2) {
+                return alert("Esta sala está cheia.\n\nRegra da monitoria: no máximo 2 pessoas por sala.");
+            }
+
+            if (usuarioEhMonitor) {
+                if (haMonitorNaSala) {
+                    return alert("Já existe um monitor nesta sala.\n\nRegra da monitoria: apenas 1 monitor e 1 participante por atendimento.");
+                }
+            } else {
+                if (!haMonitorNaSala) {
+                    return alert("Aguarde um monitor entrar nesta sala.\n\nRegra da monitoria: a sala só abre atendimento quando houver 1 monitor disponível.");
+                }
+                if (haNaoMonitorNaSala) {
+                    return alert("Esta sala já está em atendimento com outro participante.\n\nRegra da monitoria: apenas 1 monitor e 1 participante por vez.");
+                }
+            }
         }
 
-        // Verificar regra: precisa de pelo menos 1 Monitor
-        const nivelAtivos = ativos.map(([k, v]) => v.nivel);
-        const temMonitor = nivelAtivos.includes("Monitor") || usuarioLogado.nivel === "Monitor";
+        // Quando um monitor abre uma sala vazia, começa um novo atendimento limpo.
+        // Isso evita que um aluno veja conversas de atendimentos anteriores.
+        if (!jaEsta && usuarioEhMonitor && ativosOutros.length === 0) {
+            await firebaseDB.ref(`monitoria/${salaId}/mensagens`).remove();
+            await firebaseDB.ref(`monitoria/${salaId}/chamada`).remove();
+        }
 
         salaMoniAtual = salaId;
         abrirChatMonitoria(sala, salaId);
@@ -1991,8 +2010,8 @@ function abrirChatMonitoria(sala, salaId) {
 
     // Registrar presença
     const meuRef = firebaseDB.ref(`monitoria/${salaId}/participantes/${usuarioLogado.id}`);
-    meuRef.set({ nome: usuarioLogado.nome, nivel: usuarioLogado.nivel, online: true });
-    meuRef.onDisconnect().update({ online: false });
+    meuRef.set({ nome: usuarioLogado.nome, nivel: usuarioLogado.nivel, online: true, entrouEm: Date.now() });
+    meuRef.onDisconnect().update({ online: false, saiuEm: Date.now() });
 
     // Limpar listener anterior
     if (monitoriaListenerAtivo) {
@@ -2405,7 +2424,19 @@ function encerrarChamadaMonitoria(limparFirebase = true) {
     resetarInterfaceChamadaMonitoria();
 }
 
-function fecharModalMonitoria() {
+async function limparConversaMonitoriaAtual() {
+    if (!firebaseDB || !salaMoniAtual) return;
+    await firebaseDB.ref(`monitoria/${salaMoniAtual}/mensagens`).remove();
+}
+
+async function fecharModalMonitoria() {
+    const salaParaFechar = salaMoniAtual;
+    let apagarConversa = false;
+
+    if (firebaseDB && salaParaFechar && usuarioLogado) {
+        apagarConversa = confirm("Ao sair da sala, você deseja apagar a conversa deste atendimento?\n\nRecomendado para manter a privacidade das dúvidas e deixar a sala limpa para o próximo atendimento.");
+    }
+
     const modal = document.getElementById("modalMonitoria");
     if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
 
@@ -2413,10 +2444,14 @@ function fecharModalMonitoria() {
 
     if (monitoriaListenerAtivo) { monitoriaListenerAtivo(); monitoriaListenerAtivo = null; }
 
-    // Marcar offline
-    if (firebaseDB && salaMoniAtual && usuarioLogado) {
-        firebaseDB.ref(`monitoria/${salaMoniAtual}/participantes/${usuarioLogado.id}`).update({ online: false });
+    if (firebaseDB && salaParaFechar && usuarioLogado) {
+        if (apagarConversa) {
+            await firebaseDB.ref(`monitoria/${salaParaFechar}/mensagens`).remove();
+            await firebaseDB.ref(`monitoria/${salaParaFechar}/chamada`).remove();
+        }
+        await firebaseDB.ref(`monitoria/${salaParaFechar}/participantes/${usuarioLogado.id}`).update({ online: false, saiuEm: Date.now() });
     }
+
     salaMoniAtual = null;
 }
 
