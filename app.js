@@ -16,6 +16,7 @@ let remoteMediaStream = null;
 let rtcListenersAtivos = [];
 let rtcCandidatosProcessados = new Set();
 let chamadaMonitoriaAtiva = false;
+let tipoChamadaMonitoriaAtual = null; // "video" ou "voz"
 
 const RTC_CONFIG = {
     iceServers: [
@@ -1822,36 +1823,60 @@ function setStatusChamadaMonitoria(texto, classe = "text-gray-400") {
 
 function resetarInterfaceChamadaMonitoria() {
     const area = document.getElementById("monitoriaVideoArea");
-    const btnIniciar = document.getElementById("btnIniciarChamadaMonitoria");
+    const btnVideo = document.getElementById("btnIniciarVideoMonitoria");
+    const btnVoz = document.getElementById("btnIniciarVozMonitoria");
+    const btnLegado = document.getElementById("btnIniciarChamadaMonitoria");
     const btnMic = document.getElementById("btnAlternarMicMonitoria");
     const btnCam = document.getElementById("btnAlternarCamMonitoria");
     const btnSair = document.getElementById("btnEncerrarChamadaMonitoria");
+    const localBox = document.getElementById("monitoriaLocalVideoBox");
+    const remotoBox = document.getElementById("monitoriaRemoteVideoBox");
 
+    tipoChamadaMonitoriaAtual = null;
     if (area) area.classList.add("hidden");
-    if (btnIniciar) btnIniciar.classList.remove("hidden");
+    if (btnVideo) btnVideo.classList.remove("hidden");
+    if (btnVoz) btnVoz.classList.remove("hidden");
+    if (btnLegado) btnLegado.classList.remove("hidden");
     if (btnMic) btnMic.classList.add("hidden");
     if (btnCam) btnCam.classList.add("hidden");
     if (btnSair) btnSair.classList.add("hidden");
+    if (localBox) localBox.classList.remove("hidden");
+    if (remotoBox) remotoBox.classList.remove("hidden");
     setStatusChamadaMonitoria("Chamada não iniciada.", "text-gray-500");
 }
 
 function atualizarInterfaceChamadaMonitoria(ativa) {
     const area = document.getElementById("monitoriaVideoArea");
-    const btnIniciar = document.getElementById("btnIniciarChamadaMonitoria");
+    const btnVideo = document.getElementById("btnIniciarVideoMonitoria");
+    const btnVoz = document.getElementById("btnIniciarVozMonitoria");
+    const btnLegado = document.getElementById("btnIniciarChamadaMonitoria");
     const btnMic = document.getElementById("btnAlternarMicMonitoria");
     const btnCam = document.getElementById("btnAlternarCamMonitoria");
     const btnSair = document.getElementById("btnEncerrarChamadaMonitoria");
+    const localBox = document.getElementById("monitoriaLocalVideoBox");
+    const remotoBox = document.getElementById("monitoriaRemoteVideoBox");
+    const chamadaDeVoz = tipoChamadaMonitoriaAtual === "voz";
 
     if (area) area.classList.toggle("hidden", !ativa);
-    if (btnIniciar) btnIniciar.classList.toggle("hidden", ativa);
+    if (btnVideo) btnVideo.classList.toggle("hidden", ativa);
+    if (btnVoz) btnVoz.classList.toggle("hidden", ativa);
+    if (btnLegado) btnLegado.classList.toggle("hidden", ativa);
     if (btnMic) btnMic.classList.toggle("hidden", !ativa);
-    if (btnCam) btnCam.classList.toggle("hidden", !ativa);
+    if (btnCam) btnCam.classList.toggle("hidden", !ativa || chamadaDeVoz);
     if (btnSair) btnSair.classList.toggle("hidden", !ativa);
+
+    // Na chamada de voz, mantém um painel discreto para status/áudio sem exibir quadros pretos de câmera.
+    if (localBox) localBox.classList.toggle("hidden", chamadaDeVoz);
+    if (remotoBox) remotoBox.classList.toggle("hidden", chamadaDeVoz);
 }
 
-async function obterMidiaLocalMonitoria() {
+async function obterMidiaLocalMonitoria(tipo = "video") {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Seu navegador não liberou acesso a câmera/microfone. Use Chrome/Edge/Firefox em HTTPS ou localhost.");
+    }
+
+    if (tipo === "voz") {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
 
     try {
@@ -1860,6 +1885,7 @@ async function obterMidiaLocalMonitoria() {
         console.warn("Falha ao abrir câmera. Tentando apenas áudio.", erroVideo);
         const somenteAudio = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         alert("Não consegui abrir a câmera, mas o microfone foi liberado. A chamada seguirá apenas com áudio neste dispositivo.");
+        tipoChamadaMonitoriaAtual = "voz";
         return somenteAudio;
     }
 }
@@ -1889,12 +1915,12 @@ function criarPeerConnectionMonitoria() {
     rtcPeerConnection.ontrack = (event) => {
         event.streams[0].getTracks().forEach(track => remoteMediaStream.addTrack(track));
         configurarVideosMonitoria();
-        setStatusChamadaMonitoria("Conectado com áudio/vídeo.", "text-emerald-400");
+        setStatusChamadaMonitoria(tipoChamadaMonitoriaAtual === "voz" ? "Conectado com áudio." : "Conectado com áudio/vídeo.", "text-emerald-400");
     };
 
     rtcPeerConnection.onconnectionstatechange = () => {
         const estado = rtcPeerConnection?.connectionState;
-        if (estado === "connected") setStatusChamadaMonitoria("Conectado com áudio/vídeo.", "text-emerald-400");
+        if (estado === "connected") setStatusChamadaMonitoria(tipoChamadaMonitoriaAtual === "voz" ? "Conectado com áudio." : "Conectado com áudio/vídeo.", "text-emerald-400");
         else if (estado === "connecting") setStatusChamadaMonitoria("Conectando chamada...", "text-amber-400");
         else if (["failed", "disconnected"].includes(estado)) setStatusChamadaMonitoria("Conexão instável. Se não voltar, saia e entre novamente.", "text-red-400");
         else if (estado === "closed") setStatusChamadaMonitoria("Chamada encerrada.", "text-gray-500");
@@ -1906,14 +1932,16 @@ function criarPeerConnectionMonitoria() {
     };
 }
 
-async function iniciarChamadaMonitoria() {
+async function iniciarChamadaMonitoria(tipo = "video") {
     if (!firebaseDB || !salaMoniAtual || !usuarioLogado) return alert("Entre em uma sala de monitoria antes de iniciar a chamada.");
     if (chamadaMonitoriaAtiva) return;
 
-    setStatusChamadaMonitoria("Solicitando câmera e microfone...", "text-amber-400");
+    tipoChamadaMonitoriaAtual = tipo === "voz" ? "voz" : "video";
+    const statusInicial = tipoChamadaMonitoriaAtual === "voz" ? "Solicitando microfone..." : "Solicitando câmera e microfone...";
+    setStatusChamadaMonitoria(statusInicial, "text-amber-400");
 
     try {
-        localMediaStream = await obterMidiaLocalMonitoria();
+        localMediaStream = await obterMidiaLocalMonitoria(tipoChamadaMonitoriaAtual);
         chamadaMonitoriaAtiva = true;
         atualizarInterfaceChamadaMonitoria(true);
         criarPeerConnectionMonitoria();
@@ -1974,6 +2002,14 @@ async function iniciarChamadaMonitoria() {
     }
 }
 
+function iniciarChamadaVideoMonitoria() {
+    return iniciarChamadaMonitoria("video");
+}
+
+function iniciarChamadaVozMonitoria() {
+    return iniciarChamadaMonitoria("voz");
+}
+
 function alternarMicrofoneMonitoria() {
     if (!localMediaStream) return;
     const tracks = localMediaStream.getAudioTracks();
@@ -2006,6 +2042,7 @@ function encerrarChamadaMonitoria(limparFirebase = true) {
     localMediaStream = null;
     remoteMediaStream = null;
     chamadaMonitoriaAtiva = false;
+    tipoChamadaMonitoriaAtual = null;
     rtcCandidatosProcessados = new Set();
 
     const localVideo = document.getElementById("monitoriaLocalVideo");
@@ -2062,6 +2099,8 @@ window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
 window.fecharModalMonitoria = fecharModalMonitoria;
 window.iniciarChamadaMonitoria = iniciarChamadaMonitoria;
+window.iniciarChamadaVideoMonitoria = iniciarChamadaVideoMonitoria;
+window.iniciarChamadaVozMonitoria = iniciarChamadaVozMonitoria;
 window.alternarMicrofoneMonitoria = alternarMicrofoneMonitoria;
 window.alternarCameraMonitoria = alternarCameraMonitoria;
 window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
