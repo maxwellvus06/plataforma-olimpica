@@ -13,15 +13,13 @@
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
         <div class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl max-w-md w-full relative overflow-hidden">
             <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r content-gradient tumble"></div>
-            
             <div class="text-center mb-8">
                 <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mb-4 border border-blue-500/20">
-                    <i class=\"fa-solid fa-graduation-cap text-3xl\"></i>
+                    <i class="fa-solid fa-graduation-cap text-3xl"></i>
                 </div>
                 <h2 class="text-2xl font-extrabold tracking-tight text-white">Avance Consultoria</h2>
                 <p class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-medium">Plataforma de Resultados 2026</p>
             </div>
-
             <form id="loginForm" class="space-y-4">
                 <div>
                     <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Usuário</label>
@@ -37,7 +35,7 @@
                         <input type="password" id="auth-pass" class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-white text-sm" placeholder="••••••••" required>
                     </div>
                 </div>
-                <button type="submit" class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-bold text-sm tracking-wider shadow-lg transform active:scale-95 transition">Acessar Painel</button>
+                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-bold py-3 rounded-xl tracking-wider transition transform active:scale-95 shadow-lg">Acessar Painel</button>
             </form>
         </div>
     </div>
@@ -64,6 +62,12 @@
                     <i class="fa-solid fa-file-import text-base w-5 text-center"></i> Importar Resultados
                 </button>
                 
+                <button id="btnNavUsuarios" onclick="navegarAba('usuarios', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-users-gear text-base w-5 text-center"></i> Gerenciar Usuários
+                </button>
+                <button id="btnNavOlimpiadas" onclick="navegarAba('olimpiadas', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-trophy text-base w-5 text-center"></i> Gerenciar Olimpíadas
+                </button>
                 <button id="btnNavCidades" onclick="navegarAba('cidades', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-city text-base w-5 text-center"></i> Gerenciar Cidades
                 </button>
@@ -85,7 +89,6 @@
         </aside>
 
         <div class="flex-1 flex flex-col min-w-0">
-            
             <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-8 shrink-0">
                 <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
                 <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
@@ -100,52 +103,44 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-800/40 p-4 rounded-xl border border-gray-800">
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Município Filtro</label>
-                            <select id="filterMunicipio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-gray-300"></select>
+                            <select id="filterMunicipio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Escola Filtro</label>
-                            <select id="filterEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-gray-300"></select>
+                            <select id="filterEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Olimpíada Filtro</label>
-                            <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-gray-300"></select>
+                            <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-gray-800 border border-gray-700/70 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <div class="absolute top-0 right-0 p-4 text-blue-500/10 text-4xl"><i class="fa-solid fa-trophy"></i></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Medalhas</span>
                             <h3 id="cardTotalMedalhas" class="text-2xl font-black text-white mt-2">0</h3>
                         </div>
-                        <div class="bg-gray-800 border border-gray-700/70 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <div class="absolute top-0 right-0 p-4 text-amber-500/10 text-4xl"><i class="fa-solid fa-medal"></i></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</span>
                             <h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3>
                         </div>
-                        <div class="bg-gray-800 border border-gray-700/70 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <div class="absolute top-0 right-0 p-4 text-purple-500/10 text-4xl"><i class="fa-solid fa-school"></i></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Escolas Atendidas</span>
                             <h3 id="cardTotalEscolas" class="text-2xl font-black text-purple-400 mt-2">0</h3>
                         </div>
-                        <div class="bg-gray-800 border border-gray-700/70 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                            <div class="absolute top-0 right-0 p-4 text-emerald-500/10 text-4xl"><i class="fa-solid fa-map-location-dot"></i></div>
+                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm relative overflow-hidden">
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Cidades Mapeadas</span>
                             <h3 id="cardTotalCidades" class="text-2xl font-black text-emerald-400 mt-2">0</h3>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl xl:col-span-1 flex flex-col justify-center min-h-[300px]">
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl flex flex-col justify-center min-h-[300px]">
                             <h3 class="text-sm font-bold mb-4 text-gray-300 uppercase tracking-wider">Distribuição de Prêmios</h3>
-                            <div class="relative flex-1 flex items-center justify-center max-h-[240px]">
-                                <canvas id="chartPremios"></canvas>
-                            </div>
+                            <div class="relative flex-1 flex items-center justify-center max-h-[240px]"><canvas id="chartPremios"></canvas></div>
                         </div>
                         <div class="bg-gray-800 border border-gray-700 rounded-2xl xl:col-span-2 overflow-hidden flex flex-col">
-                            <div class="p-5 border-b border-gray-700/50 flex justify-between items-center bg-gray-800/50">
-                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Histórico de Alunos Premiados</h3>
-                            </div>
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Histórico de Alunos Premiados</h3></div>
                             <div class="overflow-x-auto flex-1">
                                 <table class="w-full text-left border-collapse">
                                     <thead>
@@ -165,15 +160,57 @@
                 </section>
 
                 <section id="view-calendario" class="tab-view hidden space-y-6">
-                    <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
-                        <div class="p-5 border-b border-gray-700/50 bg-gray-800/50">
-                            <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cronograma Geral de Aplicações</h3>
+                    <div id="admCronogramaPanel" class="hidden grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl space-y-4 shadow-xl">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-clock text-blue-400 mr-2"></i> Adicionar Evento Manual</h3>
+                            <form id="formCadCronograma" class="space-y-3" onsubmit="salvarNovoCronograma(event)">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Olimpíada Homologada</label>
+                                    <select id="addCroOlimpiadaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Etapa / Fase</label>
+                                    <input type="text" id="addCroEtapa" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Fase 1 - Prova Objetiva" required>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Janela / Data</label>
+                                        <input type="text" id="addCroData" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 09/06/2026" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Elegíveis</label>
+                                        <input type="text" id="addCroSegmento" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º EF ao 3º EM" required>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Observação Crítica / Diretriz</label>
+                                    <textarea id="addCroAcao" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white h-16 focus:outline-none" placeholder="Diretrizes para a aplicação..." required></textarea>
+                                </div>
+                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Publicar Etapa</button>
+                            </form>
                         </div>
+                        
+                        <div class="lg:col-span-2 bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl flex flex-col items-center justify-center text-center space-y-4">
+                            <div class="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl"><i class="fa-solid fa-file-excel"></i></div>
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wider">Carga de Planilha de Cronograma</h3>
+                                <p class="text-xs text-gray-400 mt-1">Arrastar arquivo Excel correspondente para mapeamento de fases em lote.</p>
+                            </div>
+                            <div id="dropZoneCronograma" class="w-full border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-6 bg-gray-900/40 cursor-pointer transition">
+                                <input type="file" id="fileInputCronograma" class="hidden" accept=".xlsx, .xls">
+                                <p class="text-xs text-gray-400">Arraste a planilha de cronograma (.xlsx) ou <span class="text-blue-400 font-semibold underline">clique aqui</span></p>
+                            </div>
+                            <button onclick="downloadCronogramaTemplate()" class="px-3 py-1.5 text-[11px] font-bold border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1"></i> Baixar Modelo .XLSX</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cronograma Geral de Aplicações 2026</h3></div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left border-collapse">
                                 <thead>
                                     <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                        <th class="p-4">Olimpíada</th>
+                                        <th class="p-4">Olimpíada Mapeada</th>
                                         <th class="p-4">Fase / Etapa</th>
                                         <th class="p-4">Janela Crítica</th>
                                         <th class="p-4">Público Alvo</th>
@@ -187,19 +224,115 @@
                 </section>
 
                 <section id="view-importar" class="tab-view hidden space-y-6">
-                    <div class="max-w-2xl mx-auto bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-xl text-center space-y-6">
-                        <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                    <div class="max-w-2xl mx-auto bg-gray-800 border border-gray-700 p-8 rounded-2xl text-center space-y-6">
+                        <div class="w-20 h-20 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-4xl"><i class="fa-solid fa-cloud-arrow-up"></i></div>
                         <div>
-                            <h3 class="text-lg font-bold text-white">Importação Massiva de Dados</h3>
-                            <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formatos Excel (.xlsx) ou planilhas (.csv) contendo as colunas padrão.</p>
+                            <h3 class="text-lg font-bold text-white">Importação Massiva de Medalhistas</h3>
+                            <p class="text-sm text-gray-400 mt-1">Carregue arquivos em formatos Excel ou planilhas (.csv) contendo as colunas padrão.</p>
                         </div>
-                        <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500/50 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition flex flex-col items-center justify-center">
+                        <div id="dropZone" class="border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-2xl p-8 bg-gray-900/40 cursor-pointer transition">
                             <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv">
                             <p class="text-sm text-gray-400">Arraste a planilha aqui ou <span class="text-blue-400 font-semibold underline">clique para procurar</span></p>
-                            <span class="text-xs text-gray-600 mt-2">Suporta .xlsx e .csv padronizados</span>
                         </div>
-                        <div class="flex justify-center gap-4 pt-2">
-                            <button onclick="downloadCSVTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo .CSV</button>
+                        <button onclick="downloadCSVTemplate()" class="px-4 py-2 text-xs font-bold border border-gray-700 rounded-xl text-gray-400 hover:bg-gray-900 transition"><i class="fa-solid fa-download mr-1.5"></i> Modelo de Alunos .CSV</button>
+                    </div>
+                </section>
+
+                <section id="view-usuarios" class="tab-view hidden space-y-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-user-plus text-blue-400 mr-2"></i> Criar Operador</h3>
+                            <form id="formCadUsuario" class="space-y-3" onsubmit="salvarNovoUsuario(event)">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nível de Acesso</label>
+                                    <select id="addUserNivel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" onchange="ajustarCamposFormUsuario()" required>
+                                        <option value="ADM">Administrador</option>
+                                        <option value="Gestor">Gestor Municipal</option>
+                                        <option value="Escola">Escola</option>
+                                        <option value="Aluno">Aluno</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome Completo</label>
+                                    <input type="text" id="addUserNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Login</label>
+                                        <input type="text" id="addUserLogin" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Senha</label>
+                                        <input type="password" id="addUserSenha" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label>
+                                        <input type="email" id="addUserEmail" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Telefone</label>
+                                        <input type="text" id="addUserTelefone" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="(86) 99999-9999" required>
+                                    </div>
+                                </div>
+                                
+                                <div id="divVinculoCidade" class="hidden">
+                                    <label class="block text-xs font-semibold text-amber-400 uppercase mb-1">Vincular a uma Cidade Polo</label>
+                                    <select id="addUserCidadeSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-amber-500/30 text-sm text-gray-300 focus:outline-none"></select>
+                                </div>
+                                <div id="divVinculoEscola" class="hidden">
+                                    <label class="block text-xs font-semibold text-purple-400 uppercase mb-1">Vincular a uma Escola Conveniada</label>
+                                    <select id="addUserEscolaSelect" class="w-full p-2.5 rounded-xl bg-gray-900 border border-purple-500/30 text-sm text-gray-300 focus:outline-none"></select>
+                                </div>
+
+                                <button type="submit" class="w-full py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow transition">Homologar Credencial</button>
+                            </form>
+                        </div>
+                        <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Credenciais Ativas na Plataforma</h3></div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
+                                            <th class="p-4">Operador</th>
+                                            <th class="p-4">Login / Nível</th>
+                                            <th class="p-4">E-mail / Telefone</th>
+                                            <th class="p-4">Vínculo Territorial</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tableUsuariosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="view-olimpiadas" class="tab-view hidden space-y-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-blue-400 mr-1.5"></i> Homologar Competição</h3>
+                            <form id="formCadOlimpiada" class="space-y-4" onsubmit="salvarNovaOlimpiada(event)">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Olimpíada</label>
+                                    <input type="text" id="addOliNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Olimpíada Brasileira de Física" required>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Frente (Sigla)</label>
+                                        <input type="text" id="addOliCategoria" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: FÍS" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Séries Atendidas</label>
+                                        <input type="text" id="addOliSeries" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: 6º ao 9º Ano" required>
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Homologar Olimpíada</button>
+                            </form>
+                        </div>
+                        <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Olimpíadas Disponíveis</h3></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">ID</th><th class="p-4">Nome</th><th class="p-4">Frente</th><th class="p-4">Séries</th></tr></thead><tbody id="tableOlimpiadasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
@@ -207,116 +340,52 @@
                 <section id="view-cidades" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
-                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-emerald-400 mr-1.5"></i> Nova Cidade Polo</h3>
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-emerald-400 mr-1.5"></i> Nova Cidade</h3>
                             <form id="formCadCidade" class="space-y-4" onsubmit="salvarNovaCidade(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Cidade</label>
-                                    <input type="text" id="addCidNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-white" placeholder="Ex: São Braz" required>
-                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome</label><input type="text" id="addCidNome" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 <div class="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Sigla</label>
-                                        <input type="text" id="addCidSigla" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-white" placeholder="Ex: SBZ" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">UF</label>
-                                        <input type="text" id="addCidUf" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:border-blue-500 focus:outline-none text-sm text-white" placeholder="Ex: PI" maxlength="2" required>
-                                    </div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Sigla</label><input type="text" id="addCidSigla" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">UF</label><input type="text" id="addCidUf" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" maxlength="2" required></div>
                                 </div>
-                                <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow transition">Registrar Município</button>
+                                <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition">Salvar Município</button>
                             </form>
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
-                            <div class="p-5 border-b border-gray-700/50 bg-gray-800/50">
-                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cidades Registradas na Rede</h3>
-                            </div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                            <th class="p-4">ID</th>
-                                            <th class="p-4">Nome Oficial</th>
-                                            <th class="p-4">Sigla Identificadora</th>
-                                            <th class="p-4">Estado (UF)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tableCidadesCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
-                                </table>
-                            </div>
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Cidades Polo</h3></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">ID</th><th class="p-4">Nome Oficial</th><th class="p-4">Sigla</th><th class="p-4">UF</th></tr></thead><tbody id="tableCidadesCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
 
                 <section id="view-escolas" class="tab-view hidden space-y-6">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-4">
-                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-purple-400 mr-1.5"></i> Homologar Nova Escola</h3>
+                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-xl space-y-3">
+                            <h3 class="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-700 pb-2"><i class="fa-solid fa-circle-plus text-purple-400 mr-1.5"></i> Homologar Escola</h3>
                             <form id="formCadEscola" class="space-y-3" onsubmit="salvarNovaEscola(event)">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Escola</label>
-                                    <input type="text" id="addEscNome" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Razão Social</label>
-                                    <input type="text" id="addEscRazao" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                </div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome da Escola</label><input type="text" id="addEscNome" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Razão Social</label><input type="text" id="addEscRazao" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">CNPJ</label>
-                                        <input type="text" id="addEscCnpj" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="00.000.000/0001-00" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Código INEP</label>
-                                        <input type="text" id="addEscInep" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">CNPJ</label><input type="text" id="addEscCnpj" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="00.000.000/0001-00" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">INEP</label><input type="text" id="addEscInep" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 </div>
                                 <div class="grid grid-cols-3 gap-2">
-                                    <div class="col-span-2">
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Endereço</label>
-                                        <input type="text" id="addEscEndereco" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">CEP</label>
-                                        <input type="text" id="addEscCep" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="64000-000" required>
-                                    </div>
+                                    <div class="col-span-2"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Endereço</label><input type="text" id="addEscEndereco" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">CEP</label><input type="text" id="addEscCep" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="64000-000" required></div>
                                 </div>
                                 <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Diretor</label>
-                                        <input type="text" id="addEscDiretor" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label>
-                                        <input type="email" id="addEscEmail" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required>
-                                    </div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Diretor</label><input type="text" id="addEscDiretor" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
+                                    <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">E-mail</label><input type="email" id="addEscEmail" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cidade Vinculada</label>
-                                    <select id="addEscCidadeSelect" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required>
-                                        <option value="">Selecione uma cidade...</option>
-                                    </select>
+                                    <select id="addEscCidadeSelect" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none" required></select>
                                 </div>
-                                <button type="submit" class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow transition">Homologar Unidade</button>
+                                <button type="submit" class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-md">Homologar Unidade</button>
                             </form>
                         </div>
                         <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
-                            <div class="p-5 border-b border-gray-700/50 bg-gray-800/50">
-                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Escolas Conveniadas Homologadas</h3>
-                            </div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left border-collapse min-w-max">
-                                    <thead>
-                                        <tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider">
-                                            <th class="p-4">INEP</th>
-                                            <th class="p-4">Escola / Razão Social</th>
-                                            <th class="p-4">CNPJ</th>
-                                            <th class="p-4">Gestão (Diretor/Email)</th>
-                                            <th class="p-4">Cidade Polo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tableEscolasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
-                                </table>
-                            </div>
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Escolas Homologadas</h3></div>
+                            <div class="overflow-x-auto"><table class="w-full text-left border-collapse min-w-max"><thead class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><tr><th class="p-4">INEP</th><th class="p-4">Escola</th><th class="p-4">CNPJ</th><th class="p-4">Gestão</th><th class="p-4">Cidade Polo</th></tr></thead><tbody id="tableEscolasCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                         </div>
                     </div>
                 </section>
@@ -327,7 +396,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    
     <script src="database.js"></script>
     <script src="app.js"></script>
 </body>
