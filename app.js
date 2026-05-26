@@ -7,6 +7,7 @@ const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 
 document.addEventListener("DOMContentLoaded", () => {
+    garantirCadastrosBasicos();
     dadosTrabalho = carregarPremiados();
     initLogin();
     initDragAndDrop();
@@ -99,10 +100,27 @@ function setStorage(chave, valor) {
     localStorage.setItem(chave, JSON.stringify(valor));
 }
 
+function garantirCadastrosBasicos() {
+    const sementes = [
+        { chave: "app_usuarios", dados: typeof DATABASE !== "undefined" ? DATABASE.usuarios : [] },
+        { chave: "app_cidades", dados: typeof CONFIG_CIDADES_INICIAIS !== "undefined" ? CONFIG_CIDADES_INICIAIS : [] },
+        { chave: "app_escolas", dados: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [] },
+        { chave: "app_olimpiadas", dados: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [] },
+        { chave: "app_cronograma", dados: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [] }
+    ];
+
+    sementes.forEach(({ chave, dados }) => {
+        const atual = getStorage(chave, null);
+        if (!Array.isArray(atual) || atual.length === 0) {
+            setStorage(chave, Array.isArray(dados) ? [...dados] : []);
+        }
+    });
+}
+
 function carregarPremiados() {
     const salvos = getStorage("app_premiados", null);
-    if (Array.isArray(salvos)) return salvos;
-    const base = Array.isArray(DATABASE?.premiados) ? [...DATABASE.premiados] : [];
+    if (Array.isArray(salvos) && salvos.length > 0) return salvos;
+    const base = (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.premiados)) ? [...DATABASE.premiados] : [];
     setStorage("app_premiados", base);
     return base;
 }
@@ -351,7 +369,7 @@ function salvarNovaEscola(event) {
 function initResultadoManual() {
     const cidadeSelect = document.getElementById("addResCidadeSelect");
     const escolaSelect = document.getElementById("addResEscolaSelect");
-    if (cidadeSelect) cidadeSelect.addEventListener("change", atualizarEscolasResultadoManual);
+    if (cidadeSelect) cidadeSelect.addEventListener("change", popularSeletoresResultadosManuais);
     if (escolaSelect) escolaSelect.addEventListener("change", preencherCidadePelaEscolaManual);
 }
 
@@ -611,33 +629,71 @@ function renderizarTabelasGerenciais() {
     }
 }
 
+
+function montarOptions(placeholder, itens, getValor, getTexto) {
+    const linhas = [`<option value="">${placeholder}</option>`];
+    itens.forEach(item => {
+        const valor = typeof getValor === "function" ? getValor(item) : item;
+        const texto = typeof getTexto === "function" ? getTexto(item) : valor;
+        linhas.push(`<option value="${textoSeguro(valor)}">${textoSeguro(texto)}</option>`);
+    });
+    return linhas.join("");
+}
+
+function montarOptionsTodos(label, itens) {
+    const unicos = [...new Set(itens.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "pt-BR"));
+    return `<option value="TODOS">${label}</option>` + unicos.map(item => `<option value="${textoSeguro(item)}">${textoSeguro(item)}</option>`).join("");
+}
+
+function popularSeletoresResultadosManuais() {
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const olimpiadas = getStorage("app_olimpiadas");
+
+    const cidadeSelect = document.getElementById("addResCidadeSelect");
+    const escolaSelect = document.getElementById("addResEscolaSelect");
+    const olimpiadaSelect = document.getElementById("addResOlimpiadaSelect");
+    const serieSelect = document.getElementById("addResSerieSelect");
+    const premioSelect = document.getElementById("addResPremioSelect");
+
+    if (cidadeSelect) {
+        const valorAtual = cidadeSelect.value;
+        cidadeSelect.innerHTML = montarOptions("Selecione a cidade...", cidades, c => `${c.nome} - ${c.uf}`, c => `${c.nome} - ${c.uf}`);
+        if ([...cidadeSelect.options].some(opt => opt.value === valorAtual)) cidadeSelect.value = valorAtual;
+    }
+
+    if (escolaSelect) {
+        const valorAtual = escolaSelect.value;
+        const cidadeSelecionada = cidadeSelect?.value || "";
+        const cidadeObj = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(cidadeSelecionada));
+        const escolasFiltradas = cidadeObj ? escolas.filter(e => e.cidadeId === cidadeObj.id) : escolas;
+        escolaSelect.innerHTML = montarOptions("Selecione a escola...", escolasFiltradas, e => e.nome, e => e.nome);
+        if ([...escolaSelect.options].some(opt => opt.value === valorAtual)) escolaSelect.value = valorAtual;
+    }
+
+    if (olimpiadaSelect) olimpiadaSelect.innerHTML = montarOptions("Selecione a olimpíada...", olimpiadas, o => o.nome, o => o.nome);
+    if (serieSelect) serieSelect.innerHTML = montarOptions("Selecione a série...", SERIES_PADRAO);
+    if (premioSelect) premioSelect.innerHTML = montarOptions("Selecione a premiação...", PREMIOS_PADRAO);
+}
+
 function popularSeletores() {
     const cidades = getStorage("app_cidades");
     const escolas = getStorage("app_escolas");
     const olimpiadas = getStorage("app_olimpiadas");
 
-    if (document.getElementById("filterMunicipio")) {
-        document.getElementById("filterMunicipio").innerHTML = '<option value="TODOS">-- Todos os Municípios --</option>' + cidades.map(c => `<option value="${textoSeguro(c.nome)} - ${textoSeguro(c.uf)}">${textoSeguro(c.nome)} - ${textoSeguro(c.uf)}</option>`).join("");
-    }
-    if (document.getElementById("filterEscola")) {
-        document.getElementById("filterEscola").innerHTML = '<option value="TODOS">-- Todas as Escolas --</option>' + escolas.map(e => `<option value="${textoSeguro(e.nome)}">${textoSeguro(e.nome)}</option>`).join("");
-    }
-    if (document.getElementById("filterOlimpiada")) {
-        document.getElementById("filterOlimpiada").innerHTML = '<option value="TODOS">-- Todas as Olimpíadas --</option>' + olimpiadas.map(o => `<option value="${textoSeguro(o.nome)}">${textoSeguro(o.nome)}</option>`).join("");
-    }
-    if (document.getElementById("addResCidadeSelect")) {
-        document.getElementById("addResCidadeSelect").innerHTML = '<option value="">Selecione a cidade...</option>' + cidades.map(c => `<option value="${textoSeguro(c.nome)} - ${textoSeguro(c.uf)}">${textoSeguro(c.nome)} - ${textoSeguro(c.uf)}</option>`).join("");
-    }
-    atualizarEscolasResultadoManual();
-    if (document.getElementById("addResOlimpiadaSelect")) {
-        document.getElementById("addResOlimpiadaSelect").innerHTML = '<option value="">Selecione a olimpíada...</option>' + olimpiadas.map(o => `<option value="${textoSeguro(o.nome)}">${textoSeguro(o.nome)}</option>`).join("");
-    }
-    if (document.getElementById("addResSerieSelect")) {
-        document.getElementById("addResSerieSelect").innerHTML = '<option value="">Selecione a série...</option>' + SERIES_PADRAO.map(serie => `<option value="${textoSeguro(serie)}">${textoSeguro(serie)}</option>`).join("");
-    }
-    if (document.getElementById("addResPremioSelect")) {
-        document.getElementById("addResPremioSelect").innerHTML = '<option value="">Selecione a premiação...</option>' + PREMIOS_PADRAO.map(premio => `<option value="${textoSeguro(premio)}">${textoSeguro(premio)}</option>`).join("");
-    }
+    const municipiosDashboard = cidades.map(c => `${c.nome} - ${c.uf}`);
+    const escolasDashboard = escolas.map(e => e.nome);
+    const olimpiadasDashboard = olimpiadas.map(o => o.nome);
+
+    const filterMunicipio = document.getElementById("filterMunicipio");
+    const filterEscola = document.getElementById("filterEscola");
+    const filterOlimpiada = document.getElementById("filterOlimpiada");
+
+    if (filterMunicipio) filterMunicipio.innerHTML = montarOptionsTodos("-- Todos os Municípios --", municipiosDashboard);
+    if (filterEscola) filterEscola.innerHTML = montarOptionsTodos("-- Todas as Escolas --", escolasDashboard);
+    if (filterOlimpiada) filterOlimpiada.innerHTML = montarOptionsTodos("-- Todas as Olimpíadas --", olimpiadasDashboard);
+
+    popularSeletoresResultadosManuais();
     preencherFiltrosResultadosImportacao();
 }
 
