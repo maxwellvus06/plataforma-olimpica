@@ -1291,3 +1291,365 @@ async function downloadResultadosTemplate() {
 function downloadCSVTemplate() {
     downloadResultadosTemplate();
 }
+// ==================== CORREÇÃO ROBUSTA: MODAIS REAIS DE EDIÇÃO ====================
+// Esta camada substitui os prompts simples por um modal único. Mantém o visual geral
+// e preserva as mesmas regras de segurança/exclusão já implementadas.
+function garantirModalEdicao() {
+    let modal = document.getElementById("modalEdicaoSistema");
+    if (modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "modalEdicaoSistema";
+    modal.className = "hidden fixed inset-0 z-[9999] bg-black/70 px-4 flex items-center justify-center";
+    modal.innerHTML = `
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-5 border-b border-gray-700 flex items-center justify-between">
+                <h3 id="modalEdicaoTitulo" class="text-sm font-bold text-white uppercase tracking-wider">Editar</h3>
+                <button type="button" id="modalEdicaoFechar" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <form id="modalEdicaoForm" class="p-5 space-y-4"></form>
+            <div class="p-5 border-t border-gray-700 flex flex-col sm:flex-row gap-2 justify-between">
+                <button type="button" id="modalEdicaoApagar" class="px-4 py-2 rounded-xl border border-red-900/60 text-red-400 hover:bg-red-950/40 text-xs font-bold uppercase tracking-wider">
+                    <i class="fa-solid fa-trash mr-1"></i> Apagar
+                </button>
+                <div class="flex gap-2 justify-end">
+                    <button type="button" id="modalEdicaoCancelar" class="px-4 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-900 text-xs font-bold uppercase tracking-wider">Cancelar</button>
+                    <button type="submit" form="modalEdicaoForm" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider">Salvar alterações</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById("modalEdicaoFechar").onclick = fecharModalEdicao;
+    document.getElementById("modalEdicaoCancelar").onclick = fecharModalEdicao;
+    return modal;
+}
+
+function fecharModalEdicao() {
+    const modal = document.getElementById("modalEdicaoSistema");
+    if (modal) modal.classList.add("hidden");
+}
+
+function campoModalHTML(campo) {
+    const valor = textoSeguro(campo.valor ?? "");
+    const required = campo.required === false ? "" : "required";
+    const extra = campo.extraClass ? campo.extraClass : "";
+    const help = campo.help ? `<p class="text-[11px] text-gray-500 mt-1">${textoSeguro(campo.help)}</p>` : "";
+    const label = `<label class="block text-xs font-semibold text-gray-400 uppercase mb-1">${textoSeguro(campo.label)}</label>`;
+
+    if (campo.tipo === "select") {
+        const options = (campo.options || []).map(op => {
+            const value = typeof op === "object" ? op.value : op;
+            const text = typeof op === "object" ? op.text : op;
+            const selected = String(value) === String(campo.valor ?? "") ? "selected" : "";
+            return `<option value="${textoSeguro(value)}" ${selected}>${textoSeguro(text)}</option>`;
+        }).join("");
+        return `<div id="wrap_${campo.nome}" class="${extra}">${label}<select id="modalCampo_${campo.nome}" name="${campo.nome}" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" ${required}>${options}</select>${help}</div>`;
+    }
+
+    if (campo.tipo === "textarea") {
+        return `<div id="wrap_${campo.nome}" class="${extra}">${label}<textarea id="modalCampo_${campo.nome}" name="${campo.nome}" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none h-24" ${required}>${valor}</textarea>${help}</div>`;
+    }
+
+    const type = campo.tipo || "text";
+    const placeholder = campo.placeholder ? `placeholder="${textoSeguro(campo.placeholder)}"` : "";
+    return `<div id="wrap_${campo.nome}" class="${extra}">${label}<input type="${type}" id="modalCampo_${campo.nome}" name="${campo.nome}" value="${valor}" ${placeholder} class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" ${required}>${help}</div>`;
+}
+
+function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar.");
+    const modal = garantirModalEdicao();
+    document.getElementById("modalEdicaoTitulo").innerText = titulo;
+    const form = document.getElementById("modalEdicaoForm");
+    form.innerHTML = campos.map(campoModalHTML).join("");
+
+    const btnApagar = document.getElementById("modalEdicaoApagar");
+    btnApagar.onclick = () => {
+        if (typeof onApagar === "function") {
+            fecharModalEdicao();
+            onApagar();
+        }
+    };
+
+    form.onsubmit = (event) => {
+        event.preventDefault();
+        const dados = {};
+        campos.forEach(c => {
+            const el = document.getElementById(`modalCampo_${c.nome}`);
+            dados[c.nome] = el ? String(el.value ?? "").trim() : "";
+        });
+        const ok = onSalvar(dados);
+        if (ok !== false) fecharModalEdicao();
+    };
+
+    modal.classList.remove("hidden");
+    if (typeof onDepoisMontar === "function") onDepoisMontar();
+}
+
+function opcoesCidadesComId() {
+    return getStorage("app_cidades").map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` }));
+}
+
+function opcoesCidadesNomeUf() {
+    return getStorage("app_cidades").map(c => ({ value: `${c.nome} - ${c.uf}`, text: `${c.nome} - ${c.uf}` }));
+}
+
+function opcoesEscolasNome(cidadeNomeUf = "") {
+    const cidades = getStorage("app_cidades");
+    const escolas = getStorage("app_escolas");
+    const cidade = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(cidadeNomeUf));
+    const lista = cidade ? escolas.filter(e => e.cidadeId === cidade.id) : escolas;
+    return lista.map(e => ({ value: e.nome, text: e.nome }));
+}
+
+function opcoesOlimpiadasNome() {
+    return getStorage("app_olimpiadas").map(o => ({ value: o.nome, text: o.nome }));
+}
+
+function atualizarSelectEscolasModal(cidadeValor, escolaAtual = "") {
+    const escolaSelect = document.getElementById("modalCampo_escola");
+    if (!escolaSelect) return;
+    const opcoes = opcoesEscolasNome(cidadeValor);
+    escolaSelect.innerHTML = opcoes.map(op => `<option value="${textoSeguro(op.value)}">${textoSeguro(op.text)}</option>`).join("");
+    if (opcoes.some(op => op.value === escolaAtual)) escolaSelect.value = escolaAtual;
+}
+
+function editarUsuario(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar usuários.");
+    const usuarios = getStorage("app_usuarios");
+    const idx = usuarios.findIndex(u => u.id === id);
+    if (idx === -1) return alert("Usuário não encontrado.");
+    const atual = usuarios[idx];
+
+    abrirModalEdicao({
+        titulo: "Editar usuário",
+        campos: [
+            { nome: "nome", label: "Nome completo", valor: atual.nome },
+            { nome: "login", label: "Login", valor: atual.login },
+            { nome: "nivel", label: "Nível de acesso", tipo: "select", valor: atual.nivel, options: ["ADM", "Gestor", "Escola", "Aluno"] },
+            { nome: "email", label: "E-mail", tipo: "email", valor: atual.email || "" },
+            { nome: "telefone", label: "Telefone", valor: atual.telefone || "" },
+            { nome: "vinculoCidade", label: "Vincular a uma cidade", tipo: "select", valor: atual.nivel === "Gestor" ? atual.vinculoId : "", options: [{ value: "", text: "Sem vínculo" }, ...opcoesCidadesComId()], required: false },
+            { nome: "vinculoEscola", label: "Vincular a uma escola", tipo: "select", valor: (atual.nivel === "Escola" || atual.nivel === "Aluno") ? atual.vinculoId : "", options: [{ value: "", text: "Sem vínculo" }, ...getStorage("app_escolas").map(e => ({ value: e.id, text: e.nome }))], required: false },
+            { nome: "novaSenha", label: "Nova senha", tipo: "password", valor: "", required: false, placeholder: "Deixe em branco para manter a senha atual", help: "A senha atual não é exibida por segurança." }
+        ],
+        onDepoisMontar: () => {
+            const nivel = document.getElementById("modalCampo_nivel");
+            const wrapCidade = document.getElementById("wrap_vinculoCidade");
+            const wrapEscola = document.getElementById("wrap_vinculoEscola");
+            const ajustar = () => {
+                wrapCidade?.classList.add("hidden");
+                wrapEscola?.classList.add("hidden");
+                if (nivel.value === "Gestor") wrapCidade?.classList.remove("hidden");
+                if (nivel.value === "Escola" || nivel.value === "Aluno") wrapEscola?.classList.remove("hidden");
+            };
+            nivel.onchange = ajustar;
+            ajustar();
+        },
+        onSalvar: (d) => {
+            const lista = getStorage("app_usuarios");
+            const i = lista.findIndex(u => u.id === id);
+            if (i === -1) return alert("Usuário não encontrado."), false;
+            if (!d.nome || !d.login || !d.nivel) return alert("Nome, login e nível são obrigatórios."), false;
+            if (lista.some(u => u.id !== id && normalizarTexto(u.login) === normalizarTexto(d.login))) return alert("Já existe outro usuário com esse login."), false;
+            let vinculoId = "";
+            if (d.nivel === "Gestor") {
+                if (!d.vinculoCidade) return alert("Gestores precisam estar vinculados a uma cidade."), false;
+                vinculoId = d.vinculoCidade;
+            } else if (d.nivel === "Escola" || d.nivel === "Aluno") {
+                if (!d.vinculoEscola) return alert("Perfis de Escola/Aluno precisam estar vinculados a uma escola."), false;
+                vinculoId = d.vinculoEscola;
+            }
+            const atualizado = { ...lista[i], nome: d.nome, login: d.login.toLowerCase(), nivel: d.nivel, email: d.email, telefone: d.telefone, vinculoId };
+            if (d.novaSenha) atualizado.senha = d.novaSenha;
+            lista[i] = atualizado;
+            setStorage("app_usuarios", lista);
+            atualizarSessaoUsuario(atualizado);
+            renderizarTabelasGerenciais();
+            alert("Usuário atualizado com sucesso.");
+        },
+        onApagar: () => excluirUsuario(id)
+    });
+}
+
+function editarCidade(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar cidades.");
+    const cidades = getStorage("app_cidades");
+    const idx = cidades.findIndex(c => c.id === id);
+    if (idx === -1) return alert("Cidade não encontrada.");
+    const atual = cidades[idx];
+    const municipioAntigo = `${atual.nome} - ${atual.uf}`;
+
+    abrirModalEdicao({
+        titulo: "Editar cidade",
+        campos: [
+            { nome: "nome", label: "Nome", valor: atual.nome },
+            { nome: "sigla", label: "Sigla", valor: atual.sigla || "" },
+            { nome: "uf", label: "UF", valor: atual.uf || "" }
+        ],
+        onSalvar: (d) => {
+            if (!d.nome || !d.sigla || !d.uf) return alert("Nome, sigla e UF são obrigatórios."), false;
+            const lista = getStorage("app_cidades");
+            if (lista.some(c => c.id !== id && normalizarTexto(c.nome) === normalizarTexto(d.nome) && normalizarTexto(c.uf) === normalizarTexto(d.uf))) return alert("Já existe outra cidade com esse nome e UF."), false;
+            const i = lista.findIndex(c => c.id === id);
+            lista[i] = { ...lista[i], nome: d.nome, sigla: d.sigla.toUpperCase(), uf: d.uf.toUpperCase() };
+            setStorage("app_cidades", lista);
+            atualizarResultadosCampo("municipio", municipioAntigo, `${d.nome} - ${d.uf.toUpperCase()}`);
+            popularSeletores(); renderizarTabelasGerenciais(); renderizarPlataforma(); renderizarResultadosImportacao();
+            alert("Cidade atualizada com sucesso.");
+        },
+        onApagar: () => excluirCidade(id)
+    });
+}
+
+function editarEscola(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar escolas.");
+    const escolas = getStorage("app_escolas");
+    const idx = escolas.findIndex(e => e.id === id);
+    if (idx === -1) return alert("Escola não encontrada.");
+    const atual = escolas[idx];
+    const nomeAntigo = atual.nome;
+
+    abrirModalEdicao({
+        titulo: "Editar escola",
+        campos: [
+            { nome: "nome", label: "Nome da escola", valor: atual.nome },
+            { nome: "razaoSocial", label: "Razão social", valor: atual.razaoSocial || "" },
+            { nome: "cnpj", label: "CNPJ", valor: atual.cnpj || "" },
+            { nome: "inep", label: "INEP", valor: atual.inep || "" },
+            { nome: "endereco", label: "Endereço", valor: atual.endereco || "" },
+            { nome: "cep", label: "CEP", valor: atual.cep || "" },
+            { nome: "diretor", label: "Diretor", valor: atual.diretor || "" },
+            { nome: "email", label: "E-mail", tipo: "email", valor: atual.email || "" },
+            { nome: "cidadeId", label: "Cidade vinculada", tipo: "select", valor: atual.cidadeId, options: opcoesCidadesComId() }
+        ],
+        onSalvar: (d) => {
+            if (!d.nome || !d.razaoSocial || !d.cnpj || !d.inep || !d.cidadeId) return alert("Nome, razão social, CNPJ, INEP e cidade são obrigatórios."), false;
+            const lista = getStorage("app_escolas");
+            if (lista.some(e => e.id !== id && normalizarTexto(e.inep) === normalizarTexto(d.inep))) return alert("Já existe outra escola com esse INEP."), false;
+            if (lista.some(e => e.id !== id && normalizarTexto(e.nome) === normalizarTexto(d.nome))) return alert("Já existe outra escola com esse nome."), false;
+            const i = lista.findIndex(e => e.id === id);
+            lista[i] = { ...lista[i], nome: d.nome, razaoSocial: d.razaoSocial, cnpj: d.cnpj, inep: d.inep, endereco: d.endereco, cep: d.cep, diretor: d.diretor, email: d.email, cidadeId: d.cidadeId };
+            setStorage("app_escolas", lista);
+            const cidade = getStorage("app_cidades").find(c => c.id === d.cidadeId);
+            dadosTrabalho = dadosTrabalho.map(r => normalizarTexto(r.escola) === normalizarTexto(nomeAntigo) ? { ...r, escola: d.nome, municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : r.municipio } : r);
+            salvarPremiados(); popularSeletores(); renderizarTabelasGerenciais(); renderizarPlataforma(); renderizarResultadosImportacao();
+            alert("Escola atualizada com sucesso.");
+        },
+        onApagar: () => excluirEscola(id)
+    });
+}
+
+function editarOlimpiada(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar olimpíadas.");
+    const olimpiadas = getStorage("app_olimpiadas");
+    const idx = olimpiadas.findIndex(o => o.id === id);
+    if (idx === -1) return alert("Olimpíada não encontrada.");
+    const atual = olimpiadas[idx];
+    const nomeAntigo = atual.nome;
+    const categoriaAntiga = atual.categoria;
+
+    abrirModalEdicao({
+        titulo: "Editar olimpíada",
+        campos: [
+            { nome: "nome", label: "Nome da olimpíada", valor: atual.nome },
+            { nome: "categoria", label: "Frente / sigla", valor: atual.categoria || "" },
+            { nome: "series", label: "Séries atendidas", valor: atual.series || "" }
+        ],
+        onSalvar: (d) => {
+            if (!d.nome || !d.categoria || !d.series) return alert("Nome, frente e séries são obrigatórios."), false;
+            const lista = getStorage("app_olimpiadas");
+            if (lista.some(o => o.id !== id && normalizarTexto(o.nome) === normalizarTexto(d.nome))) return alert("Já existe outra olimpíada com esse nome."), false;
+            const i = lista.findIndex(o => o.id === id);
+            lista[i] = { ...lista[i], nome: d.nome, categoria: d.categoria.toUpperCase(), series: d.series };
+            setStorage("app_olimpiadas", lista);
+            atualizarResultadosCampo("olimpiada", nomeAntigo, d.nome);
+            atualizarResultadosCampo("olimpiada", categoriaAntiga, d.nome);
+            popularSeletores(); renderizarTabelasGerenciais(); renderizarCronograma(); renderizarPlataforma(); renderizarResultadosImportacao();
+            alert("Olimpíada atualizada com sucesso.");
+        },
+        onApagar: () => excluirOlimpiada(id)
+    });
+}
+
+function editarCronograma(id) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar eventos.");
+    const cronograma = getStorage("app_cronograma");
+    const idx = cronograma.findIndex(c => c.id === id);
+    if (idx === -1) return alert("Evento não encontrado.");
+    const atual = cronograma[idx];
+
+    abrirModalEdicao({
+        titulo: "Editar evento do calendário",
+        campos: [
+            { nome: "olimpiadaId", label: "Olimpíada vinculada", tipo: "select", valor: atual.olimpiadaId, options: getStorage("app_olimpiadas").map(o => ({ value: o.id, text: o.nome })) },
+            { nome: "etapa", label: "Etapa / fase", valor: atual.etapa || "" },
+            { nome: "data", label: "Data / janela crítica", valor: atual.data || "" },
+            { nome: "segmento", label: "Público-alvo / séries elegíveis", valor: atual.segmento || "" },
+            { nome: "acao", label: "Diretriz operacional", tipo: "textarea", valor: atual.acao || "" }
+        ],
+        onSalvar: (d) => {
+            if (!d.olimpiadaId || !d.etapa || !d.data || !d.segmento || !d.acao) return alert("Todos os campos do evento são obrigatórios."), false;
+            const lista = getStorage("app_cronograma");
+            const i = lista.findIndex(c => c.id === id);
+            lista[i] = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: d.etapa, data: d.data, segmento: d.segmento, acao: d.acao };
+            setStorage("app_cronograma", lista);
+            renderizarCronograma();
+            alert("Evento atualizado com sucesso.");
+        },
+        onApagar: () => excluirCronograma(id)
+    });
+}
+
+function editarResultado(chaveCodificada) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar resultados.");
+    const chaveOriginal = decodeURIComponent(chaveCodificada);
+    const idx = dadosTrabalho.findIndex(r => chaveResultado(r) === chaveOriginal);
+    if (idx === -1) return alert("Resultado não encontrado.");
+    const atual = dadosTrabalho[idx];
+
+    abrirModalEdicao({
+        titulo: "Editar resultado olímpico",
+        campos: [
+            { nome: "aluno", label: "Nome do aluno", valor: atual.aluno || "" },
+            { nome: "municipio", label: "Cidade", tipo: "select", valor: atual.municipio || "", options: opcoesCidadesNomeUf() },
+            { nome: "escola", label: "Escola", tipo: "select", valor: atual.escola || "", options: opcoesEscolasNome(atual.municipio || "") },
+            { nome: "olimpiada", label: "Olimpíada", tipo: "select", valor: atual.olimpiada || "", options: opcoesOlimpiadasNome() },
+            { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
+            { nome: "premio", label: "Premiação", tipo: "select", valor: atual.premio || "", options: PREMIOS_PADRAO }
+        ],
+        onDepoisMontar: () => {
+            const cidadeSelect = document.getElementById("modalCampo_municipio");
+            cidadeSelect.onchange = () => atualizarSelectEscolasModal(cidadeSelect.value);
+        },
+        onSalvar: (d) => {
+            if (!d.aluno || !d.municipio || !d.escola || !d.olimpiada || !d.serie || !d.premio) return alert("Todos os campos do resultado são obrigatórios."), false;
+            const cidades = getStorage("app_cidades");
+            const escolas = getStorage("app_escolas");
+            const cidade = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(d.municipio));
+            const escola = escolas.find(e => normalizarTexto(e.nome) === normalizarTexto(d.escola));
+            if (!cidade) return alert("Cidade inválida."), false;
+            if (!escola) return alert("Escola inválida."), false;
+            if (escola.cidadeId !== cidade.id) return alert("A escola selecionada não pertence à cidade escolhida."), false;
+            dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chaveOriginal);
+            gravarResultadoComSobrescrita({ aluno: d.aluno, municipio: d.municipio, escola: d.escola, olimpiada: d.olimpiada, serie: d.serie, premio: d.premio });
+            salvarPremiados(); popularSeletores(); renderizarPlataforma(); renderizarResultadosImportacao();
+            alert("Resultado atualizado com sucesso.");
+        },
+        onApagar: () => excluirResultado(chaveCodificada)
+    });
+}
+
+// Garante que chamadas inline do HTML encontrem as funções corretas no navegador.
+window.editarUsuario = editarUsuario;
+window.editarCidade = editarCidade;
+window.editarEscola = editarEscola;
+window.editarOlimpiada = editarOlimpiada;
+window.editarCronograma = editarCronograma;
+window.editarResultado = editarResultado;
+window.excluirUsuario = excluirUsuario;
+window.excluirCidade = excluirCidade;
+window.excluirEscola = excluirEscola;
+window.excluirOlimpiada = excluirOlimpiada;
+window.excluirCronograma = excluirCronograma;
+window.excluirResultado = excluirResultado;
