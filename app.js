@@ -3041,3 +3041,205 @@ async function carregarMateriaisPlataforma() {
 window.enviarArquivoParaGoogleDrive = enviarArquivoParaGoogleDrive;
 window.excluirArquivoGoogleDrive = excluirArquivoGoogleDrive;
 window.carregarMateriaisPlataforma = carregarMateriaisPlataforma;
+
+
+
+// ============================================================================
+// REGRA DE OURO — PATCH V3 LOGIN INDEPENDENTE
+// Não muda layout nem módulos.
+// Garante que o login Firebase funcione mesmo se alguma inicialização antiga falhar.
+// ============================================================================
+
+function statusLoginFirebaseV3(texto, ok = false) {
+    let el = document.getElementById("loginFirebaseStatus");
+    if (!el) {
+        const form = document.getElementById("loginForm");
+        el = document.createElement("p");
+        el.id = "loginFirebaseStatus";
+        el.className = "min-h-[18px] text-center text-xs font-bold";
+        form?.appendChild(el);
+    }
+
+    el.textContent = texto || "";
+    el.classList.toggle("text-red-400", !ok);
+    el.classList.toggle("text-emerald-400", ok);
+}
+
+function normalizarUsuarioLoginFirebaseV3(id, u = {}) {
+    const login = String(u.login || u.username || "").trim().toLowerCase();
+    const senha = String(u.senha || u.password || "");
+    const nivel = String(u.nivel || u.role || "Aluno").trim();
+    const nome = String(u.nome || u.fullname || u.name || login || "Usuário").trim();
+
+    return {
+        id: String(u.id || id || login || novoId()),
+        login,
+        username: login,
+        senha,
+        password: senha,
+        nivel,
+        role: nivel,
+        nome,
+        fullname: nome,
+        email: u.email || "",
+        telefone: u.telefone || "",
+        vinculoId: u.vinculoId || u.vinculo || "",
+        vinculo: u.vinculoId || u.vinculo || "",
+        vinculoNome: u.vinculoNome || ""
+    };
+}
+
+async function buscarUsuarioDiretoFirestoreV3(loginDigitado, senhaDigitada) {
+    initFirebase();
+
+    if (!firebaseFirestore) {
+        throw new Error("Firestore não inicializou. Confira os scripts Firebase e as regras do projeto.");
+    }
+
+    const loginAlvo = String(loginDigitado || "").trim().toLowerCase();
+    const senhaAlvo = String(senhaDigitada || "").trim();
+
+    // Busca direta e robusta: aceita login/senha ou username/password.
+    const snap = await firebaseFirestore.collection("usuarios").get();
+
+    let encontrado = null;
+
+    snap.forEach(docSnap => {
+        if (encontrado) return;
+
+        const usuario = normalizarUsuarioLoginFirebaseV3(docSnap.id, docSnap.data() || {});
+        const loginOK = usuario.login === loginAlvo || usuario.username === loginAlvo;
+        const senhaOK = String(usuario.senha) === senhaAlvo || String(usuario.password) === senhaAlvo;
+
+        if (loginOK && senhaOK) encontrado = usuario;
+    });
+
+    return encontrado;
+}
+
+async function abrirPainelDepoisDoLoginV3(usuario) {
+    usuarioLogado = normalizarUsuarioLoginFirebaseV3(usuario.id, usuario);
+    sessionStorage.setItem("avance_session", JSON.stringify(usuarioLogado));
+
+    // Carregar todas as coleções do Firebase para o cache usado pelo app antigo.
+    try {
+        await carregarBaseFirestoreInicial();
+        dadosTrabalho = carregarPremiados();
+    } catch (erro) {
+        console.warn("Login OK, mas falhou ao carregar alguma coleção. Vou abrir o painel mesmo assim.", erro);
+    }
+
+    document.getElementById("loginScreen")?.classList.add("hidden");
+    document.getElementById("mainPanel")?.classList.remove("hidden");
+
+    const nomeEl = document.getElementById("userLoggedNome");
+    const nivelEl = document.getElementById("userLoggedNivel");
+
+    if (nomeEl) nomeEl.innerText = usuarioLogado.nome;
+    if (nivelEl) nivelEl.innerText = usuarioLogado.nivel;
+
+    const chamadas = [
+        ["permissões", () => aplicarPermissoesNavegacao(usuarioLogado)],
+        ["seletores", () => popularSeletores()],
+        ["dashboard", () => renderizarPlataformaDashboard()],
+        ["cronograma", () => renderizarCronograma()],
+        ["tabelas gerenciais", () => renderizarTabelasGerenciais()],
+        ["resultados", () => renderizarResultadosImportacao()],
+        ["campos usuário", () => ajustarCamposFormUsuario()],
+        ["plataforma", () => renderizarPlataformaEnsino()],
+        ["aba inicial", () => ativarPrimeiraAbaPermitida()]
+    ];
+
+    chamadas.forEach(([nome, fn]) => {
+        try { fn(); } catch (erro) { console.warn("Falha parcial ao renderizar " + nome, erro); }
+    });
+
+    // Garantia: se nenhuma aba abriu, abre dashboard sem mexer no layout.
+    if (!document.querySelector(".tab-view:not(.hidden)")) {
+        document.querySelectorAll(".tab-view").forEach(v => v.classList.add("hidden"));
+        document.getElementById("view-dashboard")?.classList.remove("hidden");
+    }
+}
+
+async function submitLoginFirebaseV3(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const form = document.getElementById("loginForm");
+    const btn = form?.querySelector('button[type="submit"]');
+    const userInput = document.getElementById("auth-user")?.value?.trim() || "";
+    const passInput = document.getElementById("auth-pass")?.value?.trim() || "";
+
+    if (!userInput || !passInput) {
+        statusLoginFirebaseV3("Digite usuário e senha.");
+        return false;
+    }
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...';
+        }
+
+        statusLoginFirebaseV3("Consultando Firestore...", true);
+
+        const usuario = await buscarUsuarioDiretoFirestoreV3(userInput, passInput);
+
+        if (!usuario) {
+            statusLoginFirebaseV3("Usuário ou senha não encontrados na coleção usuarios.");
+            return false;
+        }
+
+        statusLoginFirebaseV3("Login confirmado. Abrindo painel...", true);
+        await abrirPainelDepoisDoLoginV3(usuario);
+        return false;
+    } catch (erro) {
+        console.error("Erro no login Firebase V3:", erro);
+        statusLoginFirebaseV3("Erro ao acessar Firebase. Veja o Console/F12.");
+        alert("Erro no login Firebase:\n\n" + (erro.message || erro));
+        return false;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = "Acessar Painel";
+        }
+    }
+}
+
+function ativarLoginFirebaseIndependenteV3() {
+    const formAntigo = document.getElementById("loginForm");
+    if (!formAntigo || formAntigo.dataset.loginIndependenteV3 === "true") return;
+
+    const userVal = document.getElementById("auth-user")?.value || "";
+    const passVal = document.getElementById("auth-pass")?.value || "";
+
+    // Remove listeners antigos que podem estar travando.
+    const clone = formAntigo.cloneNode(true);
+    clone.dataset.loginIndependenteV3 = "true";
+    formAntigo.parentNode.replaceChild(clone, formAntigo);
+
+    const user = document.getElementById("auth-user");
+    const pass = document.getElementById("auth-pass");
+
+    if (user) user.value = userVal;
+    if (pass) pass.value = passVal;
+
+    clone.addEventListener("submit", submitLoginFirebaseV3, true);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Executa por último, sem depender da inicialização antiga.
+    setTimeout(ativarLoginFirebaseIndependenteV3, 0);
+
+    // Se já havia sessão, tenta abrir sem precisar logar de novo.
+    const sessao = sessionStorage.getItem("avance_session");
+    if (sessao) {
+        try {
+            const usuario = normalizarUsuarioLoginFirebaseV3(null, JSON.parse(sessao));
+            abrirPainelDepoisDoLoginV3(usuario);
+        } catch (e) {
+            sessionStorage.removeItem("avance_session");
+        }
+    }
+});
