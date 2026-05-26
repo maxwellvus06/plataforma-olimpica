@@ -440,10 +440,11 @@
                                 <p class="text-xs text-gray-500 mt-1">Filtre por disciplina, nível e tipo. Cada material funciona como um tópico de fórum.</p>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Disciplina</label><select id="filtroMatDisciplina" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todas</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Nível</label><select id="filtroMatNivel" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tipo</label><select id="filtroMatTipo" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
+                            <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Status</label><select id="filtroMatStatus" onchange="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="FEITOS">Feitos</option><option value="NAO_FEITOS">Não feitos</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Busca</label><input id="filtroMatBusca" oninput="renderizarPlataformaEnsino()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Título, descrição..."></div>
                         </div>
                     </div>

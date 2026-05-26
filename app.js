@@ -3756,6 +3756,21 @@ ${erro.message || erro}`);
     }
 }
 
+function normalizarConclusoesMaterial(m) {
+    if (!m) return [];
+    if (Array.isArray(m.concluidos)) return m.concluidos.filter(Boolean);
+    if (Array.isArray(m.concluidoPor)) {
+        return m.concluidoPor.filter(Boolean).map(id => ({ usuarioId: String(id), usuarioNome: "", concluidoEm: null }));
+    }
+    return [];
+}
+
+function materialFeitoPorUsuario(m) {
+    if (!usuarioLogado) return false;
+    const uid = String(usuarioLogado.id || usuarioLogado.login || "");
+    return normalizarConclusoesMaterial(m).some(item => String(item.usuarioId || item.id || item.login || "") === uid);
+}
+
 function normalizarMaterialPlataforma(m) {
     const tipoLegado = m.tipo || "link";
     const disciplina = m.disciplina || m.area || "Geral";
@@ -3766,7 +3781,7 @@ function normalizarMaterialPlataforma(m) {
         else if (tipoLegado === "arquivo") tipoMaterial = "Apostila";
         else tipoMaterial = "Link útil";
     }
-    return { ...m, disciplina, area: disciplina, nivel, tipoMaterial, tipo: tipoLegado, interacoes: Array.isArray(m.interacoes) ? m.interacoes : [] };
+    return { ...m, disciplina, area: disciplina, nivel, tipoMaterial, tipo: tipoLegado, interacoes: Array.isArray(m.interacoes) ? m.interacoes : [], concluidos: normalizarConclusoesMaterial(m) };
 }
 
 function preencherFiltroPlataforma(id, opcoes, valorAtual) {
@@ -3870,12 +3885,16 @@ async function renderizarPlataformaEnsino() {
     const filtroDisciplina = document.getElementById("filtroMatDisciplina")?.value || "TODOS";
     const filtroNivel = document.getElementById("filtroMatNivel")?.value || "TODOS";
     const filtroTipo = document.getElementById("filtroMatTipo")?.value || "TODOS";
+    const filtroStatus = document.getElementById("filtroMatStatus")?.value || "TODOS";
     const busca = normalizarTexto(document.getElementById("filtroMatBusca")?.value || "");
 
     materiais = materiais.filter(m => {
         if (filtroDisciplina !== "TODOS" && m.disciplina !== filtroDisciplina) return false;
         if (filtroNivel !== "TODOS" && m.nivel !== filtroNivel) return false;
         if (filtroTipo !== "TODOS" && m.tipoMaterial !== filtroTipo) return false;
+        const feito = materialFeitoPorUsuario(m);
+        if (filtroStatus === "FEITOS" && !feito) return false;
+        if (filtroStatus === "NAO_FEITOS" && feito) return false;
         if (busca) {
             const alvo = normalizarTexto(`${m.titulo || ""} ${m.descricao || ""} ${m.disciplina || ""} ${m.nivel || ""} ${m.tipoMaterial || ""}`);
             if (!alvo.includes(busca)) return false;
@@ -3921,12 +3940,19 @@ async function renderizarPlataformaEnsino() {
                                     </div>
                                     ${acoesAdm}
                                 </div>
-                                <h4 class="font-bold text-white text-sm leading-snug">${textoSeguro(m.titulo)}</h4>
+                                <div class="flex items-start justify-between gap-3">
+                                    <h4 class="font-bold text-white text-sm leading-snug flex-1">${textoSeguro(m.titulo)}</h4>
+                                    <label class="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border ${materialFeitoPorUsuario(m) ? "border-emerald-700 bg-emerald-500/10 text-emerald-300" : "border-gray-700 bg-gray-900 text-gray-400"} text-[10px] font-bold uppercase tracking-wider cursor-pointer select-none" title="Marcar este material como feito">
+                                        <input type="checkbox" ${materialFeitoPorUsuario(m) ? "checked" : ""} onchange="alternarMaterialFeito('${m.id}', this.checked)" class="accent-emerald-500">
+                                        ${materialFeitoPorUsuario(m) ? "Feito" : "Fazer"}
+                                    </label>
+                                </div>
                                 ${m.descricao ? `<p class="text-gray-400 text-xs leading-relaxed">${textoSeguro(m.descricao)}</p>` : ""}
                                 <div class="text-[10px] text-gray-500 leading-relaxed">
                                     <div><i class="fa-solid fa-user mr-1"></i>Postado por ${textoSeguro(m.criadoPor || "Sistema")} ${m.criadoPorNivel ? `(${textoSeguro(m.criadoPorNivel)})` : ""}</div>
                                     <div><i class="fa-solid fa-clock mr-1"></i>${formatarDataHora(m.criadoEm)}</div>
                                     ${m.nomeArquivo ? `<div><i class="fa-solid fa-paperclip mr-1"></i>${textoSeguro(m.nomeArquivo)}</div>` : ""}
+                                    <div><i class="fa-solid ${materialFeitoPorUsuario(m) ? "fa-circle-check text-emerald-400" : "fa-circle text-gray-600"} mr-1"></i>${materialFeitoPorUsuario(m) ? "Marcado como feito por você" : "Ainda não marcado como feito"}</div>
                                 </div>
                                 ${renderizarConteudoMaterial(m)}
                                 ${renderizarInteracoesMaterial(m)}
@@ -4085,6 +4111,42 @@ async function salvarNovoMaterial(event) {
 ${erro.message || erro}`);
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar Material'; }
+    }
+}
+
+async function alternarMaterialFeito(materialId, marcado) {
+    if (!usuarioLogado) return alert("Você precisa estar logado para marcar materiais como feitos.");
+    initFirebase();
+    if (!firebaseFirestore) return alert("Cloud Firestore não inicializado.");
+
+    try {
+        const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+        const snap = await ref.get();
+        if (!snap.exists) throw new Error("Material não encontrado no Firestore.");
+
+        const material = snap.data() || {};
+        let concluidos = normalizarConclusoesMaterial(material);
+        const uid = String(usuarioLogado.id || usuarioLogado.login || "");
+        concluidos = concluidos.filter(item => String(item.usuarioId || item.id || item.login || "") !== uid);
+
+        if (marcado) {
+            concluidos.push({
+                usuarioId: uid,
+                usuarioNome: usuarioLogado.nome || "Usuário",
+                usuarioNivel: usuarioLogado.nivel || "",
+                concluidoEm: Date.now()
+            });
+        }
+
+        await ref.update({ concluidos, atualizadoEm: Date.now() });
+        await carregarChaveFirebase("app_plataforma", []);
+        await renderizarPlataformaEnsino();
+    } catch (erro) {
+        console.error("Erro ao atualizar status do material:", erro);
+        alert(`Erro ao atualizar status do material.
+
+${erro.message || erro}`);
+        await renderizarPlataformaEnsino();
     }
 }
 
@@ -4808,6 +4870,7 @@ window.excluirMaterial = excluirMaterial;
 window.salvarNovoMaterial = salvarNovoMaterial;
 window.ajustarCamposFormMaterial = ajustarCamposFormMaterial;
 window.publicarInteracaoMaterial = publicarInteracaoMaterial;
+window.alternarMaterialFeito = alternarMaterialFeito;
 window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
 window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
