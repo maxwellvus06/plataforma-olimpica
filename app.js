@@ -16,6 +16,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("filterMunicipio").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterEscola").addEventListener("change", renderizarPlataforma);
     document.getElementById("filterOlimpiada").addEventListener("change", renderizarPlataforma);
+    document.getElementById("filterResultadoNome")?.addEventListener("input", renderizarResultadosImportacao);
+    document.getElementById("filterResultadoCidade")?.addEventListener("change", renderizarResultadosImportacao);
+    document.getElementById("filterResultadoEscola")?.addEventListener("change", renderizarResultadosImportacao);
+    document.getElementById("filterResultadoPremio")?.addEventListener("change", renderizarResultadosImportacao);
     document.getElementById("btnLogout").addEventListener("click", logout);
     verificarSessao();
 });
@@ -69,6 +73,7 @@ function logarSucesso(usuario) {
     renderizarPlataforma();
     renderizarCronograma();
     renderizarTabelasGerenciais();
+    renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
 }
 
@@ -202,6 +207,11 @@ function navegarAba(abaId, botaoTarget) {
         olimpiadas: "Gerenciar Olimpíadas (ADM)", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)"
     };
     document.getElementById("pageTitleDisplay").innerText = titulos[abaId] || "Painel Operacional";
+
+    if (abaId === "importar") {
+        popularSeletores();
+        renderizarResultadosImportacao();
+    }
 
     document.querySelectorAll(".nav-item").forEach(btn => {
         btn.classList.remove("text-blue-400", "bg-blue-500/10");
@@ -355,7 +365,7 @@ function gravarResultadoComSobrescrita(resultado) {
     const chaveNova = chaveResultado(resultado);
     const antes = dadosTrabalho.length;
     dadosTrabalho = dadosTrabalho.filter(item => chaveResultado(item) !== chaveNova);
-    dadosTrabalho.push(resultado);
+    dadosTrabalho.push({ id: resultado.id || novoId(), ...resultado });
     salvarPremiados();
     return antes !== dadosTrabalho.length;
 }
@@ -389,6 +399,7 @@ function salvarResultadoManual(event) {
     popularSeletores();
     renderizarPlataforma();
     renderizarTabelasGerenciais();
+    renderizarResultadosImportacao();
     alert(sobrescreveu ? "Resultado atualizado: a entrada antiga foi substituída." : "Resultado cadastrado com sucesso!");
 }
 
@@ -415,6 +426,97 @@ function atualizarEscolasResultadoManual() {
     const escolasFiltradas = cidade ? escolas.filter(e => e.cidadeId === cidade.id) : escolas;
 
     escolaSelect.innerHTML = '<option value="">Selecione a escola...</option>' + escolasFiltradas.map(e => `<option value="${textoSeguro(e.nome)}">${textoSeguro(e.nome)}</option>`).join("");
+}
+
+function preencherFiltrosResultadosImportacao() {
+    const cidadesCadastro = getStorage("app_cidades").map(c => `${c.nome} - ${c.uf}`);
+    const escolasCadastro = getStorage("app_escolas").map(e => e.nome);
+    const cidadesResultados = dadosTrabalho.map(r => r.municipio).filter(Boolean);
+    const escolasResultados = dadosTrabalho.map(r => r.escola).filter(Boolean);
+
+    const cidades = [...new Set([...cidadesCadastro, ...cidadesResultados])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const escolas = [...new Set([...escolasCadastro, ...escolasResultados])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+    const filtroCidade = document.getElementById("filterResultadoCidade");
+    const filtroEscola = document.getElementById("filterResultadoEscola");
+    const filtroPremio = document.getElementById("filterResultadoPremio");
+
+    if (filtroCidade) {
+        const valor = filtroCidade.value;
+        filtroCidade.innerHTML = '<option value="TODOS">Todas as cidades</option>' + cidades.map(c => `<option value="${textoSeguro(c)}">${textoSeguro(c)}</option>`).join("");
+        if ([...filtroCidade.options].some(opt => opt.value === valor)) filtroCidade.value = valor;
+    }
+    if (filtroEscola) {
+        const valor = filtroEscola.value;
+        filtroEscola.innerHTML = '<option value="TODOS">Todas as escolas</option>' + escolas.map(e => `<option value="${textoSeguro(e)}">${textoSeguro(e)}</option>`).join("");
+        if ([...filtroEscola.options].some(opt => opt.value === valor)) filtroEscola.value = valor;
+    }
+    if (filtroPremio) {
+        const valor = filtroPremio.value;
+        filtroPremio.innerHTML = '<option value="TODOS">Todas as premiações</option>' + PREMIOS_PADRAO.map(p => `<option value="${textoSeguro(p)}">${textoSeguro(p)}</option>`).join("");
+        if ([...filtroPremio.options].some(opt => opt.value === valor)) filtroPremio.value = valor;
+    }
+}
+
+function resultadoPassaNosFiltros(resultado) {
+    const nomeFiltro = normalizarTexto(document.getElementById("filterResultadoNome")?.value || "");
+    const cidadeFiltro = document.getElementById("filterResultadoCidade")?.value || "TODOS";
+    const escolaFiltro = document.getElementById("filterResultadoEscola")?.value || "TODOS";
+    const premioFiltro = document.getElementById("filterResultadoPremio")?.value || "TODOS";
+
+    const nomeOk = !nomeFiltro || normalizarTexto(resultado.aluno).includes(nomeFiltro);
+    const cidadeOk = cidadeFiltro === "TODOS" || resultado.municipio === cidadeFiltro;
+    const escolaOk = escolaFiltro === "TODOS" || resultado.escola === escolaFiltro;
+    const premioOk = premioFiltro === "TODOS" || resultado.premio === premioFiltro;
+
+    return nomeOk && cidadeOk && escolaOk && premioOk;
+}
+
+function renderizarResultadosImportacao() {
+    preencherFiltrosResultadosImportacao();
+
+    const tbody = document.getElementById("tableResultadosImportacaoCorpo");
+    const contador = document.getElementById("contadorResultadosImportacao");
+    if (!tbody) return;
+
+    const filtrados = dadosTrabalho.filter(resultadoPassaNosFiltros);
+    if (contador) contador.innerText = `${filtrados.length} resultado(s) listado(s)`;
+
+    if (!filtrados.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtrados.map(r => {
+        const chave = encodeURIComponent(chaveResultado(r));
+        return `
+            <tr class="hover:bg-gray-700/30 text-xs">
+                <td class="p-4 font-bold text-white">${textoSeguro(r.aluno)}</td>
+                <td class="p-4 text-gray-300">${textoSeguro(r.escola)}</td>
+                <td class="p-4 text-blue-400 font-semibold">${textoSeguro(r.municipio)}</td>
+                <td class="p-4 text-gray-300 font-medium">${textoSeguro(r.serie || "Não informada")}</td>
+                <td class="p-4 text-gray-400">${textoSeguro(r.olimpiada)}</td>
+                <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${textoSeguro(r.premio)}</span></td>
+                <td class="p-4 text-right"><button onclick="excluirResultado('${chave}')" class="px-2 py-1 rounded-lg border border-red-900/50 text-red-400 hover:bg-red-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-trash-can mr-1"></i> Apagar</button></td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function excluirResultado(chaveCodificada) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem apagar resultados.");
+
+    const chave = decodeURIComponent(chaveCodificada);
+    const resultado = dadosTrabalho.find(r => chaveResultado(r) === chave);
+    if (!resultado) return alert("Resultado não encontrado.");
+
+    if (!confirmarExclusao("o resultado", `${resultado.aluno} - ${resultado.olimpiada}`)) return;
+
+    dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chave);
+    salvarPremiados();
+    popularSeletores();
+    renderizarPlataforma();
+    renderizarResultadosImportacao();
 }
 
 // ==================== RENDERS DE COMPONENTES E DATA VIS ====================\
@@ -536,6 +638,7 @@ function popularSeletores() {
     if (document.getElementById("addResPremioSelect")) {
         document.getElementById("addResPremioSelect").innerHTML = '<option value="">Selecione a premiação...</option>' + PREMIOS_PADRAO.map(premio => `<option value="${textoSeguro(premio)}">${textoSeguro(premio)}</option>`).join("");
     }
+    preencherFiltrosResultadosImportacao();
 }
 
 
@@ -723,6 +826,7 @@ function processarPlanilha(arquivo) {
             salvarPremiados();
             popularSeletores();
             renderizarPlataforma();
+            renderizarResultadosImportacao();
 
             if (erros.length) {
                 alert(`${inseridos} registros importados.\n\nAtenção: ${erros.length} linha(s) não foram importadas:\n${erros.slice(0, 8).join("\n")}${erros.length > 8 ? "\n..." : ""}`);
