@@ -578,7 +578,7 @@ function ativarPrimeiraAbaPermitida() {
 
 function getCidadeGestor() {
     if (!usuarioLogado) return null;
-    if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor" || usuarioLogado.nivel === "Visualizador") return null;
+    if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor" || usuarioLogado.nivel === "Professor/Orientador" || usuarioLogado.nivel === "Visualizador") return null;
     if (usuarioLogado.nivel === "Gestor") {
         const cidades = getStorage("app_cidades");
         return cidades.find(c => c.id === usuarioLogado.vinculoId) || null;
@@ -695,6 +695,75 @@ function popularEscopoVisualizadorCadastro() {
     }
 }
 
+function escopoProfessorOrientadorUsuario(usuario = usuarioLogado) {
+    if (!usuario || usuario.nivel !== "Professor/Orientador") return null;
+    const escopo = usuario.escopoProfessorOrientador || {};
+    return {
+        todasEscolas: escopo.todasEscolas === true,
+        escolasIds: Array.isArray(escopo.escolasIds) ? escopo.escolasIds : []
+    };
+}
+
+function idsEscolasDoEscopoProfessorOrientador(usuario = usuarioLogado) {
+    const escopo = escopoProfessorOrientadorUsuario(usuario);
+    if (!escopo) return [];
+    const escolas = getStorage("app_escolas");
+    if (escopo.todasEscolas) return escolas.map(e => e.id);
+    return escopo.escolasIds || [];
+}
+
+function nomesEscolasDoEscopoProfessorOrientador(usuario = usuarioLogado) {
+    const ids = idsEscolasDoEscopoProfessorOrientador(usuario);
+    const escolas = getStorage("app_escolas");
+    return escolas.filter(e => ids.includes(e.id)).map(e => e.nome);
+}
+
+function nomesMunicipiosDoEscopoProfessorOrientador(usuario = usuarioLogado) {
+    const escolaIds = idsEscolasDoEscopoProfessorOrientador(usuario);
+    const escolas = getStorage("app_escolas");
+    const cidades = getStorage("app_cidades");
+    const nomes = new Set();
+    escolas.filter(e => escolaIds.includes(e.id)).forEach(e => {
+        const c = cidades.find(cid => cid.id === e.cidadeId);
+        if (c) nomes.add(`${c.nome} - ${c.uf}`);
+    });
+    return Array.from(nomes);
+}
+
+function itemDentroDoEscopoProfessorOrientador(item, usuario = usuarioLogado) {
+    if (!usuario || usuario.nivel !== "Professor/Orientador") return true;
+    const escopo = escopoProfessorOrientadorUsuario(usuario);
+    if (!escopo) return false;
+    if (escopo.todasEscolas) return true;
+    const escolas = nomesEscolasDoEscopoProfessorOrientador(usuario).map(normalizarTexto);
+    const escolaItem = normalizarTexto(item.escola || item.nomeEscola || item.escolaNome);
+    return !!escolaItem && escolas.includes(escolaItem);
+}
+
+function popularEscopoProfessorOrientadorCadastro() {
+    const escolas = getStorage("app_escolas");
+    const cidades = getStorage("app_cidades");
+    const selEscolas = document.getElementById("addUserProfessorEscolas");
+    if (selEscolas) {
+        const anteriores = valoresSelectMultiplo("addUserProfessorEscolas");
+        selEscolas.innerHTML = escolas.map(e => {
+            const c = cidades.find(cid => cid.id === e.cidadeId);
+            const cidadeTxt = c ? ` — ${c.nome}/${c.uf}` : "";
+            return `<option value="${textoSeguro(e.id)}">${textoSeguro(e.nome)}${textoSeguro(cidadeTxt)}</option>`;
+        }).join("");
+        anteriores.forEach(v => { const opt = Array.from(selEscolas.options).find(o => o.value === v); if (opt) opt.selected = true; });
+    }
+    atualizarEstadoEscopoProfessorCadastro();
+}
+
+function atualizarEstadoEscopoProfessorCadastro() {
+    const chk = document.getElementById("addUserProfessorTodasEscolas");
+    const sel = document.getElementById("addUserProfessorEscolas");
+    if (!chk || !sel) return;
+    sel.disabled = chk.checked;
+    sel.classList.toggle("opacity-50", chk.checked);
+}
+
 function usuarioPodeGerenciarUsuarioAlvo(usuarioAlvo) {
     if (!usuarioLogado || !usuarioAlvo) return false;
     const perms = PERMISSOES[usuarioLogado.nivel];
@@ -733,6 +802,7 @@ function opcoesVinculoUsuario(nivelUsuario) {
         if (nivelUsuario === "Gestor") return cidades.map(c => ({ value: c.id, text: `Cidade: ${c.nome} (${c.uf})` }));
         if (nivelUsuario === "Escola" || nivelUsuario === "Aluno") return escolasPermitidas.map(e => ({ value: e.id, text: `Escola: ${e.nome}` }));
         if (nivelUsuario === "Visualizador") return [{ value: "", text: "Escopo múltiplo definido no cadastro" }];
+        if (nivelUsuario === "Professor/Orientador") return [{ value: "", text: "Escopo de escolas definido no cadastro" }];
         return [{ value: "", text: "Acesso Global" }];
     }
 
@@ -752,6 +822,7 @@ function opcoesVinculoUsuario(nivelUsuario) {
 function resultadoDentroDoEscopoUsuario(resultado) {
     if (!usuarioLogado) return false;
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return true;
+    if (usuarioLogado.nivel === "Professor/Orientador") return itemDentroDoEscopoProfessorOrientador(resultado);
     if (usuarioLogado.nivel === "Visualizador") return itemDentroDoEscopoVisualizador(resultado);
 
     const municipioTravado = getMunicipioFiltradoUsuario();
@@ -769,6 +840,7 @@ function resultadoDentroDoEscopoUsuario(resultado) {
 function resultadoDentroDoEscopoResultadosUsuario(resultado) {
     if (!usuarioLogado) return false;
     if (usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Monitor") return true;
+    if (usuarioLogado.nivel === "Professor/Orientador") return itemDentroDoEscopoProfessorOrientador(resultado);
     if (usuarioLogado.nivel === "Visualizador") return itemDentroDoEscopoVisualizador(resultado);
     const municipioTravado = getMunicipioFiltradoUsuario();
     return municipioTravado === "TODOS" || normalizarTexto(resultado.municipio) === normalizarTexto(municipioTravado);
@@ -816,7 +888,7 @@ function dadosSementePorChave(chave) {
         app_alunos: [],
         app_olimpiadas: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [],
         app_cronograma: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [],
-        app_premiados: typeof DATABASE !== "undefined" ? DATABASE.premiados : [],
+        app_premiados: [], // resultados não devem ser semeados automaticamente; se apagar, não podem voltar
         app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : []
     };
     return Array.isArray(mapa[chave]) ? clonarDados(mapa[chave]) : [];
@@ -1129,15 +1201,13 @@ function garantirCadastrosBasicos() {
 }
 
 function carregarPremiados() {
-    const salvos = getStorage("app_premiados", null);
-    if (Array.isArray(salvos) && salvos.length > 0) return salvos;
-    const base = (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.premiados)) ? [...DATABASE.premiados] : [];
-    setStorage("app_premiados", base);
-    return base;
+    const salvos = getStorage("app_premiados", []);
+    return Array.isArray(salvos) ? salvos : [];
 }
 
-function salvarPremiados() {
-    setStorage("app_premiados", dadosTrabalho);
+async function salvarPremiados() {
+    dadosTrabalho = Array.isArray(dadosTrabalho) ? dadosTrabalho : [];
+    await setStorage("app_premiados", dadosTrabalho);
 }
 
 function novoId() {
@@ -1450,6 +1520,35 @@ function excluirOlimpiada(id) {
     renderizarPlataformaDashboard();
 }
 
+async function excluirCronograma(id) {
+    if (usuarioLogado?.nivel !== "ADM") {
+        alert("Apenas administradores podem apagar eventos do calendário.");
+        return false;
+    }
+
+    const cronograma = getStorage("app_cronograma");
+    const evento = cronograma.find(c => c.id === id);
+    if (!evento) {
+        alert("Evento não encontrado.");
+        return false;
+    }
+
+    const olimpiada = getStorage("app_olimpiadas").find(o => o.id === evento.olimpiadaId);
+    const nomeOlimpiada = olimpiada?.nome || "Olimpíada não identificada";
+    const nomeEvento = `${nomeOlimpiada} — ${evento.etapa || "Etapa sem nome"} — ${evento.data || "sem data"}`;
+
+    if (!confirmarExclusao("o evento do calendário", nomeEvento)) return false;
+
+    const novaLista = cronograma.filter(c => c.id !== id);
+    await setStorage("app_cronograma", novaLista);
+
+    renderizarCronograma();
+    renderizarTabelasGerenciais();
+    if (!document.getElementById("view-reuniao")?.classList.contains("hidden") && typeof prepararTelaReuniao === "function") prepararTelaReuniao();
+    alert("Evento apagado com sucesso.");
+    return true;
+}
+
 // ==================== MODAIS DE EDIÇÃO ====================
 function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }) {
     document.getElementById("modalEdicaoTitulo").innerText = titulo;
@@ -1485,6 +1584,20 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
                 labelOpt.appendChild(chk);
                 labelOpt.appendChild(document.createTextNode(texto));
                 input.appendChild(labelOpt);
+            });
+        } else if (campo.tipo === "multiselect") {
+            input = document.createElement("select");
+            input.multiple = true;
+            input.size = campo.size || 5;
+            input.className = "w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none";
+            const valoresAtuais = Array.isArray(campo.valor) ? campo.valor.map(String) : [];
+            const opts = Array.isArray(campo.options) ? campo.options : [];
+            opts.forEach(opt => {
+                const o = document.createElement("option");
+                if (typeof opt === "object") { o.value = opt.value; o.text = opt.text; }
+                else { o.value = opt; o.text = opt; }
+                if (valoresAtuais.includes(String(o.value))) o.selected = true;
+                input.appendChild(o);
             });
         } else if (campo.tipo === "select" || campo.tipo === "selectGrouped") {
             input = document.createElement("select");
@@ -1532,6 +1645,8 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
             const el = document.getElementById(`modalCampo_${c.nome}`);
             if (c.tipo === "checkboxGroup") {
                 dados[c.nome] = Array.from(el?.querySelectorAll('input[type="checkbox"]:checked') || []).map(chk => chk.value);
+            } else if (c.tipo === "multiselect") {
+                dados[c.nome] = Array.from(el?.selectedOptions || []).map(opt => opt.value);
             } else if (c.tipo === "file") {
                 dados[c.nome] = el?.files?.[0] || null;
             } else {
@@ -1562,7 +1677,23 @@ ${erro.message || erro}`);
     if (btnApagar) {
         if (onApagar) {
             btnApagar.classList.remove("hidden");
-            btnApagar.onclick = () => { onApagar(); fecharModalEdicao(); };
+            btnApagar.onclick = async () => {
+                const textoOriginal = btnApagar.innerHTML;
+                try {
+                    btnApagar.disabled = true;
+                    btnApagar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Apagando...';
+                    const resultado = await Promise.resolve(onApagar());
+                    if (resultado !== false) fecharModalEdicao();
+                } catch (erro) {
+                    console.error("Erro ao apagar registro", erro);
+                    alert(`Erro ao apagar.
+
+${erro.message || erro}`);
+                } finally {
+                    btnApagar.disabled = false;
+                    btnApagar.innerHTML = textoOriginal;
+                }
+            };
         } else {
             btnApagar.classList.add("hidden");
             btnApagar.onclick = null;
@@ -1665,6 +1796,13 @@ function editarUsuario(id) {
         campos.push({ nome: "visualizadorEscolasIds", label: "Escolas permitidas ao visualizador", tipo: "multiselect", valor: escopo.escolasIds || [], size: 6, options: escolas.map(e => ({ value: e.id, text: e.nome })) });
     }
 
+    if (atual.nivel === "Professor/Orientador") {
+        const escolas = getStorage("app_escolas");
+        const escopo = atual.escopoProfessorOrientador || { todasEscolas: false, escolasIds: [] };
+        campos.push({ nome: "professorTodasEscolas", label: "Acesso aos resultados de todas as escolas?", tipo: "select", valor: escopo.todasEscolas ? "Sim" : "Não", options: ["Não", "Sim"] });
+        campos.push({ nome: "professorEscolasIds", label: "Escolas vinculadas ao professor/orientador", tipo: "multiselect", valor: escopo.escolasIds || [], size: 6, options: escolas.map(e => ({ value: e.id, text: e.nome })) });
+    }
+
     abrirModalEdicao({
         titulo: "Editar usuário",
         campos,
@@ -1697,6 +1835,13 @@ function editarUsuario(id) {
                 lista[i].escopoVisualizador = { cidadesIds, escolasIds };
             } else {
                 delete lista[i].escopoVisualizador;
+            }
+            if (d.nivel === "Professor/Orientador") {
+                const todasEscolas = d.professorTodasEscolas === "Sim" || lista[i].escopoProfessorOrientador?.todasEscolas === true;
+                const escolasIds = Array.isArray(d.professorEscolasIds) ? d.professorEscolasIds : (lista[i].escopoProfessorOrientador?.escolasIds || []);
+                lista[i].escopoProfessorOrientador = { todasEscolas, escolasIds: todasEscolas ? [] : escolasIds };
+            } else {
+                delete lista[i].escopoProfessorOrientador;
             }
             salvarUsuariosSistema(lista);
             atualizarSessaoUsuario(lista[i]);
@@ -2479,11 +2624,13 @@ function ajustarCamposFormUsuario() {
     const divCidade = document.getElementById("divVinculoCidade");
     const divEscola = document.getElementById("divVinculoEscola");
     const divVisualizador = document.getElementById("divEscopoVisualizador");
+    const divProfessor = document.getElementById("divEscopoProfessorOrientador");
     if (!divCidade || !divEscola) return;
 
     divCidade.classList.add("hidden");
     divEscola.classList.add("hidden");
     if (divVisualizador) divVisualizador.classList.add("hidden");
+    if (divProfessor) divProfessor.classList.add("hidden");
 
     if (nivel === "Gestor") {
         divCidade.classList.remove("hidden");
@@ -2492,6 +2639,9 @@ function ajustarCamposFormUsuario() {
     } else if (nivel === "Visualizador") {
         if (divVisualizador) divVisualizador.classList.remove("hidden");
         popularEscopoVisualizadorCadastro();
+    } else if (nivel === "Professor/Orientador") {
+        if (divProfessor) divProfessor.classList.remove("hidden");
+        popularEscopoProfessorOrientadorCadastro();
     }
 }
 
@@ -2533,6 +2683,9 @@ async function salvarNovoUsuario(event) {
         const escolasEscopo = valoresSelectMultiplo("addUserVisualizadorEscolas");
         if (!cidadesEscopo.length && !escolasEscopo.length) return alert("Defina pelo menos uma cidade ou escola para o escopo do Visualizador.");
         vinculoId = "";
+    } else if (nivelNovo === "Professor/Orientador") {
+        if (nivel !== "ADM") return alert("Apenas administradores podem criar usuários Professor/Orientador.");
+        vinculoId = "";
     } else if (nivelNovo === "ADM" || nivelNovo === "Monitor") {
         if (nivel !== "ADM") return alert("Apenas administradores podem criar esse nível de usuário.");
     }
@@ -2563,6 +2716,12 @@ async function salvarNovoUsuario(event) {
             escolasIds: valoresSelectMultiplo("addUserVisualizadorEscolas")
         };
     }
+    if (nivelNovo === "Professor/Orientador") {
+        novoUsuario.escopoProfessorOrientador = {
+            todasEscolas: document.getElementById("addUserProfessorTodasEscolas")?.checked === true,
+            escolasIds: valoresSelectMultiplo("addUserProfessorEscolas")
+        };
+    }
 
     try {
         novoUsuario = await provisionarAuthUsuario(novoUsuario);
@@ -2582,7 +2741,7 @@ async function salvarNovoUsuario(event) {
 
 // ==================== RESET DE SENHAS EM LOTE ====================
 function niveisResetSenhaDisponiveis() {
-    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Visualizador"];
+    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"];
 }
 
 function usuarioPertenceCidade(usuario, cidadeId) {
@@ -3728,6 +3887,10 @@ function renderizarTabelasGerenciais() {
             } else if (u.nivel === "Escola" || u.nivel === "Aluno") {
                 const targetEsc = escolas.find(e => e.id === u.vinculoId);
                 descVinculo = targetEsc ? `Unidade: ${targetEsc.nome}` : "Falta Vincular";
+            } else if (u.nivel === "Professor/Orientador") {
+                const escopo = u.escopoProfessorOrientador || {};
+                const qtdEscolas = escopo.todasEscolas ? "todas" : (Array.isArray(escopo.escolasIds) ? escopo.escolasIds.length : 0);
+                vinculo = `<span class="text-emerald-300 font-semibold">Orientador</span><br><span class="text-[10px] text-gray-500">Escolas vinculadas: ${qtdEscolas}</span>`;
             } else if (u.nivel === "Visualizador") {
                 const escopo = u.escopoVisualizador || {};
                 const qtdCidades = Array.isArray(escopo.cidadesIds) ? escopo.cidadesIds.length : 0;
@@ -4004,17 +4167,23 @@ function renderizarResultadosImportacao() {
     }).join("");
 }
 
-function excluirResultado(chaveCodificada) {
-    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem apagar resultados.");
+async function excluirResultado(chaveCodificada) {
+    if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem apagar resultados."), false;
     const chave = decodeURIComponent(chaveCodificada);
     const resultado = dadosTrabalho.find(r => chaveResultado(r) === chave);
-    if (!resultado) return alert("Resultado não encontrado.");
-    if (!confirmarExclusao("o resultado", `${resultado.aluno} - ${resultado.olimpiada}`)) return;
+    if (!resultado) return alert("Resultado não encontrado."), false;
+    if (!confirmarExclusao("o resultado", `${resultado.aluno} - ${resultado.olimpiada}`)) return false;
+
     dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chave);
-    salvarPremiados();
+    await salvarPremiados();
+
     popularSeletores();
     renderizarPlataformaDashboard();
     renderizarResultadosImportacao();
+    renderizarDashboardAluno();
+    if (!document.getElementById("view-reuniao")?.classList.contains("hidden")) prepararTelaReuniao();
+    if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
+    return true;
 }
 
 // ==================== CRONOGRAMA POR EXCEL ====================
@@ -5646,10 +5815,12 @@ function renderizarSalasMonitoria() {
     const container = document.getElementById("gridSalasMonitoria");
     if (!container) return;
 
-    const salas = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
-    const coresBorder = { blue: "border-blue-700/40 hover:border-blue-500/60", purple: "border-purple-700/40 hover:border-purple-500/60", emerald: "border-emerald-700/40 hover:border-emerald-500/60", amber: "border-amber-700/40 hover:border-amber-500/60", rose: "border-rose-700/40 hover:border-rose-500/60" };
-    const coresIcone = { blue: "text-blue-400 bg-blue-500/10", purple: "text-purple-400 bg-purple-500/10", emerald: "text-emerald-400 bg-emerald-500/10", amber: "text-amber-400 bg-amber-500/10", rose: "text-rose-400 bg-rose-500/10" };
-    const coresBtn = { blue: "bg-blue-600 hover:bg-blue-500", purple: "bg-purple-600 hover:bg-purple-500", emerald: "bg-emerald-600 hover:bg-emerald-500", amber: "bg-amber-600 hover:bg-amber-500", rose: "bg-rose-600 hover:bg-rose-500" };
+    const salasBase = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
+    const podeVerSalaOrientador = usuarioLogado?.nivel === "ADM" || usuarioLogado?.nivel === "Professor/Orientador";
+    const salas = salasBase.filter(sala => !sala.restritoOrientador || podeVerSalaOrientador);
+    const coresBorder = { blue: "border-blue-700/40 hover:border-blue-500/60", purple: "border-purple-700/40 hover:border-purple-500/60", emerald: "border-emerald-700/40 hover:border-emerald-500/60", amber: "border-amber-700/40 hover:border-amber-500/60", rose: "border-rose-700/40 hover:border-rose-500/60", cyan: "border-cyan-700/40 hover:border-cyan-500/60" };
+    const coresIcone = { blue: "text-blue-400 bg-blue-500/10", purple: "text-purple-400 bg-purple-500/10", emerald: "text-emerald-400 bg-emerald-500/10", amber: "text-amber-400 bg-amber-500/10", rose: "text-rose-400 bg-rose-500/10", cyan: "text-cyan-400 bg-cyan-500/10" };
+    const coresBtn = { blue: "bg-blue-600 hover:bg-blue-500", purple: "bg-purple-600 hover:bg-purple-500", emerald: "bg-emerald-600 hover:bg-emerald-500", amber: "bg-amber-600 hover:bg-amber-500", rose: "bg-rose-600 hover:bg-rose-500", cyan: "bg-cyan-600 hover:bg-cyan-500" };
 
     container.innerHTML = salas.map(sala => `
         <div class="bg-gray-800 border ${coresBorder[sala.cor] || "border-gray-700"} rounded-2xl p-5 flex flex-col gap-3 transition cursor-pointer shadow-xl" onclick="entrarSalaMonitoria('${sala.id}')">
@@ -5678,7 +5849,9 @@ function verificarStatusSalas() {
         document.querySelectorAll("[id^='status-']").forEach(el => { el.textContent = "Firebase não configurado"; el.classList.add("text-amber-500"); });
         return;
     }
-    const salas = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
+    const salasBase = typeof SALAS_MONITORIA !== "undefined" ? SALAS_MONITORIA : [];
+    const podeVerSalaOrientador = usuarioLogado?.nivel === "ADM" || usuarioLogado?.nivel === "Professor/Orientador";
+    const salas = salasBase.filter(sala => !sala.restritoOrientador || podeVerSalaOrientador);
     salas.forEach(sala => {
         firebaseDB.ref(`monitoria/${sala.id}/participantes`).on("value", snap => {
             const statusEl = document.getElementById(`status-${sala.id}`);
@@ -5707,25 +5880,33 @@ function entrarSalaMonitoria(salaId) {
         const meuId = usuarioLogado.id;
         const jaEsta = ativos.find(([id]) => id === meuId);
         const ativosOutros = ativos.filter(([id]) => id !== meuId);
-        const usuarioEhMonitor = usuarioLogado.nivel === "Monitor";
-        const haMonitorNaSala = ativosOutros.some(([_, v]) => v.nivel === "Monitor");
-        const haNaoMonitorNaSala = ativosOutros.some(([_, v]) => v.nivel !== "Monitor");
+        const usuarioEhMonitor = ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
+        const usuarioPodeSalaOrientador = usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Professor/Orientador";
+        const haMonitorNaSala = ativosOutros.some(([_, v]) => ["ADM", "Monitor", "Professor/Orientador"].includes(v.nivel));
+        const haNaoMonitorNaSala = ativosOutros.some(([_, v]) => !["ADM", "Monitor", "Professor/Orientador"].includes(v.nivel));
+
+        if (sala.restritoOrientador && !usuarioPodeSalaOrientador) {
+            return alert("Esta sala é exclusiva para Professor/Orientador e ADM.");
+        }
 
         if (!jaEsta) {
             if (ativosOutros.length >= 2) {
                 return alert("Esta sala está cheia.\n\nRegra da monitoria: no máximo 2 pessoas por sala.");
             }
 
-            if (usuarioEhMonitor) {
+            if (sala.restritoOrientador) {
+                // Salas do orientador: exclusivas para ADM e Professor/Orientador. Monitor comum e aluno não entram.
+                // Mantém limite de 2 pessoas para conversa objetiva.
+            } else if (usuarioEhMonitor) {
                 if (haMonitorNaSala) {
-                    return alert("Já existe um monitor nesta sala.\n\nRegra da monitoria: apenas 1 monitor e 1 participante por atendimento.");
+                    return alert("Já existe um orientador/monitor nesta sala.\n\nRegra da monitoria: apenas 1 orientador/monitor e 1 participante por atendimento.");
                 }
             } else {
                 if (!haMonitorNaSala) {
-                    return alert("Aguarde um monitor entrar nesta sala.\n\nRegra da monitoria: a sala só abre atendimento quando houver 1 monitor disponível.");
+                    return alert("Aguarde um monitor/orientador entrar nesta sala.\n\nRegra da monitoria: a sala só abre atendimento quando houver 1 monitor disponível.");
                 }
                 if (haNaoMonitorNaSala) {
-                    return alert("Esta sala já está em atendimento com outro participante.\n\nRegra da monitoria: apenas 1 monitor e 1 participante por vez.");
+                    return alert("Esta sala já está em atendimento com outro participante.\n\nRegra da monitoria: apenas 1 monitor/orientador e 1 participante por vez.");
                 }
             }
         }
@@ -6759,7 +6940,7 @@ function atualizarAlvosLayoutEditor() {
 
     let opcoes = [];
     if (tipo === "nivel") {
-        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Visualizador"].map(n => ({ value: n, text: n }));
+        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"].map(n => ({ value: n, text: n }));
     } else if (tipo === "cidade") {
         opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` }));
     } else if (tipo === "escola") {
@@ -6912,3 +7093,5 @@ function logarSucesso(usuario) {
     prepararFiltrosRelatoriosComparativos();
     ativarPrimeiraAbaPermitida();
 }
+
+window.atualizarEstadoEscopoProfessorCadastro = atualizarEstadoEscopoProfessorCadastro;

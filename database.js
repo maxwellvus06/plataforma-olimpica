@@ -54,7 +54,7 @@ const PERMISSOES = {
         dashboard: { filtroTravado: false },
         calendario: { podeEditar: true },
         resultados: { podeEditar: true },
-        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Visualizador"] },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"] },
         plataforma: { podeGerenciar: true }
     },
     Gestor: {
@@ -89,6 +89,14 @@ const PERMISSOES = {
         usuarios: { podeGerenciar: false, niveisPermitidos: [] },
         plataforma: { podeGerenciar: true }
     },
+    "Professor/Orientador": {
+        abas: ["importar", "plataforma", "monitoria"],
+        dashboard: { filtroTravado: true },
+        calendario: { podeEditar: false },
+        resultados: { podeEditar: false },
+        usuarios: { podeGerenciar: false, niveisPermitidos: [] },
+        plataforma: { podeGerenciar: true }
+    },
     Visualizador: {
         abas: ["dashboard", "calendario", "importar", "relatorios", "alunos", "olimpiadas"],
         dashboard: { filtroTravado: true },
@@ -110,7 +118,9 @@ const SALAS_MONITORIA = [
     { id: "lin-1", nome: "Linguagem — Sala 1", area: "linguagem", icone: "fa-book-open", cor: "amber" },
     { id: "lin-2", nome: "Linguagem — Sala 2", area: "linguagem", icone: "fa-book-open", cor: "amber" },
     { id: "hum-1", nome: "Humanas — Sala 1", area: "humanas", icone: "fa-landmark", cor: "rose" },
-    { id: "hum-2", nome: "Humanas — Sala 2", area: "humanas", icone: "fa-landmark", cor: "rose" }
+    { id: "hum-2", nome: "Humanas — Sala 2", area: "humanas", icone: "fa-landmark", cor: "rose" },
+    { id: "ori-1", nome: "Sala do Orientador — 1", area: "orientador", icone: "fa-user-tie", cor: "cyan", restritoOrientador: true },
+    { id: "ori-2", nome: "Sala do Orientador — 2", area: "orientador", icone: "fa-user-tie", cor: "cyan", restritoOrientador: true }
 ];
 
 // Configurações e Valores iniciais de persistência segura

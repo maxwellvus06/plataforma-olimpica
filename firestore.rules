@@ -26,6 +26,14 @@ service cloud.firestore {
       return nivel() == "Monitor";
     }
 
+    function isProfessorOrientador() {
+      return nivel() == "Professor/Orientador";
+    }
+
+    function canPostPlataforma() {
+      return isAdmin() || isMonitor() || isProfessorOrientador();
+    }
+
     function isOwnerProfile() {
       return signedIn() && (
         resource.data.authUid == request.auth.uid ||
@@ -68,7 +76,7 @@ service cloud.firestore {
     // escrita para ADM/Monitor. O front-end ainda aplica escopos finos.
     match /anos/{ano}/{colecao}/{docId} {
       allow read: if signedIn();
-      allow write: if isAdmin() || isMonitor();
+      allow write: if isAdmin() || isMonitor() || (isProfessorOrientador() && colecao == "sistema_plataforma");
     }
 
     // Compatibilidade com coleções globais antigas: autenticado lê;
@@ -79,7 +87,7 @@ service cloud.firestore {
     match /sistema_cronograma/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
     match /sistema_premiados/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
     match /sistema_alunos/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
+    match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if canPostPlataforma(); }
 
     // Bloqueia o resto.
     match /{document=**} {
