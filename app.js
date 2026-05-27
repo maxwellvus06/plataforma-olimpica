@@ -1519,18 +1519,38 @@ function abrirModalEdicao({ titulo, campos, onSalvar, onApagar, onDepoisMontar }
 
     if (onDepoisMontar) onDepoisMontar();
 
-    document.getElementById("modalEdicaoBtnSalvar").onclick = () => {
+    document.getElementById("modalEdicaoBtnSalvar").onclick = async () => {
+        const btnSalvar = document.getElementById("modalEdicaoBtnSalvar");
+        const textoOriginal = btnSalvar ? btnSalvar.innerHTML : "";
         const dados = {};
         campos.forEach(c => {
             const el = document.getElementById(`modalCampo_${c.nome}`);
             if (c.tipo === "checkboxGroup") {
                 dados[c.nome] = Array.from(el?.querySelectorAll('input[type="checkbox"]:checked') || []).map(chk => chk.value);
+            } else if (c.tipo === "file") {
+                dados[c.nome] = el?.files?.[0] || null;
             } else {
                 dados[c.nome] = el?.value ?? "";
             }
         });
-        const resultado = onSalvar(dados);
-        if (resultado !== false) fecharModalEdicao();
+        try {
+            if (btnSalvar) {
+                btnSalvar.disabled = true;
+                btnSalvar.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...';
+            }
+            const resultado = await Promise.resolve(onSalvar(dados));
+            if (resultado !== false) fecharModalEdicao();
+        } catch (erro) {
+            console.error("Erro ao salvar edição", erro);
+            alert(`Erro ao salvar.
+
+${erro.message || erro}`);
+        } finally {
+            if (btnSalvar) {
+                btnSalvar.disabled = false;
+                btnSalvar.innerHTML = textoOriginal;
+            }
+        }
     };
 
     const btnApagar = document.getElementById("modalEdicaoBtnApagar");
@@ -1901,6 +1921,46 @@ function editarCronograma(id) {
     });
 }
 
+function resultadoTemCertificado(resultado) {
+    return !!(resultado && (resultado.certificadoUrl || resultado.certificadoStoragePath));
+}
+
+function certificadoResultadoHtml(resultado, modo = "tabela") {
+    if (!resultadoTemCertificado(resultado)) {
+        return modo === "modal"
+            ? '<span class="text-xs text-gray-500">Nenhum certificado anexado.</span>'
+            : '<span class="text-[11px] text-gray-500">—</span>';
+    }
+    const nome = textoSeguro(resultado.certificadoNomeArquivo || "Certificado");
+    const url = textoSeguro(resultado.certificadoUrl || "#");
+    const classe = modo === "modal"
+        ? "inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold hover:bg-emerald-500/20 transition"
+        : "inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-bold hover:bg-emerald-500/20 transition";
+    return `<a href="${url}" target="_blank" rel="noopener" class="${classe}"><i class="fa-solid fa-file-certificate"></i><span>${nome}</span></a>`;
+}
+
+async function anexarCertificadoAoResultado(resultado, arquivo) {
+    if (!arquivo) return resultado;
+    const tiposPermitidos = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+    const nome = String(arquivo.name || "").toLowerCase();
+    const extensaoOk = /\.(pdf|jpg|jpeg|png|webp)$/.test(nome);
+    if (!tiposPermitidos.includes(arquivo.type) && !extensaoOk) {
+        throw new Error("Certificado inválido. Envie PDF, JPG, PNG ou WEBP.");
+    }
+    const upload = await enviarArquivoParaFirebaseStorage(arquivo, "certificados");
+    return {
+        ...resultado,
+        certificadoUrl: upload.fileUrl,
+        certificadoStoragePath: upload.storagePath,
+        certificadoNomeArquivo: upload.fileName || arquivo.name,
+        certificadoMimeType: upload.mimeType || arquivo.type || "application/octet-stream",
+        certificadoTamanho: upload.size || arquivo.size || 0,
+        certificadoEnviadoEm: new Date().toISOString(),
+        certificadoEnviadoPorId: usuarioLogado?.id || "",
+        certificadoEnviadoPorNome: usuarioLogado?.nome || ""
+    };
+}
+
 function editarResultado(chaveCodificada) {
     if (usuarioLogado?.nivel !== "ADM") return alert("Apenas administradores podem editar resultados.");
     const chaveOriginal = decodeURIComponent(chaveCodificada);
@@ -1916,13 +1976,29 @@ function editarResultado(chaveCodificada) {
             { nome: "escola", label: "Escola", tipo: "select", valor: atual.escola || "", options: opcoesEscolasNome(atual.municipio || "") },
             { nome: "olimpiada", label: "Olimpíada", tipo: "select", valor: atual.olimpiada || "", options: opcoesOlimpiadasNome() },
             { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
-            { nome: "premio", label: "Premiação", tipo: "select", valor: atual.premio || "", options: PREMIOS_PADRAO }
+            { nome: "premio", label: "Premiação", tipo: "select", valor: atual.premio || "", options: PREMIOS_PADRAO },
+            { nome: "certificadoArquivo", label: "Certificado do resultado (PDF ou imagem)", tipo: "file", valor: "" }
         ],
         onDepoisMontar: () => {
             const cidadeSelect = document.getElementById("modalCampo_municipio");
-            cidadeSelect.onchange = () => atualizarSelectEscolasModal(cidadeSelect.value);
+            if (cidadeSelect) cidadeSelect.onchange = () => atualizarSelectEscolasModal(cidadeSelect.value);
+            const fileInput = document.getElementById("modalCampo_certificadoArquivo");
+            if (fileInput) fileInput.accept = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*";
+            const corpo = document.getElementById("modalEdicaoCampos");
+            if (corpo) {
+                const box = document.createElement("div");
+                box.className = "rounded-2xl border border-gray-700 bg-gray-900/60 p-4 space-y-2";
+                box.innerHTML = `
+                    <div class="flex items-center gap-2 text-xs font-bold text-gray-300 uppercase tracking-wider">
+                        <i class="fa-solid fa-award text-amber-400"></i> Certificado anexado
+                    </div>
+                    <div>${certificadoResultadoHtml(atual, "modal")}</div>
+                    <p class="text-[11px] text-gray-500">Ao enviar um novo arquivo, ele substituirá o certificado exibido para este resultado.</p>
+                `;
+                corpo.appendChild(box);
+            }
         },
-        onSalvar: (d) => {
+        onSalvar: async (d) => {
             if (!d.aluno || !d.municipio || !d.escola || !d.olimpiada || !d.serie || !d.premio) return alert("Todos os campos do resultado são obrigatórios."), false;
             const cidades = getStorage("app_cidades");
             const escolas = getStorage("app_escolas");
@@ -1931,9 +2007,24 @@ function editarResultado(chaveCodificada) {
             if (!cidade) return alert("Cidade inválida."), false;
             if (!escola) return alert("Escola inválida."), false;
             if (escola.cidadeId !== cidade.id) return alert("A escola selecionada não pertence à cidade escolhida."), false;
+
+            const atualizadoBase = {
+                ...atual,
+                aluno: d.aluno,
+                municipio: d.municipio,
+                escola: d.escola,
+                olimpiada: d.olimpiada,
+                serie: d.serie,
+                premio: d.premio
+            };
+            const atualizado = await anexarCertificadoAoResultado(atualizadoBase, d.certificadoArquivo);
             dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chaveOriginal);
-            gravarResultadoComSobrescrita({ aluno: d.aluno, municipio: d.municipio, escola: d.escola, olimpiada: d.olimpiada, serie: d.serie, premio: d.premio });
-            salvarPremiados(); popularSeletores(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
+            gravarResultadoComSobrescrita(atualizado);
+            salvarPremiados();
+            popularSeletores();
+            renderizarPlataformaDashboard();
+            renderizarResultadosImportacao();
+            renderizarDashboardAluno();
             alert("Resultado atualizado com sucesso.");
         },
         onApagar: () => excluirResultado(chaveCodificada)
@@ -3176,7 +3267,7 @@ function renderizarDashboardAluno() {
     const tbody = document.getElementById("tableAlunoResultadosCorpo");
     if (!tbody) return;
     if (!usuarioLogado || usuarioLogado.nivel !== "Aluno") {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-500 text-sm">Este painel é exibido para usuários do nível Aluno.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-500 text-sm">Este painel é exibido para usuários do nível Aluno.</td></tr>';
         return;
     }
     const resultados = resultadosDoAlunoLogado().slice().sort((a, b) => String(a.olimpiada || "").localeCompare(String(b.olimpiada || ""), "pt-BR"));
@@ -3198,8 +3289,9 @@ function renderizarDashboardAluno() {
             <td class="p-4 text-gray-300">${textoSeguro(r.serie || "—")}</td>
             <td class="p-4 text-gray-300">${textoSeguro(r.escola || "—")}</td>
             <td class="p-4 text-gray-400">${textoSeguro(r.municipio || "—")}</td>
+            <td class="p-4">${certificadoResultadoHtml(r)}</td>
         </tr>
-    `).join("") || '<tr><td colspan="5" class="p-8 text-center text-gray-500 text-sm">Nenhum resultado vinculado ao seu cadastro neste ano.</td></tr>';
+    `).join("") || '<tr><td colspan="6" class="p-8 text-center text-gray-500 text-sm">Nenhum resultado vinculado ao seu cadastro neste ano.</td></tr>';
 }
 
 // ==================== RESULTADO MANUAL ====================
@@ -3714,7 +3806,7 @@ function renderizarResultadosImportacao() {
     const tbody = document.getElementById("tableResultadosImportacaoCorpo");
     if (!tbody) return;
     if (!filtrados.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
         return;
     }
     tbody.innerHTML = filtrados.map(r => {
@@ -3727,6 +3819,7 @@ function renderizarResultadosImportacao() {
                 <td class="p-4 text-gray-300 font-medium">${textoSeguro(r.serie || "Não informada")}</td>
                 <td class="p-4 text-gray-400">${textoSeguro(r.olimpiada)}</td>
                 <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${textoSeguro(r.premio)}</span></td>
+                <td class="p-4">${certificadoResultadoHtml(r)}</td>
                 <td class="p-4 text-right">${podeEditar ? `<button onclick="editarResultado('${chave}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
             </tr>
         `;
@@ -4969,8 +5062,10 @@ const LAYOUT_PADRAO = {
     corFundoClaro: "#f8fafc",
     corCardClaro: "#ffffff",
     corBordaClaro: "#d1d5db",
+    corTextoEscuro: "#f9fafb",
+    corTextoSecundarioEscuro: "#cbd5e1",
     corTextoClaro: "#111827",
-    corTextoSecundarioClaro: "#4b5563",
+    corTextoSecundarioClaro: "#374151",
     logoUrl: "",
     bannerUrl: "",
     estiloVisual: "classico",
@@ -5017,9 +5112,64 @@ function imagemOuIcone(slot, url, iconeClasse) {
     else el.innerHTML = `<i class="fa-solid ${iconeClasse}"></i>`;
 }
 
+
+function hexParaRgbLayout(hex) {
+    const limpo = String(hex || "").replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(limpo)) return null;
+    return {
+        r: parseInt(limpo.slice(0, 2), 16),
+        g: parseInt(limpo.slice(2, 4), 16),
+        b: parseInt(limpo.slice(4, 6), 16)
+    };
+}
+
+function luminanciaLayout(hex) {
+    const rgb = hexParaRgbLayout(hex);
+    if (!rgb) return 0;
+    const canal = (v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * canal(rgb.r) + 0.7152 * canal(rgb.g) + 0.0722 * canal(rgb.b);
+}
+
+function contrasteLayout(corA, corB) {
+    const l1 = luminanciaLayout(corA);
+    const l2 = luminanciaLayout(corB);
+    const claro = Math.max(l1, l2);
+    const escuro = Math.min(l1, l2);
+    return (claro + 0.05) / (escuro + 0.05);
+}
+
+function corLegivelLayout(fundo, preferidaClara = "#f9fafb", preferidaEscura = "#111827") {
+    const cClara = contrasteLayout(fundo, preferidaClara);
+    const cEscura = contrasteLayout(fundo, preferidaEscura);
+    return cClara >= cEscura ? preferidaClara : preferidaEscura;
+}
+
+function corSecundariaLegivelLayout(fundo, textoPrincipal) {
+    const principalClaro = luminanciaLayout(textoPrincipal) > 0.5;
+    const candidata = principalClaro ? "#cbd5e1" : "#374151";
+    if (contrasteLayout(fundo, candidata) >= 4.5) return candidata;
+    return textoPrincipal;
+}
+
 function aplicarLayoutVisual(config = {}) {
     layoutVisualAtual = { ...LAYOUT_PADRAO, ...config };
     const c = layoutVisualAtual;
+
+    const textoEscuro = contrasteLayout(c.corCard || c.corFundo || "#111827", c.corTextoEscuro || "#f9fafb") >= 4.5
+        ? (c.corTextoEscuro || "#f9fafb")
+        : corLegivelLayout(c.corCard || c.corFundo || "#111827", "#f9fafb", "#111827");
+    const textoSecundarioEscuro = contrasteLayout(c.corCard || c.corFundo || "#111827", c.corTextoSecundarioEscuro || "#cbd5e1") >= 4.5
+        ? (c.corTextoSecundarioEscuro || "#cbd5e1")
+        : corSecundariaLegivelLayout(c.corCard || c.corFundo || "#111827", textoEscuro);
+    const textoClaro = contrasteLayout(c.corCardClaro || c.corFundoClaro || "#ffffff", c.corTextoClaro || "#111827") >= 4.5
+        ? (c.corTextoClaro || "#111827")
+        : corLegivelLayout(c.corCardClaro || c.corFundoClaro || "#ffffff", "#f9fafb", "#111827");
+    const textoSecundarioClaro = contrasteLayout(c.corCardClaro || c.corFundoClaro || "#ffffff", c.corTextoSecundarioClaro || "#374151") >= 4.5
+        ? (c.corTextoSecundarioClaro || "#374151")
+        : corSecundariaLegivelLayout(c.corCardClaro || c.corFundoClaro || "#ffffff", textoClaro);
 
     const paresTexto = {
         brandLoginTitle: c.nomeLogin,
@@ -5077,23 +5227,38 @@ function aplicarLayoutVisual(config = {}) {
     if (style) {
         style.textContent = `
             body { font-family: ${fonteCss} !important; }
-            body:not(.theme-light) { background: ${fundoBase} !important; background-attachment: fixed !important; }
+            body:not(.theme-light) { background: ${fundoBase} !important; background-attachment: fixed !important; color: ${textoEscuro} !important; }
             ${imagemFundoCss}
+
             body:not(.theme-light) .bg-gray-900 { background-color: ${c.corFundo} !important; }
             body:not(.theme-light) .bg-gray-950 { background-color: color-mix(in srgb, ${c.corFundo} 78%, black) !important; }
-            body:not(.theme-light) .bg-gray-800 { background-color: ${c.corCard} !important; }
-            body:not(.theme-light) .bg-gray-800\/40, body:not(.theme-light) .bg-gray-800\/50 { background-color: color-mix(in srgb, ${c.corCard} 82%, transparent) !important; }
-            body:not(.theme-light) .border-gray-700, body:not(.theme-light) .border-gray-800 { border-color: ${c.corBorda} !important; }
-            body.theme-light { background: ${c.corFundoClaro || "#f8fafc"} !important; color: ${c.corTextoClaro || "#111827"} !important; }
+            body:not(.theme-light) .bg-gray-800, body:not(.theme-light) .bg-gray-700 { background-color: ${c.corCard} !important; }
+            body:not(.theme-light) .bg-gray-800\/40, body:not(.theme-light) .bg-gray-800\/50, body:not(.theme-light) .bg-gray-900\/40, body:not(.theme-light) .bg-gray-900\/50 { background-color: color-mix(in srgb, ${c.corCard} 82%, transparent) !important; }
+            body:not(.theme-light) .border-gray-700, body:not(.theme-light) .border-gray-800, body:not(.theme-light) .divide-gray-700 > :not([hidden]) ~ :not([hidden]) { border-color: ${c.corBorda} !important; }
+            body:not(.theme-light) .text-white, body:not(.theme-light) .text-gray-50, body:not(.theme-light) .text-gray-100, body:not(.theme-light) .text-gray-200, body:not(.theme-light) .text-gray-300, body:not(.theme-light) table, body:not(.theme-light) th, body:not(.theme-light) td { color: ${textoEscuro} !important; }
+            body:not(.theme-light) .text-gray-400, body:not(.theme-light) .text-gray-500, body:not(.theme-light) label, body:not(.theme-light) .text-xs.text-gray-500, body:not(.theme-light) .text-xs.text-gray-400 { color: ${textoSecundarioEscuro} !important; }
+            body:not(.theme-light) input, body:not(.theme-light) select, body:not(.theme-light) textarea { background-color: color-mix(in srgb, ${c.corFundo} 86%, black) !important; color: ${textoEscuro} !important; border-color: ${c.corBorda} !important; }
+            body:not(.theme-light) input::placeholder, body:not(.theme-light) textarea::placeholder { color: color-mix(in srgb, ${textoSecundarioEscuro} 70%, transparent) !important; opacity: 1 !important; }
+            body:not(.theme-light) option { background: ${c.corCard} !important; color: ${textoEscuro} !important; }
+            body:not(.theme-light) table thead tr { background-color: color-mix(in srgb, ${c.corFundo} 88%, black) !important; }
+            body:not(.theme-light) [disabled], body:not(.theme-light) .opacity-50 { color: color-mix(in srgb, ${textoEscuro} 72%, transparent) !important; opacity: .75 !important; }
+
+            body.theme-light { background: ${c.corFundoClaro || "#f8fafc"} !important; color: ${textoClaro} !important; }
             body.theme-light .bg-gray-900, body.theme-light .bg-gray-950 { background-color: ${c.corFundoClaro || "#f8fafc"} !important; }
-            body.theme-light .bg-gray-800, body.theme-light .bg-gray-800\/40, body.theme-light .bg-gray-800\/50, body.theme-light .bg-gray-900\/40, body.theme-light .bg-gray-900\/50 { background-color: ${c.corCardClaro || "#ffffff"} !important; }
-            body.theme-light .border-gray-700, body.theme-light .border-gray-800 { border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
-            body.theme-light .text-white, body.theme-light .text-gray-100, body.theme-light .text-gray-200, body.theme-light .text-gray-300 { color: ${c.corTextoClaro || "#111827"} !important; }
-            body.theme-light .text-gray-400, body.theme-light .text-gray-500 { color: ${c.corTextoSecundarioClaro || "#4b5563"} !important; }
-            body.theme-light input, body.theme-light select, body.theme-light textarea { background-color: ${c.corCardClaro || "#ffffff"} !important; color: ${c.corTextoClaro || "#111827"} !important; border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
-            .bg-blue-600, .hover\\:bg-blue-700:hover { background-color: ${c.corPrimaria} !important; }
+            body.theme-light .bg-gray-800, body.theme-light .bg-gray-700, body.theme-light .bg-gray-800\/40, body.theme-light .bg-gray-800\/50, body.theme-light .bg-gray-900\/40, body.theme-light .bg-gray-900\/50 { background-color: ${c.corCardClaro || "#ffffff"} !important; }
+            body.theme-light .border-gray-700, body.theme-light .border-gray-800, body.theme-light .divide-gray-700 > :not([hidden]) ~ :not([hidden]) { border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
+            body.theme-light .text-white, body.theme-light .text-gray-50, body.theme-light .text-gray-100, body.theme-light .text-gray-200, body.theme-light .text-gray-300, body.theme-light table, body.theme-light th, body.theme-light td { color: ${textoClaro} !important; }
+            body.theme-light .text-gray-400, body.theme-light .text-gray-500, body.theme-light label, body.theme-light .text-xs.text-gray-500, body.theme-light .text-xs.text-gray-400 { color: ${textoSecundarioClaro} !important; }
+            body.theme-light input, body.theme-light select, body.theme-light textarea { background-color: ${c.corCardClaro || "#ffffff"} !important; color: ${textoClaro} !important; border-color: ${c.corBordaClaro || "#d1d5db"} !important; }
+            body.theme-light input::placeholder, body.theme-light textarea::placeholder { color: color-mix(in srgb, ${textoSecundarioClaro} 70%, transparent) !important; opacity: 1 !important; }
+            body.theme-light option { background: ${c.corCardClaro || "#ffffff"} !important; color: ${textoClaro} !important; }
+            body.theme-light table thead tr { background-color: color-mix(in srgb, ${c.corFundoClaro || "#f8fafc"} 88%, #e2e8f0) !important; }
+            body.theme-light .nav-item:hover, body.theme-light .hover\:bg-gray-800\/40:hover, body.theme-light .hover\:bg-gray-900:hover { background-color: color-mix(in srgb, ${c.corBordaClaro || "#d1d5db"} 45%, transparent) !important; color: ${textoClaro} !important; }
+            body.theme-light [disabled], body.theme-light .opacity-50 { color: color-mix(in srgb, ${textoClaro} 72%, transparent) !important; opacity: .75 !important; }
+
+            .bg-blue-600, .hover\:bg-blue-700:hover { background-color: ${c.corPrimaria} !important; }
             .text-blue-400 { color: ${c.corDestaque} !important; }
-            .border-blue-500\/20, .border-blue-700, .focus\\:border-blue-500:focus { border-color: ${c.corDestaque} !important; }
+            .border-blue-500\/20, .border-blue-700, .focus\:border-blue-500:focus { border-color: ${c.corDestaque} !important; }
             .bg-blue-500\/10, .bg-blue-500\/20 { background-color: color-mix(in srgb, ${c.corPrimaria} 18%, transparent) !important; }
             .content-gradient { background-image: linear-gradient(90deg, ${c.corPrimaria}, ${c.corDestaque}) !important; }
             .rounded-xl, .rounded-2xl, .rounded-lg { border-radius: ${raioCss} !important; }
@@ -5119,6 +5284,10 @@ function lerLayoutDoFormulario() {
         corFundoClaro: document.getElementById("layoutCorFundoClaro")?.value || LAYOUT_PADRAO.corFundoClaro,
         corCardClaro: document.getElementById("layoutCorCardClaro")?.value || LAYOUT_PADRAO.corCardClaro,
         corBordaClaro: document.getElementById("layoutCorBordaClaro")?.value || LAYOUT_PADRAO.corBordaClaro,
+        corTextoEscuro: document.getElementById("layoutCorTextoEscuro")?.value || LAYOUT_PADRAO.corTextoEscuro,
+        corTextoSecundarioEscuro: document.getElementById("layoutCorTextoSecundarioEscuro")?.value || LAYOUT_PADRAO.corTextoSecundarioEscuro,
+        corTextoClaro: document.getElementById("layoutCorTextoClaro")?.value || LAYOUT_PADRAO.corTextoClaro,
+        corTextoSecundarioClaro: document.getElementById("layoutCorTextoSecundarioClaro")?.value || LAYOUT_PADRAO.corTextoSecundarioClaro,
         logoUrl: document.getElementById("layoutLogoUrl")?.value?.trim() || "",
         bannerUrl: document.getElementById("layoutBannerUrl")?.value?.trim() || "",
         estiloVisual: document.getElementById("layoutEstiloVisual")?.value || LAYOUT_PADRAO.estiloVisual,
@@ -5148,6 +5317,10 @@ function preencherFormularioLayout(config = layoutVisualAtual) {
         layoutCorFundoClaro: c.corFundoClaro,
         layoutCorCardClaro: c.corCardClaro,
         layoutCorBordaClaro: c.corBordaClaro,
+        layoutCorTextoEscuro: c.corTextoEscuro,
+        layoutCorTextoSecundarioEscuro: c.corTextoSecundarioEscuro,
+        layoutCorTextoClaro: c.corTextoClaro,
+        layoutCorTextoSecundarioClaro: c.corTextoSecundarioClaro,
         layoutLogoUrl: c.logoUrl,
         layoutBannerUrl: c.bannerUrl,
         layoutEstiloVisual: c.estiloVisual,
