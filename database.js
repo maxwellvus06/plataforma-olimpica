@@ -39,14 +39,17 @@ const DATABASE = {
     premiados: [],
 
     // Materiais da Plataforma de Ensino
-    plataforma: []
+    plataforma: [],
+
+    // Banco de questões
+    questoes: []
 };
 
 // ==================== TABELA DE PERMISSÕES POR NÍVEL ====================
 // Define exatamente o que cada nível pode ver e fazer
 const PERMISSOES = {
     ADM: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "reuniao", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas", "cidades", "escolas", "layout"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "reuniao", "plataforma", "simulados", "aulas", "questoes", "monitoria", "alunos", "usuarios", "olimpiadas", "cidades", "escolas", "layout"],
         dashboard: { filtroTravado: false },
         calendario: { podeEditar: true },
         resultados: { podeEditar: true },
@@ -54,7 +57,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: true }
     },
     Gestor: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "questoes", "monitoria", "alunos", "usuarios", "olimpiadas"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -62,7 +65,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Escola: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "questoes", "monitoria", "alunos", "usuarios", "olimpiadas"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -70,7 +73,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Aluno: {
-        abas: ["meusresultados", "plataforma", "simulados", "aulas", "monitoria"],
+        abas: ["meusresultados", "plataforma", "simulados", "aulas", "questoes", "monitoria"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -78,7 +81,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Monitor: {
-        abas: ["plataforma", "simulados", "aulas", "monitoria"],
+        abas: ["plataforma", "simulados", "aulas", "questoes", "monitoria"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -86,7 +89,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: true }
     },
     "Professor/Orientador": {
-        abas: ["importar", "plataforma", "simulados", "aulas", "monitoria"],
+        abas: ["importar", "plataforma", "simulados", "aulas", "questoes", "monitoria"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -94,7 +97,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: true }
     },
     Visualizador: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "alunos", "olimpiadas", "simulados", "aulas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "alunos", "olimpiadas", "simulados", "aulas", "questoes"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },

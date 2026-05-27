@@ -36,7 +36,7 @@ const ETNIAS_ALUNO_PADRAO = ["Não informado", "Branca", "Preta", "Parda", "Amar
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
-const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_aulas"];
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_aulas", "app_questoes"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -141,6 +141,95 @@ const TAXONOMIA_ETAPAS = [
     }
 ];
 
+
+// ==================== UX GLOBAL: SELECTS EM ORDEM ALFABÉTICA E TABELAS ORDENÁVEIS ====================
+function textoOpcaoSelect(opt) { return String(opt?.textContent || "").trim(); }
+function deveFixarOpcaoSelect(opt) {
+    const v = String(opt?.value || "").toUpperCase();
+    const t = textoOpcaoSelect(opt).toUpperCase();
+    return !opt?.value || v === "TODOS" || v === "" || t.includes("SELECIONE") || t === "TODAS" || t === "TODOS" || t.includes("NÃO INFORMADO");
+}
+function ordenarSelectAlfabeticamente(select) {
+    if (!select || select.dataset.noAlphaSort === "true") return;
+    if (select.multiple && select.options.length > 150) return;
+    const opts = Array.from(select.children);
+    if (opts.some(el => el.tagName === "OPTGROUP")) {
+        opts.filter(el => el.tagName === "OPTGROUP").forEach(g => {
+            const filhos = Array.from(g.children);
+            filhos.sort((a,b) => textoOpcaoSelect(a).localeCompare(textoOpcaoSelect(b), "pt-BR", { sensitivity: "base", numeric: true }));
+            filhos.forEach(o => g.appendChild(o));
+        });
+    } else {
+        const fixas = opts.filter(deveFixarOpcaoSelect);
+        const moveis = opts.filter(o => !deveFixarOpcaoSelect(o));
+        moveis.sort((a,b) => textoOpcaoSelect(a).localeCompare(textoOpcaoSelect(b), "pt-BR", { sensitivity: "base", numeric: true }));
+        [...fixas, ...moveis].forEach(o => select.appendChild(o));
+    }
+    select.dataset.alphaSorted = "true";
+}
+function ordenarSelectsAlfabeticamente(context = document) {
+    context.querySelectorAll?.("select").forEach(ordenarSelectAlfabeticamente);
+}
+function valorCelulaOrdenacao(td) {
+    const txt = String(td?.innerText || td?.textContent || "").trim();
+    const n = Number(txt.replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", "."));
+    if (txt && !Number.isNaN(n) && /\d/.test(txt)) return n;
+    const data = txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (data) return new Date(Number(data[3]), Number(data[2])-1, Number(data[1])).getTime();
+    return txt.toLocaleLowerCase("pt-BR");
+}
+function ordenarTabelaPorColuna(table, colIndex, direcao) {
+    const tbody = table.tBodies?.[0];
+    if (!tbody) return;
+    const linhas = Array.from(tbody.rows);
+    linhas.sort((a,b) => {
+        const va = valorCelulaOrdenacao(a.cells[colIndex]);
+        const vb = valorCelulaOrdenacao(b.cells[colIndex]);
+        if (typeof va === "number" && typeof vb === "number") return direcao * (va - vb);
+        return direcao * String(va).localeCompare(String(vb), "pt-BR", { sensitivity: "base", numeric: true });
+    });
+    linhas.forEach(l => tbody.appendChild(l));
+}
+function tornarTabelaOrdenavel(table) {
+    if (!table || table.dataset.sortableReady === "true") return;
+    const ths = Array.from(table.querySelectorAll("thead th"));
+    ths.forEach((th, idx) => {
+        if (th.dataset.noSort === "true") return;
+        th.classList.add("cursor-pointer", "select-none");
+        th.title = "Clique para ordenar crescente/decrescente";
+        th.addEventListener("click", () => {
+            const atual = th.dataset.sortDir === "asc" ? "desc" : "asc";
+            ths.forEach(x => { x.dataset.sortDir = ""; x.querySelector(".sort-indicator")?.remove(); });
+            th.dataset.sortDir = atual;
+            const span = document.createElement("span");
+            span.className = "sort-indicator ml-1 text-blue-400";
+            span.textContent = atual === "asc" ? "▲" : "▼";
+            th.appendChild(span);
+            ordenarTabelaPorColuna(table, idx, atual === "asc" ? 1 : -1);
+        });
+    });
+    table.dataset.sortableReady = "true";
+}
+function tornarTabelasOrdenaveis(context = document) {
+    context.querySelectorAll?.("table").forEach(tornarTabelaOrdenavel);
+}
+function initOrdenacaoGlobalTabelasESelects() {
+    ordenarSelectsAlfabeticamente();
+    tornarTabelasOrdenaveis();
+    const obs = new MutationObserver(muts => {
+        for (const m of muts) {
+            m.addedNodes.forEach(n => {
+                if (n.nodeType !== 1) return;
+                if (n.matches?.("select")) ordenarSelectAlfabeticamente(n);
+                if (n.matches?.("table")) tornarTabelaOrdenavel(n);
+                ordenarSelectsAlfabeticamente(n);
+                tornarTabelasOrdenaveis(n);
+            });
+        }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // Login primeiro. Nada de carregar/gravar todas as coleções antes do formulário funcionar.
     // Se o Firebase tiver algum erro de regra, o botão de login continua ativo e o erro aparece só ao tentar entrar.
@@ -177,6 +266,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("btnToggleTema")?.addEventListener("click", alternarTemaClaroEscuro);
         document.getElementById("btnAtualizarReuniao")?.addEventListener("click", gerarPainelReuniao);
         initMobileUX();
+        initOrdenacaoGlobalTabelasESelects();
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -447,6 +537,7 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-plataforma": "plataforma",
         "btnNav-simulados": "simulados",
         "btnNav-aulas": "aulas",
+        "btnNav-questoes": "questoes",
         "btnNav-monitoria": "monitoria",
         "btnNav-meusresultados": "meusresultados",
         "btnNavAlunos": "alunos",
@@ -566,7 +657,7 @@ function ativarPrimeiraAbaPermitida() {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
+        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     const titulo = document.getElementById("pageTitleDisplay");
     if (titulo) titulo.innerText = titulos[aba] || "Painel Operacional";
@@ -898,7 +989,8 @@ function dadosSementePorChave(chave) {
         app_premiados: [], // resultados não devem ser semeados automaticamente; se apagar, não podem voltar
         app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : [],
         app_simulados: [],
-        app_aulas: []
+        app_aulas: [],
+        app_questoes: []
     };
     return Array.isArray(mapa[chave]) ? clonarDados(mapa[chave]) : [];
 }
@@ -1125,7 +1217,8 @@ async function carregarDadosFirebaseInicial() {
         "app_premiados",
         "app_plataforma",
         "app_simulados",
-        "app_aulas"
+        "app_aulas",
+        "app_questoes"
     ];
 
     for (const chave of chaves) {
@@ -1147,7 +1240,8 @@ async function carregarDadosPosLogin() {
         "app_premiados",
         "app_plataforma",
         "app_simulados",
-        "app_aulas"
+        "app_aulas",
+        "app_questoes"
     ];
 
     for (const chave of chaves) {
@@ -2590,7 +2684,7 @@ function navegarAba(abaId, botaoTarget) {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
+        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     document.getElementById("pageTitleDisplay").innerText = titulos[abaId] || "Painel Operacional";
 
@@ -2608,6 +2702,10 @@ function navegarAba(abaId, botaoTarget) {
     if (abaId === "aulas") {
         popularFiltrosAulas();
         renderizarAulas();
+    }
+    if (abaId === "questoes") {
+        popularFiltrosQuestoes();
+        renderizarBancoQuestoes();
     }
     if (abaId === "monitoria") {
         renderizarSalasMonitoria();
@@ -5118,6 +5216,7 @@ async function renderizarPlataformaEnsino() {
                                     <div><i class="fa-solid ${materialFeitoPorUsuario(m) ? "fa-circle-check text-emerald-400" : "fa-circle text-gray-600"} mr-1"></i>${materialFeitoPorUsuario(m) ? "Marcado como feito por você" : "Ainda não marcado como feito"}</div>
                                 </div>
                                 ${renderizarConteudoMaterial(m)}
+                                ${renderizarSolucaoMaterial(m)}
                                 ${renderizarInteracoesMaterial(m)}
                             </div>
                         `;
@@ -5126,6 +5225,11 @@ async function renderizarPlataformaEnsino() {
             </div>
         `;
     }).join("");
+}
+
+function renderizarSolucaoMaterial(m) {
+    if (!m.solucaoUrl && !m.solucaoArquivoUrl) return "";
+    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? `<a href="${m.solucaoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-arrow-up-right-from-square mr-1"></i>Abrir link</a>` : ""}${m.solucaoArquivoUrl ? `<a href="${m.solucaoArquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-file-circle-check mr-1"></i>Abrir arquivo</a>` : ""}</div></details>`;
 }
 
 function converterUrlYoutube(url) {
@@ -5219,6 +5323,8 @@ async function salvarNovoMaterial(event) {
     const tipo = document.getElementById("matTipo").value;
     const url = document.getElementById("matUrl").value.trim();
     const fileInput = document.getElementById("matArquivo");
+    const solucaoArquivo = document.getElementById("matSolucaoArquivo")?.files?.[0] || null;
+    const solucaoUrl = document.getElementById("matSolucaoUrl")?.value.trim() || "";
     const btn = event.submitter || document.querySelector('#formAddMaterial button[type="submit"]');
 
     if (!titulo) return alert("O título é obrigatório.");
@@ -5258,6 +5364,14 @@ async function salvarNovoMaterial(event) {
             material.nomeArquivo = upload.fileName || arquivo.name;
             material.mimeType = arquivo.type || "application/octet-stream";
             material.tamanhoBytes = arquivo.size;
+        }
+        if (solucaoUrl) material.solucaoUrl = solucaoUrl;
+        if (solucaoArquivo) {
+            const upSol = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "materiais_solucoes");
+            material.solucaoArquivoUrl = upSol.fileUrl;
+            material.solucaoStoragePath = upSol.storagePath;
+            material.solucaoNomeArquivo = upSol.fileName;
+            material.solucaoMimeType = upSol.mimeType;
         }
 
         await firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(material.id)).set(material);
@@ -7313,6 +7427,8 @@ async function salvarNovoSimulado(event) {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
         const file = document.getElementById("simArquivo")?.files?.[0] || null;
         const img = document.getElementById("simImagem")?.files?.[0] || null;
+        const solArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+        const solUrl = document.getElementById("simSolucaoUrl")?.value.trim() || "";
         const sim = {
             id: novoId(),
             titulo: document.getElementById("simTitulo").value.trim(),
@@ -7345,6 +7461,11 @@ async function salvarNovoSimulado(event) {
         if (img) {
             const up = await enviarArquivoParaFirebaseStorage(img, "simulados_imagens");
             Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName });
+        }
+        if (solUrl) sim.solucaoUrl = solUrl;
+        if (solArquivo) {
+            const up = await enviarArquivoParaFirebaseStorage(solArquivo, "simulados_solucoes");
+            Object.assign(sim, { solucaoArquivoUrl: up.fileUrl, solucaoStoragePath: up.storagePath, solucaoNomeArquivo: up.fileName });
         }
         const lista = getStorage("app_simulados", []);
         lista.push(sim);
@@ -7455,7 +7576,7 @@ function renderizarSimulados() {
                     <h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3>
                     <p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${s.dataFim ? `Prazo: ${textoSeguro(s.dataFim)}` : "Sem prazo definido"} · ${textoSeguro(s.duracao || "")}</p>
                     ${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}
-                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir simulado</a>` : ""}${s.imagemUrl ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${ger}</div>
+                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir simulado</a>` : ""}${s.imagemUrl ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${(s.solucaoUrl || s.solucaoArquivoUrl) ? `<details class="w-full mt-2"><summary class="cursor-pointer px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold inline-block"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-2 flex flex-wrap gap-2">${s.solucaoUrl ? `<a href="${s.solucaoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-300 text-xs font-bold">Abrir link</a>` : ""}${s.solucaoArquivoUrl ? `<a href="${s.solucaoArquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-300 text-xs font-bold">Abrir arquivo</a>` : ""}</div></details>` : ""}${ger}</div>
                 </div>
                 <div class="w-full lg:w-96 bg-gray-900/70 border border-gray-700 rounded-2xl p-4">
                     <h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Enviar resposta / resolução</h4>
