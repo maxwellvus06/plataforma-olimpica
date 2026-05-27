@@ -30,17 +30,13 @@ const DATABASE = {
         { id: "4", nome: "ONC (Olimpíada Nacional de Ciências)", categoria: "INTEG", series: "6º Ano EF ao 3º Ano EM" }
     ],
 
-    // Cronograma Consolidado de Eventos Críticos Inicial
-    cronograma: [
-        { id: "1", olimpiadaId: "2", etapa: "Fase 1 - Escolar (prova objetiva)", data: "09/06/2026", segmento: "6º EF a 3ª EM", acao: "Imprimir provas; enviar cartões-resposta via aplicativo oficial." },
-        { id: "2", olimpiadaId: "1", etapa: "Prova Única (múltipla escolha)", data: "19/03 a 25/03/2026", segmento: "3º EF a 3ª EM", acao: "Aplicação presencial dos exames lógicos nas salas de aula." }
-    ],
+    // Cronograma inicial
+    // Mantido vazio para não recriar eventos apagados pelo usuário.
+    cronograma: [],
 
-    // Registros Simulados de Medalhas do Dashboard
-    premiados: [
-        { aluno: "Carlos Eduardo Silva", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "OBMEP", serie: "6º Ano EF", premio: "Ouro" },
-        { aluno: "Ana Beatriz Rocha", escola: "U. E. São Braz", municipio: "São Braz - PI", olimpiada: "Canguru de Matemática Brasil", serie: "7º Ano EF", premio: "Prata" }
-    ],
+    // Resultados iniciais
+    // Mantido vazio para não recriar resultados apagados pelo usuário.
+    premiados: [],
 
     // Materiais da Plataforma de Ensino
     plataforma: []

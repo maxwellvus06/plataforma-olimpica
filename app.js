@@ -32,6 +32,7 @@ const RTC_CONFIG = {
 const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "5º Ano EF", "6º Ano EF", "7º Ano EF", "8º Ano EF", "9º Ano EF", "1ª Série EM", "2ª Série EM", "3ª Série EM"];
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 const SEXOS_ALUNO_PADRAO = ["Masculino", "Feminino"];
+const ETNIAS_ALUNO_PADRAO = ["Não informado", "Branca", "Preta", "Parda", "Amarela", "Indígena", "Prefiro não declarar", "Outra"];
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
@@ -887,7 +888,7 @@ function dadosSementePorChave(chave) {
         app_escolas: typeof CONFIG_ESCOLAS_INICIAIS !== "undefined" ? CONFIG_ESCOLAS_INICIAIS : [],
         app_alunos: [],
         app_olimpiadas: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [],
-        app_cronograma: typeof DATABASE !== "undefined" ? DATABASE.cronograma : [],
+        app_cronograma: [], // eventos do calendário não devem ser semeados automaticamente; se apagar, não podem voltar
         app_premiados: [], // resultados não devem ser semeados automaticamente; se apagar, não podem voltar
         app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : []
     };
@@ -1780,7 +1781,7 @@ function editarUsuario(id) {
 
     const campos = [
         { nome: "nome", label: "Nome completo", valor: atual.nome },
-        { nome: "login", label: "Login", valor: atual.login },
+        { nome: "emailAuth", label: "Login / e-mail de acesso", tipo: "email", valor: atual.emailAuth || atual.authEmail || atual.email || atual.login || "" },
         { nome: "nivel", label: "Nível de acesso", tipo: "select", valor: nivelInicial, options: niveisPermitidos.map(n => ({ value: n, text: n })) },
         { nome: "email", label: "E-mail", tipo: "email", valor: atual.email || "" },
         { nome: "telefone", label: "Telefone", valor: atual.telefone || "" },
@@ -1816,7 +1817,7 @@ function editarUsuario(id) {
             };
         },
         onSalvar: (d) => {
-            if (!d.nome || !d.login) return alert("Nome e login são obrigatórios."), false;
+            if (!d.nome || !d.emailAuth || !String(d.emailAuth).includes("@")) return alert("Nome e e-mail de acesso são obrigatórios."), false;
             if (!perms.usuarios.niveisPermitidos.includes(d.nivel)) return alert("Você não pode atribuir esse nível de acesso."), false;
 
             const vinculosPermitidos = opcoesVinculoUsuario(d.nivel).map(o => o.value);
@@ -1824,10 +1825,11 @@ function editarUsuario(id) {
             if (precisaVinculo && !vinculosPermitidos.includes(d.vinculoId)) return alert("Vínculo fora do seu escopo de permissão."), false;
 
             const lista = getStorage("app_usuarios");
-            if (lista.some(u => u.id !== id && normalizarTexto(u.login) === normalizarTexto(d.login))) return alert("Já existe outro usuário com esse login."), false;
+            if (lista.some(u => u.id !== id && (normalizarTexto(u.emailAuth || u.authEmail || u.email || u.login) === normalizarTexto(d.emailAuth)))) return alert("Já existe outro usuário com esse e-mail de acesso."), false;
             const i = lista.findIndex(u => u.id === id);
             const senhaFinal = d.novaSenha ? d.novaSenha : lista[i].senha;
-            lista[i] = { ...lista[i], nome: d.nome, login: d.login.toLowerCase(), senha: senhaFinal, nivel: d.nivel, email: d.email, telefone: d.telefone, vinculoId: precisaVinculo ? d.vinculoId : "" };
+            const emailAcesso = String(d.emailAuth || "").trim().toLowerCase();
+            lista[i] = { ...lista[i], nome: d.nome, login: emailAcesso, senha: senhaFinal, nivel: d.nivel, email: emailAcesso, authEmail: emailAcesso, emailAuth: emailAcesso, telefone: d.telefone, vinculoId: precisaVinculo ? d.vinculoId : "" };
             if (d.nivel === "Visualizador") {
                 const cidadesIds = Array.isArray(d.visualizadorCidadesIds) ? d.visualizadorCidadesIds : (lista[i].escopoVisualizador?.cidadesIds || []);
                 const escolasIds = Array.isArray(d.visualizadorEscolasIds) ? d.visualizadorEscolasIds : (lista[i].escopoVisualizador?.escolasIds || []);
@@ -2655,14 +2657,13 @@ async function salvarNovoUsuario(event) {
     if (!perms.usuarios.niveisPermitidos.includes(nivelNovo)) return alert("Sem permissão para criar esse nível de usuário.");
 
     const nome = document.getElementById("addUserNome").value.trim();
-    const login = document.getElementById("addUserLogin").value.trim().toLowerCase();
     const senha = SENHA_PADRAO_USUARIO;
     const email = document.getElementById("addUserEmail").value.trim().toLowerCase();
+    const login = email;
     const telefone = document.getElementById("addUserTelefone").value.trim();
 
     if (!nome) return alert("Informe o nome completo do usuário.");
-    if (!login) return alert("Informe um login interno para organização do usuário.");
-    if (!email || !email.includes("@")) return alert("Informe um e-mail válido. Esse e-mail será usado no Firebase Auth para login.");
+    if (!email || !email.includes("@")) return alert("Informe um e-mail válido. Esse e-mail será usado como login no Firebase Auth.");
 
     let vinculoId = "";
     if (nivelNovo === "Gestor") {
@@ -2691,8 +2692,7 @@ async function salvarNovoUsuario(event) {
     }
 
     const usuarios = getStorage("app_usuarios");
-    if (usuarios.some(u => normalizarTexto(u.login) === login)) return alert("Erro: já existe um usuário com esse login.");
-    if (usuarios.some(u => normalizarTexto(u.email) === normalizarTexto(email) || normalizarTexto(u.authEmail) === normalizarTexto(email) || normalizarTexto(u.emailAuth) === normalizarTexto(email))) return alert("Erro: já existe um usuário com esse e-mail/Auth.");
+    if (usuarios.some(u => normalizarTexto(u.email) === normalizarTexto(email) || normalizarTexto(u.login) === normalizarTexto(email) || normalizarTexto(u.authEmail) === normalizarTexto(email) || normalizarTexto(u.emailAuth) === normalizarTexto(email))) return alert("Erro: já existe um usuário com esse e-mail de login/Auth.");
 
     let novoUsuario = {
         id: novoId(),
@@ -3158,6 +3158,7 @@ function montarDadosAlunoDoFormulario(prefixo = "addAluno", idExistente = null) 
         dataNascimento,
         idade: calcularIdadePorData(dataNascimento),
         sexo: document.getElementById(`${prefixo}Sexo`)?.value || "",
+        etnia: document.getElementById(`${prefixo}Etnia`)?.value || "Não informado",
         escolaId,
         escolaNome: escola?.nome || "",
         cidadeId: cidade?.id || "",
@@ -3215,7 +3216,7 @@ function renderizarAlunos() {
         const responsavel = a.mae || a.pai || a.responsavelAcademico || "—";
         return `<tr class="hover:bg-gray-800/60 transition">
             <td class="p-4"><div class="font-bold text-white">${textoSeguro(a.nome)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.emailInstitucional || a.emailPessoal || "sem e-mail")}</div></td>
-            <td class="p-4"><div class="font-mono text-xs text-gray-300">${textoSeguro(a.cpf)}</div><div class="text-[11px] text-blue-400 font-bold">${textoSeguro(a.idade || calcularIdadePorData(a.dataNascimento) || "—")} anos</div></td>
+            <td class="p-4"><div class="font-mono text-xs text-gray-300">${textoSeguro(a.cpf)}</div><div class="text-[11px] text-blue-400 font-bold">${textoSeguro(a.idade || calcularIdadePorData(a.dataNascimento) || "—")} anos</div><div class="text-[11px] text-gray-500">${textoSeguro(a.etnia || "Não informado")}</div></td>
             <td class="p-4"><div class="font-semibold text-gray-200">${textoSeguro(a.escolaNome)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.serie)} · ${textoSeguro(a.turnoTurma)} · ${textoSeguro(a.municipio)}</div></td>
             <td class="p-4"><div class="text-gray-300">${textoSeguro(responsavel)}</div><div class="text-[11px] text-gray-500">${textoSeguro(a.contatoResponsavel || a.contatoAluno || "sem contato")}</div></td>
             <td class="p-4 text-right"><button onclick="editarAluno('${textoSeguro(a.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td>
@@ -3238,6 +3239,7 @@ function editarAluno(id) {
             { nome: "cpf", label: "CPF do aluno", valor: atual.cpf || "" },
             { nome: "dataNascimento", label: "Data de nascimento", tipo: "date", valor: atual.dataNascimento || "" },
             { nome: "sexo", label: "Sexo", tipo: "select", valor: atual.sexo || "", options: SEXOS_ALUNO_PADRAO },
+            { nome: "etnia", label: "Etnia / cor-raça", tipo: "select", valor: atual.etnia || "Não informado", options: ETNIAS_ALUNO_PADRAO },
             { nome: "escolaId", label: "Escola", tipo: "select", valor: atual.escolaId || "", options: escolas },
             { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
             { nome: "turnoTurma", label: "Turno / Turma", valor: atual.turnoTurma || "" },
@@ -3259,6 +3261,7 @@ function editarAluno(id) {
                 dataNascimento: d.dataNascimento,
                 idade: calcularIdadePorData(d.dataNascimento),
                 sexo: d.sexo,
+                etnia: d.etnia || "Não informado",
                 escolaId: d.escolaId,
                 escolaNome: escola?.nome || "",
                 cidadeId: cidade?.id || "",
@@ -3321,6 +3324,7 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
     const dataNascimentoRaw = lerLinhaPlanilha(linha, ["Data de nascimento", "Nascimento"], "");
     const dataNascimento = normalizarDataPlanilha(dataNascimentoRaw);
     const sexo = validarOpcaoLista(lerLinhaPlanilha(linha, ["Sexo"], ""), SEXOS_ALUNO_PADRAO, "Sexo", erros, nl, true);
+    const etnia = validarOpcaoLista(lerLinhaPlanilha(linha, ["Etnia", "Etnia / cor-raça", "Cor/raça", "Cor-raca"], "Não informado"), ETNIAS_ALUNO_PADRAO, "Etnia", erros, nl, false) || "Não informado";
     const escolaNome = lerLinhaPlanilha(linha, ["Escola", "Qual escola estuda"], "");
     const serie = validarOpcaoLista(lerLinhaPlanilha(linha, ["Série", "Serie"], ""), SERIES_PADRAO, "Série", erros, nl, true);
     const turnoTurma = lerLinhaPlanilha(linha, ["Turno/Turma", "Turno / Turma", "Turma"], "");
@@ -3328,7 +3332,7 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
     const cidade = cidadeDaEscola(escola);
     const aluno = {
         id: novoId(), nome, emailInstitucional, emailPessoal, cpf, dataNascimento,
-        idade: calcularIdadePorData(dataNascimento), sexo,
+        idade: calcularIdadePorData(dataNascimento), sexo, etnia,
         escolaId: escola?.id || "", escolaNome: escola?.nome || escolaNome,
         cidadeId: cidade?.id || "", municipio: cidade ? `${cidade.nome} - ${cidade.uf}` : "",
         serie, turnoTurma,
@@ -3420,6 +3424,7 @@ async function downloadAlunosTemplate() {
         { header: "CPF do aluno", key: "cpf", width: 18 },
         { header: "Data de nascimento", key: "nascimento", width: 18 },
         { header: "Sexo", key: "sexo", width: 16 },
+        { header: "Etnia", key: "etnia", width: 22 },
         { header: "Escola", key: "escola", width: 42 },
         { header: "Série", key: "serie", width: 20 },
         { header: "Turno/Turma", key: "turma", width: 20 },
@@ -3430,16 +3435,18 @@ async function downloadAlunosTemplate() {
         { header: "Contato do pai/responsável", key: "contatoResp", width: 26 }
     ];
     const escolas = escolasPermitidasParaCadastroUsuario().map(e => e.nome);
-    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "000.000.000-00", nascimento: "2010-05-20", sexo: "Feminino", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
+    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "000.000.000-00", nascimento: "2010-05-20", sexo: "Feminino", etnia: "Parda", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
     for (let i = 0; i < 199; i++) ws.addRow({});
     estilizarCabecalhoTemplate(ws, ws.columns.length);
     const listas = obterOuCriarAbaListas(workbook);
     const rangeSexos = escreverListaValidacao(listas, "A", "Sexos", SEXOS_ALUNO_PADRAO);
-    const rangeEscolas = escreverListaValidacao(listas, "B", "Escolas", escolas);
-    const rangeSeries = escreverListaValidacao(listas, "C", "Séries", SERIES_PADRAO);
+    const rangeEtnias = escreverListaValidacao(listas, "B", "Etnias", ETNIAS_ALUNO_PADRAO);
+    const rangeEscolas = escreverListaValidacao(listas, "C", "Escolas", escolas);
+    const rangeSeries = escreverListaValidacao(listas, "D", "Séries", SERIES_PADRAO);
     aplicarListaSuspensa(ws, "F", 2, 201, rangeSexos, "Escolha o sexo do aluno.");
-    aplicarListaSuspensa(ws, "G", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
-    aplicarListaSuspensa(ws, "H", 2, 201, rangeSeries, "Escolha a série da lista.");
+    aplicarListaSuspensa(ws, "G", 2, 201, rangeEtnias, "Escolha a etnia/cor-raça do aluno.");
+    aplicarListaSuspensa(ws, "H", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "I", 2, 201, rangeSeries, "Escolha a série da lista.");
     ws.getColumn("E").numFmt = "yyyy-mm-dd";
     await baixarWorkbookExcelJS(workbook, `modelo_cadastro_alunos_${anoDadosAtivo}.xlsx`);
 }
@@ -3480,7 +3487,7 @@ function preencherResultadoPorAlunoSelecionado() {
 function alunoJaTemUsuario(aluno) {
     const cpf = cpfLimpo(aluno?.cpf || "");
     const usuarios = getStorage("app_usuarios", []);
-    return usuarios.some(u => (u.alunoId && u.alunoId === aluno?.id) || cpfLimpo(u.login) === cpf);
+    return usuarios.some(u => (u.alunoId && u.alunoId === aluno?.id) || cpfLimpo(u.alunoCpf) === cpf || cpfLimpo(u.cpf) === cpf);
 }
 
 function textoAlunoParaUsuario(aluno) {
@@ -3511,8 +3518,8 @@ async function criarUsuarioAlunoSelecionado() {
     if (!cpf) return alert("Este aluno não tem CPF válido cadastrado.");
 
     const usuarios = getStorage("app_usuarios", []);
-    if (usuarios.some(u => (u.alunoId && u.alunoId === aluno.id) || cpfLimpo(u.login) === cpf)) {
-        return alert("Este aluno já possui usuário criado ou já existe um login com este CPF.");
+    if (usuarios.some(u => (u.alunoId && u.alunoId === aluno.id) || cpfLimpo(u.alunoCpf) === cpf || cpfLimpo(u.cpf) === cpf)) {
+        return alert("Este aluno já possui usuário criado ou já existe vínculo com este CPF.");
     }
 
     const escola = escolaDoAluno(aluno);
@@ -3524,7 +3531,7 @@ async function criarUsuarioAlunoSelecionado() {
 
     let novoUsuario = {
         id: novoId(),
-        login: cpf,
+        login: emailAluno,
         senha: SENHA_PADRAO_USUARIO,
         senhaPadrao: SENHA_PADRAO_USUARIO,
         nivel: "Aluno",
