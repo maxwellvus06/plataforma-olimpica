@@ -6,16 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function userProfile() {
+    function profileByUid() {
       return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
     }
 
-    function hasProfile() {
+    function hasProfileByUid() {
       return signedIn() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
     }
 
     function nivel() {
-      return hasProfile() ? userProfile().data.nivel : "";
+      return hasProfileByUid() ? profileByUid().data.nivel : "";
     }
 
     function isAdmin() {
@@ -26,35 +26,64 @@ service cloud.firestore {
       return nivel() == "Monitor";
     }
 
-    // Perfis de usuário. Documento preferencial: sistema_usuarios/{authUid}
-    match /sistema_usuarios/{userId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow delete: if signedIn() && isAdmin();
+    function isOwnerProfile() {
+      return signedIn() && (
+        resource.data.authUid == request.auth.uid ||
+        resource.data.emailAuth == request.auth.token.email ||
+        resource.data.email == request.auth.token.email
+      );
     }
 
-    // Configurações visuais e debug
+    function isCreatingOwnProfile(userId) {
+      return signedIn() && (
+        userId == request.auth.uid ||
+        request.resource.data.authUid == request.auth.uid ||
+        request.resource.data.emailAuth == request.auth.token.email ||
+        request.resource.data.email == request.auth.token.email
+      );
+    }
+
+    // Perfis da plataforma.
+    // Permite que o usuário autenticado leia/atualize somente seu próprio perfil.
+    // ADM, depois de já ter perfil por UID, pode gerenciar todos.
+    match /sistema_usuarios/{userId} {
+      allow read: if isOwnerProfile() || isAdmin();
+      allow create: if isCreatingOwnProfile(userId) || isAdmin();
+      allow update: if isOwnerProfile() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Layout: todos autenticados leem. Só ADM escreve.
     match /sistema_layout/{docId} {
       allow read: if signedIn();
-      allow write: if signedIn() && isAdmin();
+      allow write: if isAdmin();
     }
 
     match /sistema_debug/{docId} {
-      allow read: if signedIn() && isAdmin();
+      allow read: if isAdmin();
       allow write: if signedIn();
     }
 
-    // Dados anuais da plataforma.
-    // Nesta etapa, qualquer usuário autenticado pode ler/escrever.
-    // A restrição fina por nível continua no front-end; a próxima etapa é endurecer por módulo.
+    // Dados anuais. Nesta etapa segura básica: usuário autenticado lê;
+    // escrita para ADM/Monitor. O front-end ainda aplica escopos finos.
     match /anos/{ano}/{colecao}/{docId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      allow write: if isAdmin() || isMonitor();
     }
 
-    // Coleções globais antigas/compatibilidade
-    match /{collection}/{docId} {
-      allow read, write: if signedIn();
+    // Compatibilidade com coleções globais antigas: autenticado lê;
+    // escrita apenas ADM/Monitor.
+    match /sistema_cidades/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /sistema_escolas/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /sistema_olimpiadas/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /sistema_cronograma/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
+    match /sistema_premiados/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
+    match /sistema_alunos/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
+
+    // Bloqueia o resto.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

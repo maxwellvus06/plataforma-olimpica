@@ -6,20 +6,18 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Layout institucional: todos logados leem; escrita para usuários autenticados.
-    // A trava fina por ADM pode ser adicionada depois usando custom claims ou perfil via Cloud Functions.
+    // Logo, banner e imagens de identidade visual.
     match /layout/{allPaths=**} {
       allow read: if signedIn();
       allow write: if signedIn();
     }
 
-    // Materiais, anexos de fórum, resoluções e imagens de dúvidas.
+    // Materiais, anexos, resoluções e imagens do fórum.
     match /plataforma/{allPaths=**} {
       allow read: if signedIn();
       allow write: if signedIn();
     }
 
-    // Bloqueia qualquer pasta não prevista.
     match /{allPaths=**} {
       allow read, write: if false;
     }

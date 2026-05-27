@@ -240,6 +240,7 @@ function initLogin() {
 }
 
 const TEMA_LOCAL_KEY = "avance_tema_preferido_v2";
+const SENHA_PADRAO_USUARIO = "avance@2026";
 
 function normalizarLoginAuth(valor) {
     return String(valor || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
@@ -252,10 +253,18 @@ function emailAuthParaLogin(loginOuEmail) {
 }
 
 function emailAuthDoUsuario(usuario) {
-    if (usuario?.authEmail) return String(usuario.authEmail).toLowerCase();
-    // Mantém o login tradicional: admin, CPF, gestor etc. viram e-mails internos do Firebase Auth.
-    // O e-mail real continua salvo no perfil do usuário.
-    return emailAuthParaLogin(usuario?.login || usuario?.cpf || usuario?.email || usuario?.id || novoId());
+    if (usuario?.authEmail) return String(usuario.authEmail).trim().toLowerCase();
+    if (usuario?.emailAuth) return String(usuario.emailAuth).trim().toLowerCase();
+    const emailReal = String(usuario?.email || usuario?.emailInstitucional || usuario?.emailPessoal || "").trim().toLowerCase();
+    if (emailReal && emailReal.includes("@")) return emailReal;
+    // Fallback apenas para usuários legados/semente. Usuários novos precisam de e-mail real obrigatório.
+    return emailAuthParaLogin(usuario?.login || usuario?.cpf || usuario?.id || novoId());
+}
+
+function emailUsuarioObrigatorio(usuario, contexto = "usuário") {
+    const email = String(usuario?.email || usuario?.emailInstitucional || usuario?.emailPessoal || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) throw new Error(`Informe um e-mail válido para ${contexto}. Ele será usado no Firebase Auth.`);
+    return email;
 }
 
 function buscarUsuarioSementePorCredencial(login, senha) {
@@ -291,26 +300,78 @@ async function gravarPerfilAuthUsuario(uid, usuario, senhaOriginal = "") {
 async function carregarPerfilUsuarioAuth(authUser, loginDigitado = "") {
     initFirebase();
     if (!authUser || !firebaseFirestore) return null;
-    const direto = await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).get();
-    if (direto.exists) return { id: direto.data().id || direto.id, ...direto.data(), authUid: authUser.uid };
 
-    // Compatibilidade com usuários antigos cujo documento ainda não usa UID como id.
-    const snap = await firebaseFirestore.collection("sistema_usuarios").get();
-    let encontrado = null;
-    snap.forEach(doc => {
-        if (encontrado) return;
-        const u = doc.data() || {};
-        const emails = [u.authEmail, u.email, u.emailInstitucional, u.emailPessoal].filter(Boolean).map(x => String(x).toLowerCase());
-        const bate = String(u.authUid || "") === String(authUser.uid)
-            || emails.includes(String(authUser.email || "").toLowerCase())
-            || normalizarTexto(u.login) === normalizarTexto(loginDigitado);
-        if (bate) encontrado = { id: u.id || doc.id, ...u, authUid: authUser.uid, authEmail: u.authEmail || authUser.email };
-    });
-    if (encontrado) {
-        await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).set(encontrado, { merge: true });
-        return encontrado;
+    const emailAuth = String(authUser.email || "").toLowerCase();
+
+    // 1) Modelo profissional novo: documento com ID igual ao UID do Firebase Auth.
+    const direto = await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).get();
+    if (direto.exists) {
+        const data = direto.data() || {};
+        return { id: data.id || direto.id, ...data, authUid: authUser.uid, authEmail: data.authEmail || emailAuth };
     }
-    return null;
+
+    // 2) Compatibilidade segura com seus usuários antigos:
+    //    busca somente documentos cujo authUid seja exatamente o UID autenticado.
+    //    Isso funciona com Rules fechadas, sem deixar sistema_usuarios público.
+    let snap = await firebaseFirestore
+        .collection("sistema_usuarios")
+        .where("authUid", "==", authUser.uid)
+        .limit(1)
+        .get();
+
+    if (snap.empty && emailAuth) {
+        // 3) Fallback seguro por e-mail Auth. Útil quando o documento já tem emailAuth,
+        //    mas ainda não tem authUid preenchido corretamente.
+        snap = await firebaseFirestore
+            .collection("sistema_usuarios")
+            .where("emailAuth", "==", emailAuth)
+            .limit(1)
+            .get();
+    }
+
+    if (snap.empty && emailAuth) {
+        // 4) Fallback por e-mail cadastral. Ajuda na migração inicial, mas ainda exige
+        //    usuário autenticado e regra validando o e-mail do token.
+        snap = await firebaseFirestore
+            .collection("sistema_usuarios")
+            .where("email", "==", emailAuth)
+            .limit(1)
+            .get();
+    }
+
+    if (snap.empty) return null;
+
+    const doc = snap.docs[0];
+    const data = doc.data() || {};
+    const perfil = {
+        id: data.id || doc.id,
+        ...data,
+        authUid: data.authUid || authUser.uid,
+        authEmail: data.authEmail || emailAuth
+    };
+
+    // Atualiza o documento legado para consolidar authUid/authEmail.
+    await doc.ref.set({
+        authUid: authUser.uid,
+        authEmail: perfil.authEmail,
+        emailAuth: perfil.authEmail,
+        autenticacaoMigradaEm: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // Também cria/atualiza o documento canônico com ID igual ao UID do Firebase Auth.
+    // Isso é importante para as Firestore Rules reconhecerem o nível ADM/Monitor com segurança.
+    if (doc.id !== authUser.uid) {
+        await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).set({
+            ...perfil,
+            id: perfil.id || authUser.uid,
+            authUid: authUser.uid,
+            authEmail: perfil.authEmail,
+            emailAuth: perfil.authEmail,
+            autenticacaoMigradaEm: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+
+    return perfil;
 }
 
 async function verificarSessao() {
@@ -1241,12 +1302,13 @@ async function criarOuEntrarAuthSecundario(email, senha) {
 
 async function provisionarAuthUsuario(usuario) {
     if (!usuario) return usuario;
-    if (usuario.authUid && usuario.authEmail) return usuario;
-    const senha = String(usuario.senha || usuario.senhaPadrao || "alunoavance@2026");
+    if (usuario.authUid && (usuario.authEmail || usuario.emailAuth)) return usuario;
+    const senha = String(usuario.senha || usuario.senhaPadrao || SENHA_PADRAO_USUARIO);
     if (senha.length < 6) throw new Error(`Senha fraca para ${usuario.nome || usuario.login}. Use pelo menos 6 caracteres.`);
     const email = emailAuthDoUsuario(usuario);
+    if (!email || !email.includes("@")) throw new Error(`E-mail Auth inválido para ${usuario.nome || usuario.login}.`);
     const uid = await criarOuEntrarAuthSecundario(email, senha);
-    return { ...usuario, authUid: uid, authEmail: email, senhaMigradaParaAuth: true };
+    return { ...usuario, authUid: uid, authEmail: email, emailAuth: email, senhaMigradaParaAuth: true };
 }
 
 async function provisionarAuthUsuarios(usuarios) {
@@ -2118,7 +2180,7 @@ function ajustarCamposFormUsuario() {
     }
 }
 
-function salvarNovoUsuario(event) {
+async function salvarNovoUsuario(event) {
     event.preventDefault();
     const nivel = usuarioLogado?.nivel;
     const perms = PERMISSOES[nivel];
@@ -2129,9 +2191,13 @@ function salvarNovoUsuario(event) {
 
     const nome = document.getElementById("addUserNome").value.trim();
     const login = document.getElementById("addUserLogin").value.trim().toLowerCase();
-    const senha = document.getElementById("addUserSenha").value.trim();
-    const email = document.getElementById("addUserEmail").value.trim();
+    const senha = SENHA_PADRAO_USUARIO;
+    const email = document.getElementById("addUserEmail").value.trim().toLowerCase();
     const telefone = document.getElementById("addUserTelefone").value.trim();
+
+    if (!nome) return alert("Informe o nome completo do usuário.");
+    if (!login) return alert("Informe um login interno para organização do usuário.");
+    if (!email || !email.includes("@")) return alert("Informe um e-mail válido. Esse e-mail será usado no Firebase Auth para login.");
 
     let vinculoId = "";
     if (nivelNovo === "Gestor") {
@@ -2158,20 +2224,45 @@ function salvarNovoUsuario(event) {
 
     const usuarios = getStorage("app_usuarios");
     if (usuarios.some(u => normalizarTexto(u.login) === login)) return alert("Erro: já existe um usuário com esse login.");
-    const novoUsuario = { id: novoId(), login, senha, nivel: nivelNovo, nome, email, telefone, vinculoId };
+    if (usuarios.some(u => normalizarTexto(u.email) === normalizarTexto(email) || normalizarTexto(u.authEmail) === normalizarTexto(email) || normalizarTexto(u.emailAuth) === normalizarTexto(email))) return alert("Erro: já existe um usuário com esse e-mail/Auth.");
+
+    let novoUsuario = {
+        id: novoId(),
+        login,
+        senha,
+        senhaPadrao: senha,
+        nivel: nivelNovo,
+        nome,
+        email,
+        authEmail: email,
+        emailAuth: email,
+        telefone,
+        vinculoId,
+        criadoEm: new Date().toISOString(),
+        criadoPorId: usuarioLogado?.id || "",
+        criadoPorNome: usuarioLogado?.nome || ""
+    };
     if (nivelNovo === "Visualizador") {
         novoUsuario.escopoVisualizador = {
             cidadesIds: valoresSelectMultiplo("addUserVisualizadorCidades"),
             escolasIds: valoresSelectMultiplo("addUserVisualizadorEscolas")
         };
     }
-    usuarios.push(novoUsuario);
 
-    salvarUsuariosSistema(usuarios);
-    document.getElementById("formCadUsuario").reset();
-    ajustarCamposFormUsuario();
-    renderizarTabelasGerenciais();
-    alert("Usuário criado com sucesso.");
+    try {
+        novoUsuario = await provisionarAuthUsuario(novoUsuario);
+        usuarios.push(novoUsuario);
+        await salvarUsuariosSistema(usuarios);
+        document.getElementById("formCadUsuario").reset();
+        const senhaInput = document.getElementById("addUserSenha");
+        if (senhaInput) senhaInput.value = SENHA_PADRAO_USUARIO;
+        ajustarCamposFormUsuario();
+        renderizarTabelasGerenciais();
+        alert(`Usuário criado com sucesso.\n\nLogin: ${email}\nSenha padrão: ${SENHA_PADRAO_USUARIO}`);
+    } catch (erro) {
+        console.error("Erro ao criar usuário no Firebase Auth", erro);
+        alert(`Não foi possível criar o usuário no Firebase Auth.\n\n${traduzirErroAuth(erro)}`);
+    }
 }
 
 // ==================== RESET DE SENHAS EM LOTE ====================
@@ -2936,7 +3027,7 @@ function popularSelectAlunoParaUsuario() {
     if ([...select.options].some(opt => opt.value === valorAtual)) select.value = valorAtual;
 }
 
-function criarUsuarioAlunoSelecionado() {
+async function criarUsuarioAlunoSelecionado() {
     if (!permissao("usuarios.podeGerenciar")) return alert("Sem permissão para criar usuários.");
     const alunoId = document.getElementById("selectAlunoParaUsuario")?.value || "";
     if (!alunoId) return alert("Selecione um aluno cadastrado.");
@@ -2954,13 +3045,19 @@ function criarUsuarioAlunoSelecionado() {
     const cidade = cidadeDaEscola(escola);
     if (!escola) return alert("O aluno precisa estar vinculado a uma escola para criar usuário.");
 
-    const novoUsuario = {
+    const emailAluno = String(aluno.emailInstitucional || aluno.emailPessoal || "").trim().toLowerCase();
+    if (!emailAluno || !emailAluno.includes("@")) return alert("Este aluno precisa ter e-mail institucional ou pessoal válido. O e-mail será usado como login no Firebase Auth.");
+
+    let novoUsuario = {
         id: novoId(),
         login: cpf,
-        senha: "alunoavance@2026",
+        senha: SENHA_PADRAO_USUARIO,
+        senhaPadrao: SENHA_PADRAO_USUARIO,
         nivel: "Aluno",
         nome: aluno.nome,
-        email: aluno.emailInstitucional || aluno.emailPessoal || "",
+        email: emailAluno,
+        authEmail: emailAluno,
+        emailAuth: emailAluno,
         telefone: aluno.contatoAluno || aluno.contatoResponsavel || "",
         vinculoId: escola.id,
         escolaId: escola.id,
@@ -2968,13 +3065,22 @@ function criarUsuarioAlunoSelecionado() {
         alunoId: aluno.id,
         alunoCpf: aluno.cpf || "",
         criadoEm: new Date().toISOString(),
+        criadoPorId: usuarioLogado?.id || "",
+        criadoPorNome: usuarioLogado?.nome || "",
         origem: "cadastro_aluno"
     };
 
-    usuarios.push(novoUsuario);
-    setStorage("app_usuarios", usuarios);
-    renderizarTabelasGerenciais();
-    alert(`Usuário criado com sucesso.\n\nLogin: ${cpf}\nSenha padrão: alunoavance@2026`);
+    try {
+        novoUsuario = await provisionarAuthUsuario(novoUsuario);
+        usuarios.push(novoUsuario);
+        await setStorage("app_usuarios", usuarios);
+        renderizarTabelasGerenciais();
+        popularSelectAlunoParaUsuario();
+        alert(`Usuário criado com sucesso.\n\nLogin: ${emailAluno}\nSenha padrão: ${SENHA_PADRAO_USUARIO}`);
+    } catch (erro) {
+        console.error("Erro ao criar usuário de aluno no Firebase Auth", erro);
+        alert(`Não foi possível criar o usuário do aluno no Firebase Auth.\n\n${traduzirErroAuth(erro)}`);
+    }
 }
 
 function abrirModalMinhaSenha() {
