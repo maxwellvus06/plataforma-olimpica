@@ -38,6 +38,10 @@ service cloud.firestore {
       return isAdmin() || isMonitor() || isProfessorOrientador();
     }
 
+    function colecaoRestritaQuestoes(colecao) {
+      return colecao == "sistema_questoes" || colecao == "sistema_banco_questoes";
+    }
+
     function isOwnerEnvioSimulado() {
       return signedIn() && request.resource.data.usuarioId == request.auth.uid;
     }
@@ -83,7 +87,8 @@ service cloud.firestore {
     // Dados anuais. Nesta etapa segura básica: usuário autenticado lê;
     // escrita para ADM/Monitor. O front-end ainda aplica escopos finos.
     match /anos/{ano}/{colecao}/{docId} {
-      allow read: if signedIn();
+      // Banco de questões é restrito à equipe pedagógica.
+      allow read: if signedIn() && (!colecaoRestritaQuestoes(colecao) || canPostConteudoPedagogico());
 
       // Simulados oficiais: só equipe pedagógica altera o documento do simulado.
       allow write: if colecao == "sistema_simulados" && canPostConteudoPedagogico();
@@ -95,7 +100,7 @@ service cloud.firestore {
       // Demais coleções anuais administrativas.
       allow write: if colecao != "sistema_simulados"
         && colecao != "sistema_simulados_envios"
-        && (isAdmin() || isMonitor() || (isProfessorOrientador() && (colecao == "sistema_plataforma" || colecao == "sistema_aulas" || colecao == "sistema_banco_questoes")));
+        && (isAdmin() || isMonitor() || (isProfessorOrientador() && (colecao == "sistema_plataforma" || colecao == "sistema_aulas" || colecao == "sistema_banco_questoes" || colecao == "sistema_questoes")));
     }
 
     // Compatibilidade com coleções globais antigas: autenticado lê;
@@ -109,6 +114,8 @@ service cloud.firestore {
     match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if canPostPlataforma(); }
     match /sistema_simulados/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
     match /sistema_aulas/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
+    match /sistema_questoes/{docId} { allow read, write: if canPostConteudoPedagogico(); }
+    match /sistema_banco_questoes/{docId} { allow read, write: if canPostConteudoPedagogico(); }
     match /sistema_simulados_envios/{docId} { allow read: if signedIn(); allow create, update: if isOwnerEnvioSimulado(); allow delete: if isAdmin() || isMonitor() || isProfessorOrientador() || resource.data.usuarioId == request.auth.uid; }
 
     // Bloqueia o resto.

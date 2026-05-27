@@ -1223,7 +1223,7 @@ async function carregarDadosFirebaseInicial() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
-        "app_questoes"
+        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -1247,7 +1247,7 @@ async function carregarDadosPosLogin() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
-        "app_questoes"
+        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -4982,7 +4982,11 @@ const FIREBASE_COLLECTIONS = {
     app_olimpiadas: "sistema_olimpiadas",
     app_cronograma: "sistema_cronograma",
     app_premiados: "sistema_premiados",
-    app_plataforma: "sistema_plataforma"
+    app_plataforma: "sistema_plataforma",
+    app_simulados: "sistema_simulados",
+    app_simulados_envios: "sistema_simulados_envios",
+    app_aulas: "sistema_aulas",
+    app_questoes: "sistema_questoes"
 };
 function getMateriaisCollectionName() { return getFirebaseCollectionName("app_plataforma"); }
 function getUsuariosCollectionName() { return getFirebaseCollectionName("app_usuarios"); }
@@ -8026,3 +8030,279 @@ function renderizarAulas() {
         }).join("")}</div>
     </div>`).join("");
 }
+
+// ==================== AJUSTES AVANÇADOS: QUESTÕES, SIMULADOS E LOGIN ====================
+function toggleSenhaLogin() {
+    const input = document.getElementById("auth-pass");
+    const icon = document.getElementById("iconeSenhaLogin");
+    if (!input) return;
+    const mostrando = input.type === "text";
+    input.type = mostrando ? "password" : "text";
+    if (icon) {
+        icon.classList.toggle("fa-eye", mostrando);
+        icon.classList.toggle("fa-eye-slash", !mostrando);
+    }
+}
+
+function podeGerenciarQuestoes() {
+    return !!usuarioLogado && ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
+}
+
+function normalizarListaUnicaOrdenada(lista) {
+    return Array.from(new Set((lista || []).map(v => String(v || "").trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+}
+
+function popularSelectSimples(selectId, valores, rotuloTodos = "Todos") {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    const atual = sel.value;
+    const lista = normalizarListaUnicaOrdenada(valores);
+    sel.innerHTML = `<option value="TODOS">${textoSeguro(rotuloTodos)}</option>` + lista.map(v => `<option value="${textoSeguro(v)}">${textoSeguro(v)}</option>`).join("");
+    if (Array.from(sel.options).some(o => o.value === atual)) sel.value = atual;
+}
+
+function popularFiltrosQuestoes() {
+    const painel = document.getElementById("painelAddQuestao");
+    if (painel) painel.classList.toggle("hidden", !podeGerenciarQuestoes());
+    if (!podeGerenciarQuestoes()) return;
+    const qs = getStorage("app_questoes", []);
+    popularSelectSimples("filtroQuestaoDisciplina", qs.map(q => q.disciplina), "Todas");
+    popularSelectSimples("filtroQuestaoNivel", qs.map(q => q.nivel), "Todos");
+    popularSelectSimples("filtroQuestaoDificuldade", qs.map(q => q.dificuldade), "Todas");
+    popularSelectSimples("filtroQuestaoTipo", qs.map(q => q.tipo), "Todos");
+}
+
+async function uploadListaArquivos(inputId, pasta) {
+    const input = document.getElementById(inputId);
+    const files = Array.from(input?.files || []);
+    const uploads = [];
+    for (const file of files) {
+        const up = await enviarArquivoParaFirebaseStorage(file, pasta);
+        uploads.push({
+            url: up.fileUrl,
+            storagePath: up.storagePath,
+            nome: up.fileName,
+            mimeType: up.mimeType,
+            tamanho: up.size
+        });
+    }
+    return uploads;
+}
+
+function tagsComoLista(valor) {
+    return String(valor || "").split(",").map(t => t.trim()).filter(Boolean);
+}
+
+async function salvarNovaQuestao(event) {
+    event.preventDefault();
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Monitor e Professor/Orientador podem cadastrar questões.");
+    const btn = event.submitter || document.querySelector('#formCadQuestao button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const arquivos = await uploadListaArquivos("questaoArquivo", "banco_questoes");
+        const arquivosSolucao = await uploadListaArquivos("questaoSolucaoArquivo", "banco_questoes_solucoes");
+        const solucaoTexto = document.getElementById("questaoSolucaoTexto")?.value.trim() || "";
+        const questao = {
+            id: novoId(),
+            titulo: document.getElementById("questaoTitulo")?.value.trim() || "Questão sem título",
+            disciplina: document.getElementById("questaoDisciplina")?.value || "Geral",
+            nivel: document.getElementById("questaoNivel")?.value || "Geral",
+            tema: document.getElementById("questaoTema")?.value.trim() || "",
+            subtema: document.getElementById("questaoSubtema")?.value.trim() || "",
+            dificuldade: document.getElementById("questaoDificuldade")?.value || "Médio",
+            tipo: document.getElementById("questaoTipo")?.value || "Múltipla escolha",
+            fonte: document.getElementById("questaoFonte")?.value.trim() || "",
+            ano: document.getElementById("questaoAno")?.value || "Não informado",
+            alternativaCorreta: document.getElementById("questaoAlternativa")?.value || "",
+            tags: tagsComoLista(document.getElementById("questaoTags")?.value),
+            enunciado: document.getElementById("questaoEnunciado")?.value.trim() || "",
+            arquivos,
+            solucoes: [],
+            criadaEm: Date.now(),
+            criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+            criadaPorNome: usuarioLogado?.nome || "",
+            criadaPorNivel: usuarioLogado?.nivel || ""
+        };
+        if (solucaoTexto || arquivosSolucao.length) {
+            questao.solucoes.push({
+                id: novoId(),
+                texto: solucaoTexto,
+                arquivos: arquivosSolucao,
+                criadaEm: Date.now(),
+                criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+                criadaPorNome: usuarioLogado?.nome || "",
+                criadaPorNivel: usuarioLogado?.nivel || "",
+                tipo: "Solução inicial"
+            });
+        }
+        const lista = getStorage("app_questoes", []);
+        lista.push(questao);
+        await setStorage("app_questoes", lista);
+        document.getElementById("formCadQuestao")?.reset();
+        popularFiltrosQuestoes();
+        renderizarBancoQuestoes();
+        alert("Questão salva no banco com sucesso.");
+    } catch (erro) {
+        console.error("Erro ao salvar questão", erro);
+        alert(`Erro ao salvar questão.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar questão'; }
+    }
+}
+
+function questaoPassaFiltros(q) {
+    const disc = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const nivel = document.getElementById("filtroQuestaoNivel")?.value || "TODOS";
+    const dif = document.getElementById("filtroQuestaoDificuldade")?.value || "TODOS";
+    const tipo = document.getElementById("filtroQuestaoTipo")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (disc !== "TODOS" && q.disciplina !== disc) return false;
+    if (nivel !== "TODOS" && q.nivel !== nivel) return false;
+    if (dif !== "TODOS" && q.dificuldade !== dif) return false;
+    if (tipo !== "TODOS" && q.tipo !== tipo) return false;
+    if (busca) {
+        const texto = normalizarTexto([q.titulo, q.disciplina, q.nivel, q.tema, q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano, q.enunciado, ...(q.tags || [])].join(" "));
+        if (!texto.includes(busca)) return false;
+    }
+    return true;
+}
+
+function renderArquivoLinks(arquivos) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    return `<div class="flex flex-wrap gap-2 mt-2">${arquivos.map((a, i) => `<a href="${a.url}" target="_blank" class="px-3 py-1 rounded-lg bg-blue-950/40 text-blue-300 border border-blue-900/40 text-[11px] font-bold"><i class="fa-solid fa-paperclip mr-1"></i>${textoSeguro(a.nome || `Arquivo ${i+1}`)}</a>`).join("")}</div>`;
+}
+
+function renderizarSolucoesQuestao(q) {
+    const sols = Array.isArray(q.solucoes) ? q.solucoes : [];
+    if (!sols.length) return `<p class="text-xs text-gray-500 mt-2">Nenhuma solução cadastrada ainda.</p>`;
+    return `<div class="space-y-2 mt-3">${sols.map(s => `<div class="rounded-xl bg-gray-950/60 border border-gray-700 p-3"><div class="flex justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-bold">${textoSeguro(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${textoSeguro(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${s.texto ? `<p class="text-sm text-gray-300 whitespace-pre-wrap mt-2">${textoSeguro(s.texto)}</p>` : ""}${renderArquivoLinks(s.arquivos)}</div>`).join("")}</div>`;
+}
+
+function renderizarBancoQuestoes() {
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid) return;
+    if (!podeGerenciarQuestoes()) {
+        grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Acesso exclusivo para ADM, Monitor e Professor/Orientador.</p></div>`;
+        return;
+    }
+    const questoes = getStorage("app_questoes", []).filter(questaoPassaFiltros)
+        .sort((a,b) => String(a.disciplina || "").localeCompare(String(b.disciplina || ""), "pt-BR") || String(a.tema || "").localeCompare(String(b.tema || ""), "pt-BR") || String(a.titulo || "").localeCompare(String(b.titulo || ""), "pt-BR"));
+    if (!questoes.length) {
+        grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões ou ajuste os filtros.</p></div>`;
+        return;
+    }
+    grid.innerHTML = questoes.map(q => `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div><h4 class="text-base font-black text-white">${textoSeguro(q.titulo)}</h4><div class="flex flex-wrap gap-2 mt-2"><span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${textoSeguro(q.disciplina)}</span><span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${textoSeguro(q.nivel)}</span><span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${textoSeguro(q.dificuldade)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${textoSeguro(q.tipo)}</span>${q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-bold">Gabarito: ${textoSeguro(q.alternativaCorreta)}</span>` : ""}</div></div><button onclick="adicionarSolucaoQuestao('${q.id}')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-plus mr-1"></i>Nova solução</button></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4"><div class="lg:col-span-2"><p class="text-xs text-gray-500 uppercase font-bold">${textoSeguro([q.fonte, q.ano, q.tema, q.subtema].filter(Boolean).join(" · "))}</p><p class="text-sm text-gray-300 whitespace-pre-wrap mt-2">${textoSeguro(q.enunciado || "")}</p>${renderArquivoLinks(q.arquivos)}</div><div class="rounded-2xl bg-gray-900/60 border border-gray-700 p-3"><details><summary class="cursor-pointer text-xs font-black uppercase text-emerald-300">Ver soluções (${(q.solucoes || []).length})</summary>${renderizarSolucoesQuestao(q)}</details>${Array.isArray(q.tags) && q.tags.length ? `<div class="mt-3 flex flex-wrap gap-1">${q.tags.map(t => `<span class="text-[10px] px-2 py-1 rounded-full bg-gray-950 text-gray-400">#${textoSeguro(t)}</span>`).join("")}</div>` : ""}</div></div></div>`).join("");
+}
+
+async function adicionarSolucaoQuestao(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para adicionar solução.");
+    const texto = prompt("Digite a solução/comentário pedagógico. Para anexos, use o campo de solução inicial ao cadastrar ou edite depois pelo Firestore por enquanto.");
+    if (texto === null) return;
+    const lista = getStorage("app_questoes", []);
+    const idx = lista.findIndex(q => String(q.id) === String(questaoId));
+    if (idx < 0) return alert("Questão não encontrada.");
+    lista[idx].solucoes = Array.isArray(lista[idx].solucoes) ? lista[idx].solucoes : [];
+    lista[idx].solucoes.push({ id: novoId(), texto: texto.trim(), arquivos: [], tipo: "Solução complementar", criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+    await setStorage("app_questoes", lista);
+    renderizarBancoQuestoes();
+}
+
+function popularFiltrosGeradorSimulado() {
+    const qs = getStorage("app_questoes", []);
+    popularSelectSimples("gerSimDisciplina", qs.map(q => q.disciplina), "Todas");
+    popularSelectSimples("gerSimNivel", qs.map(q => q.nivel), "Todos");
+    popularSelectSimples("gerSimDificuldade", qs.map(q => q.dificuldade), "Todas");
+}
+
+function popularFiltrosSimulados() {
+    const sims = getStorage("app_simulados", []);
+    popularSelectUnico("filtroSimDisciplina", sims.map(s => s.disciplina), "Todas");
+    popularSelectUnico("filtroSimNivel", sims.map(s => s.nivel), "Todos");
+    atualizarDestinoSimulado();
+    const painel = document.getElementById("painelAddSimulado");
+    if (painel) painel.classList.toggle("hidden", !podeGerenciarSimulados());
+    const gerador = document.getElementById("painelGeradorSimuladoQuestoes");
+    if (gerador) gerador.classList.toggle("hidden", !podeGerenciarQuestoes());
+    popularFiltrosGeradorSimulado();
+    ajustarCamposSimulado();
+    atualizarSelectRankingSimulados();
+}
+
+async function gerarSimuladoPeloBancoQuestoes() {
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Monitor e Professor/Orientador podem gerar simulados pelo banco de questões.");
+    const disc = document.getElementById("gerSimDisciplina")?.value || "TODOS";
+    const nivel = document.getElementById("gerSimNivel")?.value || "TODOS";
+    const dif = document.getElementById("gerSimDificuldade")?.value || "TODOS";
+    const tema = normalizarTexto(document.getElementById("gerSimTema")?.value || "");
+    const qtd = Math.max(1, Number(document.getElementById("gerSimQtd")?.value || 10));
+    let qs = getStorage("app_questoes", []).filter(q => {
+        if (disc !== "TODOS" && q.disciplina !== disc) return false;
+        if (nivel !== "TODOS" && q.nivel !== nivel) return false;
+        if (dif !== "TODOS" && q.dificuldade !== dif) return false;
+        if (tema && !normalizarTexto([q.tema, q.subtema, q.tags?.join(" "), q.enunciado, q.titulo].join(" ")).includes(tema)) return false;
+        return true;
+    });
+    qs = qs.sort(() => Math.random() - 0.5).slice(0, qtd);
+    if (!qs.length) return alert("Nenhuma questão encontrada com esses filtros.");
+    const sim = {
+        id: novoId(),
+        titulo: document.getElementById("gerSimTitulo")?.value.trim() || `Simulado gerado — ${new Date().toLocaleDateString("pt-BR")}`,
+        disciplina: disc === "TODOS" ? "Geral" : disc,
+        nivel: nivel === "TODOS" ? "Geral" : nivel,
+        formato: document.getElementById("gerSimFormato")?.value || "objetivo",
+        dataAbertura: "",
+        dataFim: document.getElementById("gerSimPrazo")?.value || "",
+        duracao: document.getElementById("gerSimDuracao")?.value || "Sem limite definido",
+        quantidadeQuestoes: qs.length,
+        geradoDoBanco: true,
+        questoesBanco: qs.map((q, i) => ({ numero: i + 1, questaoId: q.id, titulo: q.titulo, disciplina: q.disciplina, nivel: q.nivel, tema: q.tema, subtema: q.subtema, dificuldade: q.dificuldade, tipo: q.tipo, fonte: q.fonte, ano: q.ano, enunciado: q.enunciado, arquivos: q.arquivos || [], alternativaCorreta: q.alternativaCorreta || "" })),
+        gabaritoObjetivo: qs.map((q, i) => ({ numero: i + 1, resposta: String(q.alternativaCorreta || "").toUpperCase() })).filter(g => g.resposta),
+        gabarito: "Simulado gerado a partir do Banco de Questões.",
+        descricao: "Leia cada questão no ambiente cronometrado e preencha o cartão-resposta. O gabarito/resolução só será liberado após o prazo final.",
+        destino: { tipo: "todos", valores: [] },
+        criadoEm: Date.now(),
+        criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+        criadoPorNome: usuarioLogado?.nome || "",
+        criadoPorNivel: usuarioLogado?.nivel || ""
+    };
+    const lista = getStorage("app_simulados", []);
+    lista.push(sim);
+    await setStorage("app_simulados", lista);
+    document.getElementById("gerSimResumo").innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${qs.length} questões.</span>`;
+    renderizarSimulados();
+    atualizarSelectRankingSimulados();
+    alert("Simulado criado a partir do Banco de Questões.");
+}
+
+function renderizarQuestoesDoSimuladoSeguro(sim) {
+    const qs = Array.isArray(sim.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return "";
+    return `<div class="simulado-secure-area space-y-4">${qs.map(q => `<div class="rounded-2xl bg-gray-950/60 border border-gray-700 p-4"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-sm font-black text-white">Questão ${q.numero}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${textoSeguro([q.disciplina, q.tema, q.dificuldade].filter(Boolean).join(" · "))}</span></div><p class="text-sm text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">${textoSeguro(q.enunciado || q.titulo || "")}</p>${renderArquivoLinks(q.arquivos)}</div>`).join("")}</div>`;
+}
+
+function renderizarAmbienteSimulado() {
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!box || !simuladoSessaoAtual) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    const envio = envioSimuladoUsuario(sim);
+    if (!simuladoSessaoAtual.iniciado) {
+        const mins = minutosDuracaoSimulado(sim);
+        box.innerHTML = `<div class="max-w-3xl mx-auto bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl"><div class="flex items-start gap-4"><div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-2xl"><i class="fa-solid fa-stopwatch"></i></div><div class="flex-1"><h2 class="text-2xl font-black text-white">Ambiente cronometrado</h2><p class="text-sm text-gray-400 mt-2 leading-relaxed">Você irá iniciar o simulado <b class="text-gray-200">${textoSeguro(sim.titulo)}</b>. Após clicar em <b>Iniciar simulado</b>, suas respostas serão registradas em um ambiente próprio. Se você sair desta página/ambiente depois de iniciar, o simulado será considerado encerrado e as questões marcadas até o momento serão enviadas.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5"><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Prazo</p><p class="text-sm text-gray-200 font-bold mt-1">${textoPrazoSimulado(sim)}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo</p><p class="text-sm text-gray-200 font-bold mt-1">${mins ? `${mins} minutos` : "Sem limite definido"}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Formato</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(sim.formato || "simulado")}</p></div></div><div class="mt-6 flex flex-col sm:flex-row gap-3"><button onclick="iniciarSimuladoCronometrado()" class="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs"><i class="fa-solid fa-play mr-2"></i>Iniciar simulado</button><button onclick="fecharAmbienteSimulado()" class="px-5 py-3 rounded-2xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold uppercase text-xs">Cancelar</button></div></div></div></div>`;
+        return;
+    }
+    const questoesHTML = renderizarQuestoesDoSimuladoSeguro(sim);
+    const embed = questoesHTML || (sim.arquivoUrl ? `<div class="simulado-secure-area"><iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0&scrollbar=1" class="simulado-secure-viewer w-full rounded-2xl border border-gray-700 bg-black"></iframe><p class="mt-2 text-[10px] text-gray-500">Visualização protegida por interface: copiar/selecionar/contexto ficam bloqueados no ambiente. Arquivos PDF ainda podem ter limitações do visualizador do navegador.</p></div>` : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo de simulado anexado. Use as instruções abaixo.</div>`);
+    box.innerHTML = `<div class="space-y-4 simulado-secure-area"><div class="sticky top-0 z-10 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><p class="text-[10px] text-gray-500 uppercase font-bold">Simulado em andamento</p><h2 class="text-lg font-black text-white">${textoSeguro(sim.titulo)}</h2></div><div class="flex flex-wrap items-center gap-2"><span id="simAmbTimer" class="px-4 py-2 rounded-xl bg-amber-900/40 text-amber-200 border border-amber-800/50 text-sm font-black">--:--</span><button onclick="finalizarSimuladoAmbiente(false, 'finalizado_pelo_aluno')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Finalizar e enviar</button><button onclick="fecharAmbienteSimulado()" class="px-4 py-2 rounded-xl bg-red-900/40 hover:bg-red-800/50 text-red-200 text-xs font-bold uppercase">Sair</button></div></div><div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2fr)_minmax(360px,0.85fr)] gap-5"><div class="space-y-3"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4">${embed}</div>${sim.imagemUrl ? `<img src="${sim.imagemUrl}" class="w-full rounded-2xl border border-gray-700 bg-gray-950">` : ""}${sim.descricao ? `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Instruções</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${textoSeguro(sim.descricao)}</p></div>` : ""}</div><div class="space-y-4"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4">${renderGradeRespostaObjetivaAmbiente(sim, envio)}<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Resposta dissertativa / observações</label><textarea id="simAmbTexto" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Digite comentários, justificativas ou resposta dissertativa...">${textoSeguro(envio?.texto || "")}</textarea><label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Anexo de resolução</label><input type="file" id="simAmbArquivo" accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">${envio?.arquivoUrl ? `<a href="${envio.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block">Anexo enviado anteriormente</a>` : ""}</div></div></div></div>`;
+    atualizarTimerSimulado();
+}
+
+["copy", "cut", "contextmenu", "selectstart", "dragstart"].forEach(evt => {
+    document.addEventListener(evt, (e) => {
+        const overlay = document.getElementById("simuladoAmbienteOverlay");
+        if (overlay && !overlay.classList.contains("hidden") && e.target.closest("#simuladoAmbienteOverlay")) {
+            if (evt !== "dragstart" || !["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) e.preventDefault();
+        }
+    }, true);
+});
