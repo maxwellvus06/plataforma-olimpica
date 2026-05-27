@@ -36,7 +36,7 @@ const ETNIAS_ALUNO_PADRAO = ["Não informado", "Branca", "Preta", "Parda", "Amar
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
-const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma"];
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_aulas"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -416,6 +416,8 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    popularFiltrosSimulados(); renderizarSimulados();
+    popularFiltrosAulas(); renderizarAulas();
     prepararFiltrosRelatoriosComparativos();
     ativarPrimeiraAbaPermitida();
 }
@@ -443,6 +445,8 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-relatorios": "relatorios",
         "btnNav-reuniao": "reuniao",
         "btnNav-plataforma": "plataforma",
+        "btnNav-simulados": "simulados",
+        "btnNav-aulas": "aulas",
         "btnNav-monitoria": "monitoria",
         "btnNav-meusresultados": "meusresultados",
         "btnNavAlunos": "alunos",
@@ -562,13 +566,15 @@ function ativarPrimeiraAbaPermitida() {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
+        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     const titulo = document.getElementById("pageTitleDisplay");
     if (titulo) titulo.innerText = titulos[aba] || "Painel Operacional";
 
     if (aba === "meusresultados") renderizarDashboardAluno();
     if (aba === "plataforma") renderizarPlataformaEnsino();
+    if (aba === "simulados") { popularFiltrosSimulados(); renderizarSimulados(); }
+    if (aba === "aulas") { popularFiltrosAulas(); renderizarAulas(); }
     if (aba === "monitoria") renderizarSalasMonitoria();
     if (aba === "importar") renderizarResultadosImportacao();
     if (aba === "relatorios") prepararTelaRelatoriosComparativos();
@@ -890,7 +896,9 @@ function dadosSementePorChave(chave) {
         app_olimpiadas: typeof DATABASE !== "undefined" ? DATABASE.olimpiadas : [],
         app_cronograma: [], // eventos do calendário não devem ser semeados automaticamente; se apagar, não podem voltar
         app_premiados: [], // resultados não devem ser semeados automaticamente; se apagar, não podem voltar
-        app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : []
+        app_plataforma: typeof DATABASE !== "undefined" ? DATABASE.plataforma : [],
+        app_simulados: [],
+        app_aulas: []
     };
     return Array.isArray(mapa[chave]) ? clonarDados(mapa[chave]) : [];
 }
@@ -948,6 +956,8 @@ Os dados exibidos serão recarregados do banco deste ano.`)) {
         renderizarAlunos();
         renderizarResultadosImportacao();
         renderizarPlataformaEnsino();
+        popularFiltrosSimulados(); renderizarSimulados();
+        popularFiltrosAulas(); renderizarAulas();
         renderizarDashboardAluno();
         if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
         if (!document.getElementById("view-reuniao")?.classList.contains("hidden")) prepararTelaReuniao();
@@ -1113,7 +1123,9 @@ async function carregarDadosFirebaseInicial() {
         "app_olimpiadas",
         "app_cronograma",
         "app_premiados",
-        "app_plataforma"
+        "app_plataforma",
+        "app_simulados",
+        "app_aulas"
     ];
 
     for (const chave of chaves) {
@@ -1133,7 +1145,9 @@ async function carregarDadosPosLogin() {
         "app_olimpiadas",
         "app_cronograma",
         "app_premiados",
-        "app_plataforma"
+        "app_plataforma",
+        "app_simulados",
+        "app_aulas"
     ];
 
     for (const chave of chaves) {
@@ -2576,7 +2590,7 @@ function navegarAba(abaId, botaoTarget) {
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
-        plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
+        plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
     };
     document.getElementById("pageTitleDisplay").innerText = titulos[abaId] || "Painel Operacional";
 
@@ -2586,6 +2600,14 @@ function navegarAba(abaId, botaoTarget) {
     }
     if (abaId === "plataforma") {
         renderizarPlataformaEnsino();
+    }
+    if (abaId === "simulados") {
+        popularFiltrosSimulados();
+        renderizarSimulados();
+    }
+    if (abaId === "aulas") {
+        popularFiltrosAulas();
+        renderizarAulas();
     }
     if (abaId === "monitoria") {
         renderizarSalasMonitoria();
@@ -7097,8 +7119,364 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    popularFiltrosSimulados(); renderizarSimulados();
+    popularFiltrosAulas(); renderizarAulas();
     prepararFiltrosRelatoriosComparativos();
     ativarPrimeiraAbaPermitida();
 }
 
 window.atualizarEstadoEscopoProfessorCadastro = atualizarEstadoEscopoProfessorCadastro;
+
+// ==================== MÓDULO SIMULADOS ====================
+function podeGerenciarSimulados() {
+    return ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
+}
+
+function podeGerenciarAulas() {
+    return ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
+}
+
+function selectValores(id) {
+    const el = document.getElementById(id);
+    if (!el) return [];
+    return Array.from(el.selectedOptions || []).map(o => o.value).filter(Boolean);
+}
+
+function popularSelectUnico(id, valores, todosLabel = "Todos") {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const atual = el.value;
+    const unicos = Array.from(new Set((valores || []).filter(Boolean))).sort((a,b) => String(a).localeCompare(String(b), "pt-BR"));
+    el.innerHTML = `<option value="TODOS">${todosLabel}</option>` + unicos.map(v => `<option value="${textoSeguro(v)}">${textoSeguro(v)}</option>`).join("");
+    if (unicos.includes(atual)) el.value = atual;
+}
+
+function atualizarDestinoSimulado() {
+    const tipo = document.getElementById("simDestinoTipo")?.value || "todos";
+    const wrap = document.getElementById("simDestinoWrap");
+    const sel = document.getElementById("simDestinoValores");
+    if (!wrap || !sel) return;
+    if (tipo === "todos") {
+        wrap.classList.add("hidden");
+        sel.innerHTML = "";
+        return;
+    }
+    wrap.classList.remove("hidden");
+    let opcoes = [];
+    if (tipo === "nivel") {
+        opcoes = ["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral"].map(v => ({ value: v, text: v }));
+    } else if (tipo === "cidade") {
+        opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id, text: `${c.nome} - ${c.uf}` }));
+    } else if (tipo === "escola") {
+        opcoes = getStorage("app_escolas", []).map(e => ({ value: e.id, text: e.nome }));
+    } else if (tipo === "aluno") {
+        const escolas = getStorage("app_escolas", []);
+        opcoes = getStorage("app_alunos", []).map(a => {
+            const escola = escolas.find(e => e.id === a.escolaId || e.nome === a.escola);
+            return { value: a.id, text: `${a.nome} — ${a.cpf || "sem CPF"} — ${escola?.nome || a.escola || "sem escola"}` };
+        });
+    }
+    sel.innerHTML = opcoes.map(o => `<option value="${textoSeguro(o.value)}">${textoSeguro(o.text)}</option>`).join("");
+}
+
+function ajustarCamposSimulado() {
+    const formato = document.getElementById("simFormato")?.value || "objetivo";
+    const gabarito = document.getElementById("simGabarito");
+    if (gabarito) {
+        gabarito.placeholder = formato === "dissertativo"
+            ? "Critérios de correção, rubrica ou observações para o orientador."
+            : "Ex: 1-A; 2-C; 3-E; 4-B...";
+    }
+}
+
+function popularFiltrosSimulados() {
+    const sims = getStorage("app_simulados", []);
+    popularSelectUnico("filtroSimDisciplina", sims.map(s => s.disciplina), "Todas");
+    popularSelectUnico("filtroSimNivel", sims.map(s => s.nivel), "Todos");
+    atualizarDestinoSimulado();
+    const painel = document.getElementById("painelAddSimulado");
+    if (painel) painel.classList.toggle("hidden", !podeGerenciarSimulados());
+}
+
+function alunoDoUsuarioLogado() {
+    if (!usuarioLogado) return null;
+    if (usuarioLogado.alunoId) return getStorage("app_alunos", []).find(a => a.id === usuarioLogado.alunoId) || null;
+    const email = normalizarTexto(usuarioLogado.email || usuarioLogado.emailAuth || usuarioLogado.authEmail);
+    return getStorage("app_alunos", []).find(a => normalizarTexto(a.emailInstitucional) === email || normalizarTexto(a.emailPessoal) === email || normalizarTexto(a.cpf) === normalizarTexto(usuarioLogado.cpf)) || null;
+}
+
+function simuladoDestinadoAoUsuario(sim) {
+    if (!usuarioLogado) return false;
+    if (["ADM", "Monitor"].includes(usuarioLogado.nivel)) return true;
+    if (usuarioLogado.nivel === "Professor/Orientador") return true;
+    if (usuarioLogado.nivel === "Visualizador") return true;
+    const destino = sim.destino || { tipo: "todos", valores: [] };
+    if (!destino.tipo || destino.tipo === "todos") return true;
+    const valores = (destino.valores || []).map(String);
+    const escolas = getStorage("app_escolas", []);
+    const aluno = alunoDoUsuarioLogado();
+    const escolaAluno = aluno ? escolas.find(e => e.id === aluno.escolaId || e.nome === aluno.escola) : null;
+    if (destino.tipo === "nivel") {
+        return valores.includes(sim.nivel) || valores.includes(aluno?.nivel) || valores.includes(aluno?.serie) || valores.includes(usuarioLogado.nivel);
+    }
+    if (destino.tipo === "cidade") {
+        const cidadeId = usuarioLogado.cidadeId || escolaAluno?.cidadeId || getEscolaVinculadaUsuario()?.cidadeId;
+        return valores.includes(String(cidadeId));
+    }
+    if (destino.tipo === "escola") {
+        const escolaId = usuarioLogado.vinculoId || aluno?.escolaId || escolaAluno?.id;
+        return valores.includes(String(escolaId));
+    }
+    if (destino.tipo === "aluno") {
+        return !!aluno && valores.includes(String(aluno.id));
+    }
+    return true;
+}
+
+function envioSimuladoUsuario(sim) {
+    const uid = String(usuarioLogado?.authUid || usuarioLogado?.id || "");
+    return (sim.envios || []).find(e => String(e.usuarioId) === uid) || null;
+}
+
+async function salvarNovoSimulado(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Apenas ADM, monitores e professores/orientadores podem publicar simulados.");
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
+        const file = document.getElementById("simArquivo")?.files?.[0] || null;
+        const img = document.getElementById("simImagem")?.files?.[0] || null;
+        const sim = {
+            id: novoId(),
+            titulo: document.getElementById("simTitulo").value.trim(),
+            disciplina: document.getElementById("simDisciplina").value,
+            nivel: document.getElementById("simNivel").value,
+            formato: document.getElementById("simFormato").value,
+            dataAbertura: document.getElementById("simDataAbertura").value || "",
+            dataFim: document.getElementById("simDataFim").value || "",
+            duracao: document.getElementById("simDuracao").value || "",
+            gabarito: document.getElementById("simGabarito").value.trim(),
+            descricao: document.getElementById("simDescricao").value.trim(),
+            destino: { tipo: document.getElementById("simDestinoTipo").value, valores: selectValores("simDestinoValores") },
+            criadoPor: usuarioLogado?.nome || "Sistema",
+            criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "",
+            criadoPorNivel: usuarioLogado?.nivel || "",
+            criadoEm: Date.now(),
+            atualizadoEm: Date.now(),
+            envios: []
+        };
+        if (!sim.titulo) return alert("Informe o título do simulado.");
+        if (file) {
+            const up = await enviarArquivoParaFirebaseStorage(file, "simulados");
+            Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, arquivoTamanho: up.size });
+        }
+        if (img) {
+            const up = await enviarArquivoParaFirebaseStorage(img, "simulados_imagens");
+            Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName });
+        }
+        const lista = getStorage("app_simulados", []);
+        lista.push(sim);
+        await setStorage("app_simulados", lista);
+        document.getElementById("formCadSimulado").reset();
+        atualizarDestinoSimulado();
+        popularFiltrosSimulados();
+        renderizarSimulados();
+        alert("Simulado publicado com sucesso.");
+    } catch (erro) {
+        console.error("Erro ao salvar simulado", erro);
+        alert(`Erro ao salvar simulado.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; }
+    }
+}
+
+async function enviarRespostaSimulado(simuladoId) {
+    if (!usuarioLogado) return alert("Faça login para enviar resposta.");
+    const simulado = getStorage("app_simulados", []).find(s => s.id === simuladoId);
+    if (!simulado) return alert("Simulado não encontrado.");
+    const texto = document.getElementById(`simRespTexto_${simuladoId}`)?.value?.trim() || "";
+    const arquivo = document.getElementById(`simRespArquivo_${simuladoId}`)?.files?.[0] || null;
+    if (!texto && !arquivo) return alert("Digite uma resposta ou envie uma imagem/arquivo de resolução.");
+    try {
+        const lista = getStorage("app_simulados", []);
+        const idx = lista.findIndex(s => s.id === simuladoId);
+        const envios = Array.isArray(lista[idx].envios) ? [...lista[idx].envios] : [];
+        const uid = String(usuarioLogado.authUid || usuarioLogado.id);
+        const envio = {
+            id: novoId(), usuarioId: uid, usuarioNome: usuarioLogado.nome, usuarioNivel: usuarioLogado.nivel,
+            alunoId: usuarioLogado.alunoId || alunoDoUsuarioLogado()?.id || "", texto, enviadoEm: Date.now()
+        };
+        if (arquivo) {
+            const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_respostas");
+            Object.assign(envio, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType });
+        }
+        const pos = envios.findIndex(e => String(e.usuarioId) === uid);
+        if (pos >= 0) envios[pos] = { ...envios[pos], ...envio, atualizadoEm: Date.now() };
+        else envios.push(envio);
+        lista[idx].envios = envios;
+        lista[idx].atualizadoEm = Date.now();
+        await setStorage("app_simulados", lista);
+        renderizarSimulados();
+        alert("Resposta enviada com sucesso.");
+    } catch (erro) {
+        console.error("Erro ao enviar resposta", erro);
+        alert(`Erro ao enviar resposta.\n\n${erro.message || erro}`);
+    }
+}
+
+async function excluirSimulado(id) {
+    if (!podeGerenciarSimulados()) return;
+    const sim = getStorage("app_simulados", []).find(s => s.id === id);
+    if (!sim) return;
+    if (!confirm(`Apagar o simulado "${sim.titulo}"?`)) return;
+    await setStorage("app_simulados", getStorage("app_simulados", []).filter(s => s.id !== id));
+    renderizarSimulados();
+}
+
+function renderizarSimulados() {
+    popularFiltrosSimulados();
+    const grid = document.getElementById("gridSimulados");
+    if (!grid) return;
+    const fd = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const fn = document.getElementById("filtroSimNivel")?.value || "TODOS";
+    const ff = document.getElementById("filtroSimFormato")?.value || "TODOS";
+    const fs = document.getElementById("filtroSimStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroSimBusca")?.value || "");
+    let sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario);
+    sims = sims.filter(s => (fd === "TODOS" || s.disciplina === fd) && (fn === "TODOS" || s.nivel === fn) && (ff === "TODOS" || s.formato === ff));
+    if (busca) sims = sims.filter(s => normalizarTexto(`${s.titulo} ${s.descricao} ${s.disciplina} ${s.nivel}`).includes(busca));
+    if (fs !== "TODOS") sims = sims.filter(s => fs === "RESPONDIDOS" ? !!envioSimuladoUsuario(s) : !envioSimuladoUsuario(s));
+    sims.sort((a,b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+    if (!sims.length) {
+        grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p></div>`;
+        return;
+    }
+    grid.innerHTML = sims.map(s => {
+        const envio = envioSimuladoUsuario(s);
+        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+        const ger = podeGerenciarSimulados() ? `<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver envios (${(s.envios||[]).length})</summary><div class="mt-3 space-y-2">${(s.envios||[]).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block"><i class="fa-solid fa-paperclip mr-1"></i>Abrir anexo</a>` : ""}</div>`).join("") || `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}</div></details>` : "";
+        return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
+            <div class="flex flex-col lg:flex-row lg:items-start gap-4">
+                <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-2 mb-2">${enviadoTexto}<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">${textoSeguro(s.formato || "simulado")}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-400 text-[10px] font-bold uppercase">${textoSeguro(s.nivel || "Geral")}</span></div>
+                    <h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3>
+                    <p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${s.dataFim ? `Prazo: ${textoSeguro(s.dataFim)}` : "Sem prazo definido"} · ${textoSeguro(s.duracao || "")}</p>
+                    ${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}
+                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir simulado</a>` : ""}${s.imagemUrl ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${ger}</div>
+                </div>
+                <div class="w-full lg:w-96 bg-gray-900/70 border border-gray-700 rounded-2xl p-4">
+                    <h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Enviar resposta / resolução</h4>
+                    <textarea id="simRespTexto_${s.id}" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Alternativas, comentário ou descrição da resolução...">${textoSeguro(envio?.texto || "")}</textarea>
+                    <input type="file" id="simRespArquivo_${s.id}" accept="image/*,.pdf,.doc,.docx" class="w-full mt-2 p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
+                    ${envio?.arquivoUrl ? `<a href="${envio.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block">Anexo enviado anteriormente</a>` : ""}
+                    <button onclick="enviarRespostaSimulado('${s.id}')" class="w-full mt-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase rounded-xl"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar / atualizar resposta</button>
+                </div>
+            </div>${enviosResumo}</div>`;
+    }).join("");
+}
+
+// ==================== MÓDULO AULAS ====================
+function ajustarCamposAula() {
+    const origem = document.getElementById("aulaOrigem")?.value || "youtube";
+    document.getElementById("aulaUrlWrap")?.classList.toggle("hidden", origem === "upload");
+    document.getElementById("aulaArquivoWrap")?.classList.toggle("hidden", origem !== "upload");
+}
+
+function popularFiltrosAulas() {
+    const aulas = getStorage("app_aulas", []);
+    popularSelectUnico("filtroAulaNivel", aulas.map(a => a.nivel), "Todos");
+    popularSelectUnico("filtroAulaDisciplina", aulas.map(a => a.disciplina), "Todas");
+    popularSelectUnico("filtroAulaPlaylist", aulas.map(a => a.playlist), "Todas");
+    const painel = document.getElementById("painelAddAula");
+    if (painel) painel.classList.toggle("hidden", !podeGerenciarAulas());
+    ajustarCamposAula();
+}
+
+function youtubeEmbedUrl(url) {
+    const u = String(url || "").trim();
+    if (!u) return "";
+    const m = u.match(/(?:youtu\.be\/|v=|embed\/)([a-zA-Z0-9_-]{6,})/);
+    return m ? `https://www.youtube.com/embed/${m[1]}` : "";
+}
+
+async function salvarNovaAula(event) {
+    event.preventDefault();
+    if (!podeGerenciarAulas()) return alert("Apenas ADM, monitores e professores/orientadores podem publicar aulas.");
+    const btn = event.submitter || document.querySelector('#formCadAula button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
+        const origem = document.getElementById("aulaOrigem").value;
+        const aula = {
+            id: novoId(), nivel: document.getElementById("aulaNivel").value,
+            disciplina: document.getElementById("aulaDisciplina").value,
+            playlist: document.getElementById("aulaPlaylist").value.trim(),
+            tema: document.getElementById("aulaTema").value.trim(), origem,
+            url: origem !== "upload" ? document.getElementById("aulaUrl").value.trim() : "",
+            descricao: document.getElementById("aulaDescricao").value.trim(),
+            criadoPor: usuarioLogado?.nome || "Sistema", criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "",
+            criadoPorNivel: usuarioLogado?.nivel || "", criadoEm: Date.now(), atualizadoEm: Date.now()
+        };
+        if (!aula.playlist || !aula.tema) return alert("Informe playlist e tema da aula.");
+        if (origem === "upload") {
+            const arquivo = document.getElementById("aulaArquivo")?.files?.[0] || null;
+            if (!arquivo) return alert("Selecione um arquivo de vídeo.");
+            const up = await enviarArquivoParaFirebaseStorage(arquivo, "aulas_videos");
+            Object.assign(aula, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, url: up.fileUrl });
+        } else if (!aula.url) return alert("Informe a URL da aula.");
+        const lista = getStorage("app_aulas", []);
+        lista.push(aula);
+        await setStorage("app_aulas", lista);
+        document.getElementById("formCadAula").reset();
+        ajustarCamposAula();
+        popularFiltrosAulas(); renderizarAulas();
+        alert("Aula publicada com sucesso.");
+    } catch (erro) {
+        console.error("Erro ao salvar aula", erro);
+        alert(`Erro ao salvar aula.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar Aula'; }
+    }
+}
+
+async function excluirAula(id) {
+    if (!podeGerenciarAulas()) return;
+    const aula = getStorage("app_aulas", []).find(a => a.id === id);
+    if (!aula) return;
+    if (!confirm(`Apagar a aula "${aula.tema}"?`)) return;
+    await setStorage("app_aulas", getStorage("app_aulas", []).filter(a => a.id !== id));
+    renderizarAulas();
+}
+
+function renderizarAulas() {
+    popularFiltrosAulas();
+    const grid = document.getElementById("gridAulas");
+    if (!grid) return;
+    const fn = document.getElementById("filtroAulaNivel")?.value || "TODOS";
+    const fd = document.getElementById("filtroAulaDisciplina")?.value || "TODOS";
+    const fp = document.getElementById("filtroAulaPlaylist")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroAulaBusca")?.value || "");
+    let aulas = getStorage("app_aulas", []);
+    aulas = aulas.filter(a => (fn === "TODOS" || a.nivel === fn) && (fd === "TODOS" || a.disciplina === fd) && (fp === "TODOS" || a.playlist === fp));
+    if (busca) aulas = aulas.filter(a => normalizarTexto(`${a.tema} ${a.playlist} ${a.descricao} ${a.disciplina}`).includes(busca));
+    aulas.sort((a,b) => String(a.nivel).localeCompare(String(b.nivel), "pt-BR") || String(a.disciplina).localeCompare(String(b.disciplina), "pt-BR") || String(a.playlist).localeCompare(String(b.playlist), "pt-BR") || (a.criadoEm||0)-(b.criadoEm||0));
+    if (!aulas.length) {
+        grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-video text-3xl mb-3 opacity-40"></i><p>Nenhuma aula encontrada.</p></div>`;
+        return;
+    }
+    const grupos = {};
+    aulas.forEach(a => {
+        const k = `${a.nivel}||${a.disciplina}||${a.playlist}`;
+        if (!grupos[k]) grupos[k] = { nivel: a.nivel, disciplina: a.disciplina, playlist: a.playlist, aulas: [] };
+        grupos[k].aulas.push(a);
+    });
+    grid.innerHTML = Object.values(grupos).map(g => `<div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden">
+        <div class="p-5 border-b border-gray-700 bg-gray-900/40"><p class="text-[10px] uppercase tracking-widest text-blue-300 font-black">${textoSeguro(g.nivel)} · ${textoSeguro(g.disciplina)}</p><h3 class="text-lg font-black text-white mt-1"><i class="fa-solid fa-play mr-2 text-blue-400"></i>${textoSeguro(g.playlist)}</h3></div>
+        <div class="divide-y divide-gray-700/50">${g.aulas.map(a => {
+            const embed = a.origem === "youtube" ? youtubeEmbedUrl(a.url) : "";
+            const media = embed ? `<iframe class="w-full aspect-video rounded-xl border border-gray-700 bg-black" src="${embed}" allowfullscreen></iframe>` : (a.url ? `<a href="${a.url}" target="_blank" class="inline-flex items-center px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir aula</a>` : "");
+            const del = podeGerenciarAulas() ? `<button onclick="excluirAula('${a.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
+            return `<div class="p-5 grid grid-cols-1 lg:grid-cols-3 gap-4"><div class="lg:col-span-2"><h4 class="font-black text-white">${textoSeguro(a.tema)}</h4><p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(a.criadoPor || "Sistema")}</p>${a.descricao ? `<p class="text-sm text-gray-300 mt-3">${textoSeguro(a.descricao)}</p>` : ""}<div class="mt-3 flex gap-2 flex-wrap">${del}</div></div><div>${media}</div></div>`;
+        }).join("")}</div>
+    </div>`).join("");
+}

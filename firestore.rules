@@ -34,6 +34,10 @@ service cloud.firestore {
       return isAdmin() || isMonitor() || isProfessorOrientador();
     }
 
+    function canPostConteudoPedagogico() {
+      return isAdmin() || isMonitor() || isProfessorOrientador();
+    }
+
     function isOwnerProfile() {
       return signedIn() && (
         resource.data.authUid == request.auth.uid ||
@@ -76,7 +80,7 @@ service cloud.firestore {
     // escrita para ADM/Monitor. O front-end ainda aplica escopos finos.
     match /anos/{ano}/{colecao}/{docId} {
       allow read: if signedIn();
-      allow write: if isAdmin() || isMonitor() || (isProfessorOrientador() && colecao == "sistema_plataforma");
+      allow write: if isAdmin() || isMonitor() || (isProfessorOrientador() && (colecao == "sistema_plataforma" || colecao == "sistema_simulados" || colecao == "sistema_aulas"));
     }
 
     // Compatibilidade com coleções globais antigas: autenticado lê;
@@ -88,6 +92,8 @@ service cloud.firestore {
     match /sistema_premiados/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
     match /sistema_alunos/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
     match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if canPostPlataforma(); }
+    match /sistema_simulados/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
+    match /sistema_aulas/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
 
     // Bloqueia o resto.
     match /{document=**} {
