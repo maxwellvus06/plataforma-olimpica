@@ -893,7 +893,35 @@ function prepararListaParaFirestore(lista) {
     });
 }
 
+function docIdUsuarioFirestore(item) {
+    return String(item?.authUid || item?.id || item?.login || novoId());
+}
+
+async function upsertColecaoFirestore(nomeColecao, lista) {
+    const col = firebaseFirestore.collection(nomeColecao);
+    const dados = prepararListaParaFirestore(lista);
+
+    let batch = firebaseFirestore.batch();
+    let ops = 0;
+
+    dados.forEach(item => {
+        const docId = nomeColecao === "sistema_usuarios" ? docIdUsuarioFirestore(item) : String(item.id);
+        batch.set(col.doc(docId), item, { merge: true });
+        ops++;
+    });
+
+    if (ops > 0) await batch.commit();
+    return dados;
+}
+
 async function substituirColecaoFirestore(nomeColecao, lista) {
+    // ATENÇÃO: substituição total é segura para coleções anuais comuns,
+    // mas NUNCA deve ser usada para sistema_usuarios.
+    // Em usuários, um cache incompleto poderia apagar perfis já existentes.
+    if (nomeColecao === "sistema_usuarios") {
+        return upsertColecaoFirestore(nomeColecao, lista);
+    }
+
     const col = firebaseFirestore.collection(nomeColecao);
     const atuais = await col.get();
     const dados = prepararListaParaFirestore(lista);
@@ -907,13 +935,20 @@ async function substituirColecaoFirestore(nomeColecao, lista) {
     });
 
     dados.forEach(item => {
-        const docId = nomeColecao === "sistema_usuarios" ? String(item.authUid || item.id) : String(item.id);
-        batch.set(col.doc(docId), item);
+        batch.set(col.doc(String(item.id)), item);
         ops++;
     });
 
     if (ops > 0) await batch.commit();
     return dados;
+}
+
+async function apagarUsuarioFirestore(usuario) {
+    if (!firebaseFirestore || !usuario) return;
+    const ids = new Set([usuario.authUid, usuario.id].filter(Boolean).map(String));
+    const batch = firebaseFirestore.batch();
+    ids.forEach(id => batch.delete(firebaseFirestore.collection("sistema_usuarios").doc(id)));
+    if (ids.size) await batch.commit();
 }
 
 function salvarChaveFirebase(chave, valor) {
@@ -962,18 +997,9 @@ async function carregarChaveFirebase(chave, fallback = []) {
         });
 
         if (chave === "app_usuarios") {
-            const sementesUsuarios = dadosSementePorChave("app_usuarios");
-            const mapa = new Map();
-            remotos.forEach(item => mapa.set(String(item.id || item.login || novoId()), item));
-            sementesUsuarios.forEach(item => {
-                const id = String(item.id || item.login || novoId());
-                const loginJaExiste = Array.from(mapa.values()).some(x => normalizarTexto(x.login) === normalizarTexto(item.login));
-                if (!mapa.has(id) && !loginJaExiste) mapa.set(id, item);
-            });
-            const finais = prepararListaParaFirestore(Array.from(mapa.values()).filter(Boolean));
-            if (JSON.stringify(finais) !== JSON.stringify(prepararListaParaFirestore(remotos))) {
-                await substituirColecaoFirestore(colecao, finais);
-            }
+            // Usuários são globais e sensíveis. Nunca substituímos a coleção inteira
+            // ao carregar, para evitar apagar perfis Auth por causa de cache incompleto.
+            const finais = prepararListaParaFirestore(remotos);
             setStorageLocal(chave, finais);
             return finais;
         }
@@ -1019,8 +1045,10 @@ async function carregarDadosFirebaseInicial() {
 
 async function carregarDadosPosLogin() {
     // Depois do login, carrega as coleções usadas pelo painel.
-    // Usuários já foram carregados no processo de autenticação.
+    // ADM precisa carregar sistema_usuarios para a aba Gerenciar Usuários.
+    // Usuários não-ADM não fazem leitura geral de sistema_usuarios, respeitando Rules fechadas.
     const chaves = [
+        ...(usuarioLogado?.nivel === "ADM" ? ["app_usuarios"] : []),
         "app_cidades",
         "app_escolas",
         "app_alunos",
@@ -1047,16 +1075,24 @@ function salvarUsuariosFirebase(usuarios) {
 }
 
 async function salvarUsuariosSistema(usuarios) {
-    setStorageLocal("app_usuarios", usuarios);
+    let lista = normalizarListaFirebase(usuarios);
+
+    // Proteção contra cache incompleto: se o ADM logado não estiver na lista,
+    // preserva o próprio perfil para evitar "sumir" da tela de gerenciamento.
+    if (usuarioLogado && !lista.some(u => u.id === usuarioLogado.id || u.authUid === usuarioLogado.authUid)) {
+        lista = [usuarioLogado, ...lista];
+    }
+
+    setStorageLocal("app_usuarios", lista);
     if (usuarioLogado?.nivel === "ADM") {
         try {
-            const provisionados = await provisionarAuthUsuarios(usuarios);
+            const provisionados = await provisionarAuthUsuarios(lista);
             return salvarChaveFirebase("app_usuarios", provisionados);
         } catch (erro) {
             console.warn("Provisionamento Auth falhou. Salvando perfis no Firestore mesmo assim.", erro);
         }
     }
-    return salvarChaveFirebase("app_usuarios", usuarios);
+    return salvarChaveFirebase("app_usuarios", lista);
 }
 
 function garantirCadastrosBasicos() {
@@ -1337,17 +1373,27 @@ async function provisionarUsuariosAuthExistentes() {
 }
 
 // ==================== CRUD USUÁRIOS ====================
-function excluirUsuario(id) {
+async function excluirUsuario(id) {
     const usuarios = getStorage("app_usuarios");
-    const usuario = usuarios.find(u => u.id === id);
+    const usuario = usuarios.find(u => u.id === id || u.authUid === id);
     if (!usuario) return alert("Usuário não encontrado.");
     if (!usuarioPodeGerenciarUsuarioAlvo(usuario)) return alert("Você não tem permissão para apagar este usuário.");
-    if (usuarioLogado?.id === id) return alert("Segurança: você não pode apagar o próprio usuário enquanto está logado.");
+    if (usuarioLogado?.id === id || usuarioLogado?.authUid === usuario.authUid) return alert("Segurança: você não pode apagar o próprio usuário enquanto está logado.");
     const admins = usuarios.filter(u => u.nivel === "ADM");
     if (usuario.nivel === "ADM" && admins.length <= 1) return alert("Segurança: não é permitido apagar o último administrador do sistema.");
     if (!confirmarExclusao("o usuário", usuario.nome)) return;
-    salvarUsuariosSistema(usuarios.filter(u => u.id !== id));
-    renderizarTabelasGerenciais();
+
+    try {
+        await apagarUsuarioFirestore(usuario);
+        setStorageLocal("app_usuarios", usuarios.filter(u => u.id !== usuario.id && u.authUid !== usuario.authUid));
+        renderizarTabelasGerenciais();
+        alert("Usuário removido do Firestore. Se ele também existir no Firebase Auth, remova-o em Authentication > Users ou use a rotina administrativa segura quando configurarmos Cloud Functions.");
+    } catch (erro) {
+        console.error("Erro ao excluir usuário", erro);
+        alert(`Não foi possível excluir o usuário.
+
+${erro.message || erro}`);
+    }
 }
 
 function excluirCidade(id) {
