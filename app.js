@@ -174,6 +174,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaModoExibicao")?.addEventListener("change", renderizarCronograma);
         document.getElementById("btnToggleTema")?.addEventListener("click", alternarTemaClaroEscuro);
+        document.getElementById("btnAtualizarReuniao")?.addEventListener("click", gerarPainelReuniao);
+        initMobileUX();
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -438,6 +440,7 @@ function aplicarPermissoesNavegacao(usuario) {
         "btnNav-calendario": "calendario",
         "btnNav-importar": "importar",
         "btnNav-relatorios": "relatorios",
+        "btnNav-reuniao": "reuniao",
         "btnNav-plataforma": "plataforma",
         "btnNav-monitoria": "monitoria",
         "btnNav-meusresultados": "meusresultados",
@@ -555,7 +558,7 @@ function ativarPrimeiraAbaPermitida() {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -568,6 +571,7 @@ function ativarPrimeiraAbaPermitida() {
     if (aba === "monitoria") renderizarSalasMonitoria();
     if (aba === "importar") renderizarResultadosImportacao();
     if (aba === "relatorios") prepararTelaRelatoriosComparativos();
+    if (aba === "reuniao") prepararTelaReuniao();
     if (aba === "alunos") { popularSeletoresAlunos(); renderizarAlunos(); }
     if (aba === "layout") prepararEditorLayout();
 }
@@ -873,6 +877,7 @@ Os dados exibidos serão recarregados do banco deste ano.`)) {
         renderizarPlataformaEnsino();
         renderizarDashboardAluno();
         if (!document.getElementById("view-relatorios")?.classList.contains("hidden")) prepararTelaRelatoriosComparativos();
+        if (!document.getElementById("view-reuniao")?.classList.contains("hidden")) prepararTelaReuniao();
         alert(`Ano ${anoDadosAtivo} carregado com sucesso.`);
     }
 }
@@ -2242,16 +2247,186 @@ async function gerarRelatoriosComparativos() {
     }
 }
 
+// ==================== REUNIÃO ESTRATÉGICA ADM ====================
+function abrirMenuMobile() {
+    document.body.classList.add("sidebar-open");
+}
+
+function fecharMenuMobile() {
+    document.body.classList.remove("sidebar-open");
+}
+
+function initMobileUX() {
+    document.querySelectorAll(".nav-item").forEach(btn => {
+        btn.addEventListener("click", () => {
+            if (window.innerWidth < 1024) fecharMenuMobile();
+        });
+    });
+    window.addEventListener("resize", () => {
+        if (window.innerWidth >= 1024) fecharMenuMobile();
+    });
+}
+
+function anosSelecionadosReuniao() {
+    const inicio = document.getElementById("reuniaoAnoInicio")?.value || "2022";
+    const fim = document.getElementById("reuniaoAnoFim")?.value || anoDadosAtivo;
+    const a = Number(inicio), b = Number(fim);
+    const min = Math.min(a, b), max = Math.max(a, b);
+    return ANOS_REFERENCIA_PADRAO.filter(ano => Number(ano) >= min && Number(ano) <= max);
+}
+
+function prepararFiltrosReuniao() {
+    const ini = document.getElementById("reuniaoAnoInicio");
+    const fim = document.getElementById("reuniaoAnoFim");
+    const opts = ANOS_REFERENCIA_PADRAO.map(a => `<option value="${a}">${a}</option>`).join("");
+    if (ini && ini.options.length === 0) ini.innerHTML = opts;
+    if (fim && fim.options.length === 0) fim.innerHTML = opts;
+    if (ini && !ini.value) ini.value = "2022";
+    if (fim) fim.value = anoDadosAtivo;
+}
+
+async function prepararTelaReuniao() {
+    prepararFiltrosReuniao();
+    await gerarPainelReuniao();
+}
+
+function formatoNumero(valor) {
+    return Number(valor || 0).toLocaleString("pt-BR");
+}
+
+function crescimentoPercentual(primeiro, ultimo) {
+    if (!primeiro && !ultimo) return "—";
+    if (!primeiro && ultimo) return "+100%";
+    const pct = ((ultimo - primeiro) / Math.max(1, primeiro)) * 100;
+    return `${pct >= 0 ? "+" : ""}${pct.toFixed(1).replace(".", ",")}%`;
+}
+
+function resumoOuros(lista) {
+    return lista.filter(item => classificarPremio(item.premio) === "ouro").length;
+}
+
+function resumoPratas(lista) {
+    return lista.filter(item => classificarPremio(item.premio) === "prata").length;
+}
+
+function resumoBronzes(lista) {
+    return lista.filter(item => classificarPremio(item.premio) === "bronze").length;
+}
+
+function melhorEntidadeTexto(ranking, tipo) {
+    if (!ranking.length) return `Ainda não há ${tipo} com resultados no período.`;
+    const top = ranking[0];
+    return `${top.nome} lidera com ${top.total} resultado(s).`;
+}
+
+function tendenciaClasse(delta) {
+    if (delta > 0) return "text-emerald-400";
+    if (delta < 0) return "text-red-400";
+    return "text-gray-300";
+}
+
+
+function nomeOlimpiadaPorIdReuniao(id) {
+    const olimpiadas = getStorage("app_olimpiadas", []);
+    const item = olimpiadas.find(o => String(o.id) === String(id));
+    return item?.nome || "";
+}
+
+function montarItemInsight(texto, icone = "fa-lightbulb", cor = "text-blue-400") {
+    return `<div class="meeting-insight bg-gray-900/60 border border-gray-700 rounded-xl p-3"><p class="text-sm text-gray-300"><i class="fa-solid ${icone} ${cor} mr-2"></i>${texto}</p></div>`;
+}
+
+async function gerarPainelReuniao() {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const btn = document.getElementById("btnAtualizarReuniao");
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Gerando...'; }
+        const anos = anosSelecionadosReuniao();
+        const dados = await carregarDadosMultianuaisRelatorio(anos);
+        const premiados = filtrarListaPorEscopoResultado(dados.premiados || []);
+        const alunos = dados.alunos || [];
+        const cronograma = dados.cronograma || [];
+        const plataforma = dados.plataforma || [];
+        const porAno = agregarPorAno(premiados, anos);
+        const primeiro = porAno[0]?.total || 0;
+        const ultimo = porAno[porAno.length - 1]?.total || 0;
+        const delta = ultimo - primeiro;
+        const escolas = new Set(premiados.map(r => normalizarTexto(r.escola)).filter(Boolean));
+        const cidades = new Set(premiados.map(r => normalizarTexto(r.municipio)).filter(Boolean));
+        const olimpiadas = contagemPorCampo(premiados, "olimpiada", 8);
+        const rankingCidades = agregarRanking(premiados, "municipio").slice(0, 8);
+        const rankingEscolas = agregarRanking(premiados, "escola", "municipio").slice(0, 10);
+
+        document.getElementById("reuniaoTotalMedalhas").innerText = formatoNumero(premiados.length);
+        document.getElementById("reuniaoTotalSub").innerText = `${resumoOuros(premiados)} ouro(s), ${resumoPratas(premiados)} prata(s), ${resumoBronzes(premiados)} bronze(s)`;
+        document.getElementById("reuniaoCrescimento").innerText = crescimentoPercentual(primeiro, ultimo);
+        document.getElementById("reuniaoCrescimento").className = `text-3xl font-black mt-2 ${tendenciaClasse(delta)}`;
+        document.getElementById("reuniaoCrescimentoSub").innerText = `${primeiro} em ${porAno[0]?.ano || "—"} → ${ultimo} em ${porAno[porAno.length-1]?.ano || "—"}`;
+        document.getElementById("reuniaoEscolas").innerText = formatoNumero(escolas.size);
+        document.getElementById("reuniaoEscolasSub").innerText = `${cidades.size} cidade(s) com resultado`;
+        document.getElementById("reuniaoAlunos").innerText = formatoNumero(alunos.length);
+        document.getElementById("reuniaoAlunosSub").innerText = `${plataforma.length} material(is) na plataforma`;
+
+        const tbodyEvo = document.getElementById("tableReuniaoEvolucao");
+        if (tbodyEvo) {
+            tbodyEvo.innerHTML = porAno.map((linha, i) => {
+                const anterior = i > 0 ? porAno[i-1].total : linha.total;
+                const d = linha.total - anterior;
+                return `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${linha.ano}</td><td class="p-4 font-bold">${linha.total}</td><td class="p-4">${linha.ouro}</td><td class="p-4">${linha.prata}</td><td class="p-4">${linha.bronze}</td><td class="p-4 font-bold ${tendenciaClasse(d)}">${i === 0 ? "—" : (d >= 0 ? "+" : "") + d}</td></tr>`;
+            }).join("") || `<tr><td colspan="6" class="p-6 text-center text-gray-500">Sem dados no período.</td></tr>`;
+        }
+
+        const insights = [];
+        insights.push(montarItemInsight(gerarInsightCrescimento(porAno), delta >= 0 ? "fa-arrow-trend-up" : "fa-triangle-exclamation", delta >= 0 ? "text-emerald-400" : "text-amber-400"));
+        insights.push(montarItemInsight(melhorEntidadeTexto(rankingCidades, "cidades"), "fa-city", "text-emerald-400"));
+        insights.push(montarItemInsight(melhorEntidadeTexto(rankingEscolas, "escolas"), "fa-school", "text-purple-400"));
+        if (olimpiadas.length) insights.push(montarItemInsight(`A olimpíada de maior impacto no período é ${olimpiadas[0].nome}, com ${olimpiadas[0].total} resultado(s).`, "fa-trophy", "text-amber-400"));
+        if (!premiados.length) insights.push(montarItemInsight("Ainda não há resultados suficientes para apresentação. O foco da reunião deve ser plano de cadastro, aplicação e importação de resultados.", "fa-clipboard-list", "text-blue-400"));
+        document.getElementById("reuniaoInsights").innerHTML = insights.join("");
+
+        const tbodyCid = document.getElementById("tableReuniaoCidades");
+        if (tbodyCid) tbodyCid.innerHTML = rankingCidades.map(r => `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${textoSeguro(r.nome)}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4">${melhorAnoTexto(r.porAno)}</td><td class="p-4 text-gray-400">${crescimentoEntidadeTexto(r.porAno, anos)}</td></tr>`).join("") || `<tr><td colspan="4" class="p-6 text-center text-gray-500">Sem cidades ranqueadas.</td></tr>`;
+
+        const tbodyEsc = document.getElementById("tableReuniaoEscolas");
+        if (tbodyEsc) tbodyEsc.innerHTML = rankingEscolas.map(r => `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${textoSeguro(r.nome)}</td><td class="p-4 text-gray-400">${textoSeguro(r.secundario || "—")}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4 text-gray-400">${crescimentoEntidadeTexto(r.porAno, anos)}</td></tr>`).join("") || `<tr><td colspan="4" class="p-6 text-center text-gray-500">Sem escolas ranqueadas.</td></tr>`;
+
+        const oliBox = document.getElementById("reuniaoOlimpiadas");
+        if (oliBox) oliBox.innerHTML = olimpiadas.map((o, i) => `<div class="flex items-center justify-between gap-3 bg-gray-900/60 border border-gray-700 rounded-xl p-3"><span class="font-bold text-gray-200">${i+1}. ${textoSeguro(o.nome)}</span><span class="text-blue-400 font-black">${o.total}</span></div>`).join("") || `<p class="text-gray-500">Sem resultados por olimpíada no período.</p>`;
+
+        const agenda = cronograma
+            .map(item => ({...item, temporal: classificarTemporalCronograma(item)}))
+            .filter(item => item.temporal && item.temporal.codigo !== "passado" && item.temporal.codigo !== "semdata")
+            .sort((a,b) => a.temporal.dataBase - b.temporal.dataBase)
+            .slice(0, 6);
+        const agendaBox = document.getElementById("reuniaoAgenda");
+        if (agendaBox) agendaBox.innerHTML = agenda.map(item => `<div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-white">${textoSeguro(item.etapa || "Etapa")}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(item.data || "Data não informada")} · ${textoSeguro(nomeOlimpiadaPorIdReuniao(item.olimpiadaId) || item.olimpiada || "Olimpíada")}</p></div>`).join("") || `<p class="text-gray-500">Sem agenda futura cadastrada.</p>`;
+
+        const enc = [];
+        if (delta < 0) enc.push("Investigar queda de resultados e comparar calendário de preparação do período.");
+        if (alunos.length && premiados.length) enc.push(`Cruzar ${alunos.length} aluno(s) cadastrado(s) com resultados para identificar talentos recorrentes.`);
+        if (plataforma.length) enc.push(`Usar os ${plataforma.length} material(is) publicados para direcionar trilhas de estudo por nível.`);
+        enc.push("Definir metas por cidade, escola e olimpíada para o próximo ciclo.");
+        enc.push("Revisar eventos dos próximos 30 dias e responsáveis por inscrição/aplicação/correção.");
+        document.getElementById("reuniaoEncaminhamentos").innerHTML = enc.map(x => `<div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3"><i class="fa-solid fa-check text-emerald-400 mr-2"></i>${textoSeguro(x)}</div>`).join("");
+    } catch (erro) {
+        console.error("Erro ao gerar painel de reunião", erro);
+        alert(`Erro ao gerar painel de reunião.\n\n${erro.message || erro}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate mr-2"></i>Atualizar'; }
+    }
+}
+
 // ==================== NAVEGAÇÃO ENTRE ABAS ====================
 function navegarAba(abaId, botaoTarget) {
     if (!podeVerAba(abaId)) return;
+    fecharMenuMobile();
 
     document.querySelectorAll(".tab-view").forEach(view => view.classList.add("hidden"));
     document.getElementById(`view-${abaId}`).classList.remove("hidden");
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -2270,6 +2445,9 @@ function navegarAba(abaId, botaoTarget) {
     }
     if (abaId === "relatorios") {
         prepararTelaRelatoriosComparativos();
+    }
+    if (abaId === "reuniao") {
+        prepararTelaReuniao();
     }
     if (abaId === "meusresultados") {
         renderizarDashboardAluno();

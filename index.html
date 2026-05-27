@@ -23,6 +23,53 @@
         body.theme-light .hover\:bg-gray-800\/40:hover, body.theme-light .hover\:bg-gray-900:hover, body.theme-light .nav-item:hover { background-color: #e2e8f0 !important; color: #1f2937 !important; }
         body.theme-light [disabled], body.theme-light .opacity-50 { color: rgba(17,24,39,.72) !important; opacity: .75 !important; }
     
+
+        /* ==================== AJUSTES MOBILE / RESPONSIVIDADE ==================== */
+        #mobileSidebarOverlay { display: none; }
+        .meeting-card { position: relative; overflow: hidden; }
+        .meeting-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 45%); }
+        .meeting-insight { border-left: 3px solid rgba(59,130,246,.75); }
+        .meeting-print-page { page-break-inside: avoid; }
+
+        @media (max-width: 1023px) {
+            body.sidebar-open { overflow: hidden; }
+            #mainPanel { display: block !important; }
+            #mainPanel.hidden { display: none !important; }
+            #mobileSidebarOverlay { display: none; position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,.56); backdrop-filter: blur(2px); }
+            body.sidebar-open #mobileSidebarOverlay { display: block; }
+            #mainPanel > aside { position: fixed; z-index: 40; inset: 0 auto 0 0; width: min(82vw, 20rem); transform: translateX(-105%); transition: transform .22s ease; box-shadow: 0 25px 80px rgba(0,0,0,.45); }
+            body.sidebar-open #mainPanel > aside { transform: translateX(0); }
+            #mainPanel > div.flex-1 { min-height: 100vh; width: 100%; }
+            header.h-16 { height: auto !important; min-height: 64px; padding: .75rem 1rem !important; gap: .75rem; align-items: flex-start !important; }
+            header.h-16 > div { flex-wrap: wrap; justify-content: flex-end; gap: .5rem !important; }
+            #pageTitleDisplay { font-size: .95rem; max-width: 48vw; line-height: 1.2; }
+            main.p-8 { padding: 1rem !important; }
+            .mobile-scroll-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            table { min-width: 720px; }
+            .tab-view { padding-bottom: 5rem; }
+            .rounded-2xl { border-radius: 1rem; }
+            .p-6 { padding: 1rem; }
+            .p-5 { padding: .9rem; }
+            .grid { min-width: 0; }
+        }
+
+        @media (max-width: 640px) {
+            #pageTitleDisplay { max-width: 60vw; }
+            header .bg-gray-950 { padding: .35rem .5rem !important; }
+            #btnToggleTema, #selectAnoDados { font-size: .7rem; }
+            .text-3xl { font-size: 1.55rem !important; }
+            .text-2xl { font-size: 1.35rem !important; }
+            .sm\:grid-cols-2, .md\:grid-cols-2, .md\:grid-cols-3, .md\:grid-cols-4, .lg\:grid-cols-3, .lg\:grid-cols-4, .xl\:grid-cols-2, .xl\:grid-cols-3 { grid-template-columns: 1fr !important; }
+        }
+
+        @media print {
+            aside, header, #mobileSidebarOverlay, .no-print { display: none !important; }
+            #mainPanel, #mainPanel > div, main { display: block !important; padding: 0 !important; overflow: visible !important; }
+            body { background: white !important; color: #111827 !important; }
+            .tab-view { display: none !important; }
+            #view-reuniao { display: block !important; }
+        }
+
         .brand-banner-preview { min-height: 120px; background-size: cover; background-position: center; }
         #brandLoginLogoSlot img, #brandSidebarLogoSlot img { width: 100%; height: 100%; object-fit: cover; }
     </style>
@@ -67,6 +114,7 @@
 
     <!-- ===================== PAINEL PRINCIPAL ===================== -->
     <div id="mainPanel" class="hidden flex min-h-screen">
+        <div id="mobileSidebarOverlay" onclick="fecharMenuMobile()"></div>
 
         <!-- SIDEBAR -->
         <aside class="w-64 bg-gray-950 border-r border-gray-800 flex flex-col shrink-0">
@@ -91,6 +139,9 @@
                 </button>
                 <button id="btnNav-relatorios" onclick="navegarAba('relatorios', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-chart-column text-base w-5 text-center"></i> Relatórios
+                </button>
+                <button id="btnNav-reuniao" onclick="navegarAba('reuniao', this)" class="nav-item hidden w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-handshake-angle text-base w-5 text-center"></i> Reunião
                 </button>
                 <button id="btnNav-plataforma" onclick="navegarAba('plataforma', this)" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-gray-400 hover:bg-gray-900 hover:text-gray-200 transition">
                     <i class="fa-solid fa-chalkboard-user text-base w-5 text-center"></i> Plataforma
@@ -141,7 +192,10 @@
         <!-- ÁREA PRINCIPAL -->
         <div class="flex-1 flex flex-col min-w-0">
             <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-8 shrink-0">
-                <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
+                <div class="flex items-center gap-3 min-w-0">
+                    <button id="btnMobileMenu" type="button" onclick="abrirMenuMobile()" class="lg:hidden w-10 h-10 rounded-xl bg-gray-950 border border-gray-800 text-gray-300 flex items-center justify-center"><i class="fa-solid fa-bars"></i></button>
+                    <h2 id="pageTitleDisplay" class="text-base font-bold text-white tracking-wide">Dashboard Analítico</h2>
+                </div>
                 <div class="flex items-center gap-3">
                     <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
                         <i class="fa-solid fa-calendar text-blue-400 text-xs"></i>
@@ -355,6 +409,69 @@
                         <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Escola</th><th class="p-4">Cidade</th><th class="p-4">Total</th><th class="p-4">Melhor ano</th><th class="p-4">Crescimento</th></tr></thead><tbody id="tableRelEscolas" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
                     </div>
                 </section>
+
+                <!-- ===================== REUNIÃO ADM ===================== -->
+                <section id="view-reuniao" class="tab-view hidden space-y-6">
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                        <div class="p-6 border-b border-gray-700 bg-gradient-to-r from-blue-900/40 to-purple-900/30 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div>
+                                <p class="text-[11px] font-bold text-blue-300 uppercase tracking-[0.2em]">Painel de reunião</p>
+                                <h3 class="text-2xl font-black text-white mt-1">Resumo executivo olímpico</h3>
+                                <p class="text-sm text-gray-300 mt-1">Indicadores, alertas, evolução e narrativas prontas para apresentar em reunião.</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2 no-print">
+                                <select id="reuniaoAnoInicio" class="p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
+                                <select id="reuniaoAnoFim" class="p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"></select>
+                                <button id="btnAtualizarReuniao" onclick="gerarPainelReuniao()" type="button" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
+                                <button onclick="window.print()" type="button" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-print mr-2"></i>Imprimir / PDF</button>
+                            </div>
+                        </div>
+                        <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                            <div class="meeting-card bg-gray-900 border border-gray-700 rounded-2xl p-5"><span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Resultados no período</span><h4 id="reuniaoTotalMedalhas" class="text-3xl font-black text-white mt-2">0</h4><p id="reuniaoTotalSub" class="text-xs text-gray-500 mt-1">—</p></div>
+                            <div class="meeting-card bg-gray-900 border border-gray-700 rounded-2xl p-5"><span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Crescimento</span><h4 id="reuniaoCrescimento" class="text-3xl font-black text-emerald-400 mt-2">—</h4><p id="reuniaoCrescimentoSub" class="text-xs text-gray-500 mt-1">—</p></div>
+                            <div class="meeting-card bg-gray-900 border border-gray-700 rounded-2xl p-5"><span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Escolas com resultado</span><h4 id="reuniaoEscolas" class="text-3xl font-black text-purple-400 mt-2">0</h4><p id="reuniaoEscolasSub" class="text-xs text-gray-500 mt-1">—</p></div>
+                            <div class="meeting-card bg-gray-900 border border-gray-700 rounded-2xl p-5"><span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Alunos cadastrados</span><h4 id="reuniaoAlunos" class="text-3xl font-black text-blue-400 mt-2">0</h4><p id="reuniaoAlunosSub" class="text-xs text-gray-500 mt-1">—</p></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                        <div class="xl:col-span-2 bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-chart-line text-blue-400 mr-2"></i>Evolução para apresentar</h3></div>
+                            <div class="overflow-x-auto mobile-scroll-card"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Ano</th><th class="p-4">Total</th><th class="p-4">Ouro</th><th class="p-4">Prata</th><th class="p-4">Bronze</th><th class="p-4">Crescimento</th></tr></thead><tbody id="tableReuniaoEvolucao" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-lightbulb text-amber-400 mr-2"></i>Insights prontos</h3></div>
+                            <div id="reuniaoInsights" class="p-5 space-y-3 text-sm text-gray-300"></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-city text-emerald-400 mr-2"></i>Top cidades</h3></div>
+                            <div class="overflow-x-auto mobile-scroll-card"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Cidade</th><th class="p-4">Total</th><th class="p-4">Melhor ano</th><th class="p-4">Leitura</th></tr></thead><tbody id="tableReuniaoCidades" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-school text-purple-400 mr-2"></i>Top escolas</h3></div>
+                            <div class="overflow-x-auto mobile-scroll-card"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Escola</th><th class="p-4">Cidade</th><th class="p-4">Total</th><th class="p-4">Leitura</th></tr></thead><tbody id="tableReuniaoEscolas" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody></table></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-trophy text-amber-400 mr-2"></i>Olimpíadas que mais geram resultado</h3></div>
+                            <div id="reuniaoOlimpiadas" class="p-5 space-y-3 text-sm"></div>
+                        </div>
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-calendar-days text-blue-400 mr-2"></i>Agenda crítica</h3></div>
+                            <div id="reuniaoAgenda" class="p-5 space-y-3 text-sm"></div>
+                        </div>
+                        <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden meeting-print-page">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-list-check text-emerald-400 mr-2"></i>Encaminhamentos sugeridos</h3></div>
+                            <div id="reuniaoEncaminhamentos" class="p-5 space-y-3 text-sm text-gray-300"></div>
+                        </div>
+                    </div>
+                </section>
+
 
                 <!-- ===================== CALENDÁRIO ===================== -->
                 <section id="view-calendario" class="tab-view hidden space-y-6">
