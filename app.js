@@ -7182,11 +7182,76 @@ function atualizarDestinoSimulado() {
 function ajustarCamposSimulado() {
     const formato = document.getElementById("simFormato")?.value || "objetivo";
     const gabarito = document.getElementById("simGabarito");
+    const wrap = document.getElementById("simGabaritoObjetivoWrap");
+    if (wrap) wrap.classList.toggle("hidden", formato === "dissertativo");
     if (gabarito) {
         gabarito.placeholder = formato === "dissertativo"
             ? "Critérios de correção, rubrica ou observações para o orientador."
-            : "Ex: 1-A; 2-C; 3-E; 4-B...";
+            : "Critérios de correção, rubrica ou observações. O gabarito objetivo fica na grade acima.";
     }
+    if (formato !== "dissertativo") gerarCamposGabaritoSimulado(false);
+}
+
+function gerarCamposGabaritoSimulado(focar = true) {
+    const grid = document.getElementById("simGabaritoObjetivoGrid");
+    if (!grid) return;
+    const qtd = Math.max(1, Math.min(120, Number(document.getElementById("simQtdQuestoes")?.value || 20)));
+    const alternativas = ["", "A", "B", "C", "D", "E"];
+    const anteriores = {};
+    grid.querySelectorAll("select[data-q]").forEach(sel => { anteriores[sel.dataset.q] = sel.value; });
+    grid.innerHTML = Array.from({ length: qtd }, (_, i) => {
+        const n = i + 1;
+        return `<div class="rounded-xl border border-gray-700 bg-gray-950/60 p-2"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Q${n}</label><select data-q="${n}" class="simGabSelect w-full p-2 rounded-lg bg-gray-900 border border-gray-700 text-xs text-gray-200 focus:outline-none">${alternativas.map(a => `<option value="${a}" ${anteriores[n] === a ? "selected" : ""}>${a || "—"}</option>`).join("")}</select></div>`;
+    }).join("");
+    if (focar) grid.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function lerGabaritoObjetivoSimulado() {
+    const grid = document.getElementById("simGabaritoObjetivoGrid");
+    if (!grid) return [];
+    return Array.from(grid.querySelectorAll("select[data-q]")).map(sel => ({
+        numero: Number(sel.dataset.q),
+        resposta: String(sel.value || "").toUpperCase()
+    })).filter(item => item.resposta);
+}
+
+function renderGradeRespostaObjetiva(sim, envio) {
+    const gab = Array.isArray(sim.gabaritoObjetivo) ? sim.gabaritoObjetivo : [];
+    if (!gab.length || sim.formato === "dissertativo") return "";
+    const respostas = Array.isArray(envio?.respostasObjetivas) ? envio.respostasObjetivas : [];
+    const mapa = new Map(respostas.map(r => [Number(r.numero), String(r.resposta || "").toUpperCase()]));
+    const alternativas = ["", "A", "B", "C", "D", "E"];
+    return `<div class="mt-3 rounded-2xl border border-gray-700 bg-gray-950/50 p-3"><div class="flex items-center justify-between gap-2 mb-2"><h5 class="text-[11px] font-bold text-gray-300 uppercase">Cartão-resposta objetivo</h5><span class="text-[10px] text-gray-500">${gab.length} questões</span></div><div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">${gab.map(q => `<div class="rounded-xl bg-gray-900 border border-gray-700 p-2"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Q${q.numero}</label><select data-q="${q.numero}" class="simRespObj_${sim.id} w-full p-2 rounded-lg bg-gray-950 border border-gray-700 text-xs text-gray-200 focus:outline-none">${alternativas.map(a => `<option value="${a}" ${mapa.get(Number(q.numero)) === a ? "selected" : ""}>${a || "—"}</option>`).join("")}</select></div>`).join("")}</div></div>`;
+}
+
+function lerRespostaObjetivaSimulado(simuladoId) {
+    return Array.from(document.querySelectorAll(`.simRespObj_${CSS.escape(simuladoId)}[data-q]`)).map(sel => ({
+        numero: Number(sel.dataset.q),
+        resposta: String(sel.value || "").toUpperCase()
+    })).filter(item => item.resposta);
+}
+
+function corrigirRespostaObjetiva(gabarito, respostas) {
+    const gab = Array.isArray(gabarito) ? gabarito.filter(q => q.resposta) : [];
+    const mapaResp = new Map((Array.isArray(respostas) ? respostas : []).map(r => [Number(r.numero), String(r.resposta || "").toUpperCase()]));
+    let acertos = 0;
+    let respondidas = 0;
+    gab.forEach(q => {
+        const r = mapaResp.get(Number(q.numero));
+        if (r) respondidas++;
+        if (r && r === String(q.resposta || "").toUpperCase()) acertos++;
+    });
+    const total = gab.length;
+    const percentual = total ? Math.round((acertos / total) * 1000) / 10 : null;
+    return { acertos, total, respondidas, percentual };
+}
+
+function classeDesempenhoSimulado(percentual) {
+    if (percentual === null || percentual === undefined) return "text-gray-400";
+    if (percentual >= 80) return "text-emerald-300";
+    if (percentual >= 60) return "text-blue-300";
+    if (percentual >= 40) return "text-amber-300";
+    return "text-red-300";
 }
 
 function popularFiltrosSimulados() {
@@ -7196,6 +7261,8 @@ function popularFiltrosSimulados() {
     atualizarDestinoSimulado();
     const painel = document.getElementById("painelAddSimulado");
     if (painel) painel.classList.toggle("hidden", !podeGerenciarSimulados());
+    ajustarCamposSimulado();
+    atualizarSelectRankingSimulados();
 }
 
 function alunoDoUsuarioLogado() {
@@ -7255,6 +7322,8 @@ async function salvarNovoSimulado(event) {
             dataAbertura: document.getElementById("simDataAbertura").value || "",
             dataFim: document.getElementById("simDataFim").value || "",
             duracao: document.getElementById("simDuracao").value || "",
+            quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || 0),
+            gabaritoObjetivo: lerGabaritoObjetivoSimulado(),
             gabarito: document.getElementById("simGabarito").value.trim(),
             descricao: document.getElementById("simDescricao").value.trim(),
             destino: { tipo: document.getElementById("simDestinoTipo").value, valores: selectValores("simDestinoValores") },
@@ -7266,6 +7335,9 @@ async function salvarNovoSimulado(event) {
             envios: []
         };
         if (!sim.titulo) return alert("Informe o título do simulado.");
+        if (["objetivo", "misto"].includes(sim.formato) && !sim.gabaritoObjetivo.length) {
+            if (!confirm("Você não preencheu o gabarito objetivo. O aluno ainda poderá enviar resposta, mas não haverá correção automática/ranking por acertos. Deseja publicar assim mesmo?")) return;
+        }
         if (file) {
             const up = await enviarArquivoParaFirebaseStorage(file, "simulados");
             Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, arquivoTamanho: up.size });
@@ -7278,6 +7350,7 @@ async function salvarNovoSimulado(event) {
         lista.push(sim);
         await setStorage("app_simulados", lista);
         document.getElementById("formCadSimulado").reset();
+        gerarCamposGabaritoSimulado(false);
         atualizarDestinoSimulado();
         popularFiltrosSimulados();
         renderizarSimulados();
@@ -7296,15 +7369,32 @@ async function enviarRespostaSimulado(simuladoId) {
     if (!simulado) return alert("Simulado não encontrado.");
     const texto = document.getElementById(`simRespTexto_${simuladoId}`)?.value?.trim() || "";
     const arquivo = document.getElementById(`simRespArquivo_${simuladoId}`)?.files?.[0] || null;
-    if (!texto && !arquivo) return alert("Digite uma resposta ou envie uma imagem/arquivo de resolução.");
+    const respostasObjetivas = lerRespostaObjetivaSimulado(simuladoId);
+    const temGabaritoObjetivo = Array.isArray(simulado.gabaritoObjetivo) && simulado.gabaritoObjetivo.length > 0;
+    if (!texto && !arquivo && !respostasObjetivas.length) return alert("Preencha o cartão-resposta, digite uma resposta ou envie uma imagem/arquivo de resolução.");
+    if (temGabaritoObjetivo && respostasObjetivas.length < simulado.gabaritoObjetivo.length) {
+        if (!confirm(`Você respondeu ${respostasObjetivas.length} de ${simulado.gabaritoObjetivo.length} questões objetivas. Enviar mesmo assim?`)) return;
+    }
     try {
         const lista = getStorage("app_simulados", []);
         const idx = lista.findIndex(s => s.id === simuladoId);
         const envios = Array.isArray(lista[idx].envios) ? [...lista[idx].envios] : [];
         const uid = String(usuarioLogado.authUid || usuarioLogado.id);
+        const correcao = corrigirRespostaObjetiva(simulado.gabaritoObjetivo, respostasObjetivas);
+        const alunoAtual = alunoDoUsuarioLogado();
         const envio = {
             id: novoId(), usuarioId: uid, usuarioNome: usuarioLogado.nome, usuarioNivel: usuarioLogado.nivel,
-            alunoId: usuarioLogado.alunoId || alunoDoUsuarioLogado()?.id || "", texto, enviadoEm: Date.now()
+            alunoId: usuarioLogado.alunoId || alunoAtual?.id || "",
+            alunoNome: alunoAtual?.nome || usuarioLogado.nome || "",
+            escolaId: alunoAtual?.escolaId || usuarioLogado.vinculoId || "",
+            escolaNome: alunoAtual?.escola || "",
+            respostasObjetivas,
+            texto,
+            acertos: correcao.acertos,
+            totalObjetivas: correcao.total,
+            respondidasObjetivas: correcao.respondidas,
+            percentual: correcao.percentual,
+            enviadoEm: Date.now()
         };
         if (arquivo) {
             const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_respostas");
@@ -7353,9 +7443,11 @@ function renderizarSimulados() {
     }
     grid.innerHTML = sims.map(s => {
         const envio = envioSimuladoUsuario(s);
-        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
         const ger = podeGerenciarSimulados() ? `<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
-        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver envios (${(s.envios||[]).length})</summary><div class="mt-3 space-y-2">${(s.envios||[]).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block"><i class="fa-solid fa-paperclip mr-1"></i>Abrir anexo</a>` : ""}</div>`).join("") || `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}</div></details>` : "";
+        const rankingMini = rankingSimulado(s).slice(0, 5);
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${(s.envios||[]).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}${(s.envios||[]).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block"><i class="fa-solid fa-paperclip mr-1"></i>Abrir anexo</a>` : ""}</div>`).join("")}</div></details>` : "";
         return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
             <div class="flex flex-col lg:flex-row lg:items-start gap-4">
                 <div class="flex-1">
@@ -7367,13 +7459,78 @@ function renderizarSimulados() {
                 </div>
                 <div class="w-full lg:w-96 bg-gray-900/70 border border-gray-700 rounded-2xl p-4">
                     <h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Enviar resposta / resolução</h4>
-                    <textarea id="simRespTexto_${s.id}" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Alternativas, comentário ou descrição da resolução...">${textoSeguro(envio?.texto || "")}</textarea>
+                    ${renderGradeRespostaObjetiva(s, envio)}
+                    <textarea id="simRespTexto_${s.id}" rows="3" class="w-full mt-3 p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Comentário, justificativa ou descrição da resolução...">${textoSeguro(envio?.texto || "")}</textarea>
                     <input type="file" id="simRespArquivo_${s.id}" accept="image/*,.pdf,.doc,.docx" class="w-full mt-2 p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
                     ${envio?.arquivoUrl ? `<a href="${envio.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block">Anexo enviado anteriormente</a>` : ""}
                     <button onclick="enviarRespostaSimulado('${s.id}')" class="w-full mt-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase rounded-xl"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar / atualizar resposta</button>
                 </div>
             </div>${enviosResumo}</div>`;
     }).join("");
+    atualizarSelectRankingSimulados();
+    renderizarRankingSimulado(false);
+}
+
+// ==================== RANKING E RELATÓRIOS DE SIMULADOS ====================
+function rankingSimulado(sim) {
+    return (Array.isArray(sim?.envios) ? sim.envios : []).map(e => ({ ...e })).sort((a, b) => {
+        const pa = Number(a.percentual ?? -1);
+        const pb = Number(b.percentual ?? -1);
+        if (pb !== pa) return pb - pa;
+        const aa = Number(a.acertos ?? -1);
+        const ab = Number(b.acertos ?? -1);
+        if (ab !== aa) return ab - aa;
+        return Number(a.enviadoEm || 0) - Number(b.enviadoEm || 0);
+    });
+}
+
+function atualizarSelectRankingSimulados() {
+    const painel = document.getElementById("painelRankingSimulados");
+    const sel = document.getElementById("selectRankingSimulado");
+    if (painel) painel.classList.toggle("hidden", !podeGerenciarSimulados());
+    if (!sel || !podeGerenciarSimulados()) return;
+    const atual = sel.value;
+    const sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario).sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+    sel.innerHTML = `<option value="">Selecione um simulado</option>` + sims.map(s => `<option value="${textoSeguro(s.id)}">${textoSeguro(s.titulo)} — ${textoSeguro(s.nivel || "Geral")}</option>`).join("");
+    if (sims.some(s => s.id === atual)) sel.value = atual;
+}
+
+function renderizarRankingSimulado(mostrarVazio = true) {
+    const box = document.getElementById("rankingSimuladoResumo");
+    const sel = document.getElementById("selectRankingSimulado");
+    if (!box || !sel || !podeGerenciarSimulados()) return;
+    const sim = getStorage("app_simulados", []).find(s => s.id === sel.value);
+    if (!sim) {
+        box.innerHTML = mostrarVazio ? `<p class="text-xs text-gray-500">Selecione um simulado para ver ranking, desempenho e relatório.</p>` : "";
+        return;
+    }
+    const rank = rankingSimulado(sim);
+    const comCorrecao = rank.filter(e => Number(e.totalObjetivas || 0) > 0);
+    const media = comCorrecao.length ? Math.round((comCorrecao.reduce((acc,e)=>acc+Number(e.percentual||0),0)/comCorrecao.length)*10)/10 : null;
+    const melhor = comCorrecao[0];
+    box.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Envios</p><h4 class="text-2xl font-black text-white">${rank.length}</h4></div>
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Média</p><h4 class="text-2xl font-black ${classeDesempenhoSimulado(media)}">${media === null ? "—" : `${media}%`}</h4></div>
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Melhor desempenho</p><h4 class="text-sm font-black text-white truncate">${textoSeguro(melhor?.alunoNome || melhor?.usuarioNome || "—")}</h4></div>
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Questões objetivas</p><h4 class="text-2xl font-black text-white">${Array.isArray(sim.gabaritoObjetivo) ? sim.gabaritoObjetivo.length : 0}</h4></div>
+    </div>
+    <div class="overflow-x-auto rounded-2xl border border-gray-700"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-3 text-left">#</th><th class="p-3 text-left">Aluno</th><th class="p-3 text-left">Escola</th><th class="p-3 text-left">Acertos</th><th class="p-3 text-left">%</th><th class="p-3 text-left">Enviado em</th><th class="p-3 text-left">Anexo</th></tr></thead><tbody>${rank.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-3 font-bold text-gray-400">${i+1}</td><td class="p-3 text-gray-200 font-bold">${textoSeguro(e.alunoNome || e.usuarioNome)}</td><td class="p-3 text-gray-400">${textoSeguro(e.escolaNome || "—")}</td><td class="p-3 text-gray-300">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas}` : "—"}</td><td class="p-3 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.percentual === null || e.percentual === undefined ? "—" : `${e.percentual}%`}</td><td class="p-3 text-gray-400">${e.enviadoEm ? new Date(e.enviadoEm).toLocaleString("pt-BR") : "—"}</td><td class="p-3">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Abrir</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("") || `<tr><td colspan="7" class="p-6 text-center text-gray-500">Nenhum envio ainda.</td></tr>`}</tbody></table></div>`;
+}
+
+function exportarRankingSimuladoCSV() {
+    const sel = document.getElementById("selectRankingSimulado");
+    const sim = getStorage("app_simulados", []).find(s => s.id === sel?.value);
+    if (!sim) return alert("Selecione um simulado para exportar.");
+    const rank = rankingSimulado(sim);
+    const linhas = [["Posição", "Aluno", "Escola", "Acertos", "Total", "Percentual", "Texto", "Anexo"]];
+    rank.forEach((e,i)=>linhas.push([i+1, e.alunoNome || e.usuarioNome || "", e.escolaNome || "", e.acertos ?? "", e.totalObjetivas ?? "", e.percentual ?? "", e.texto || "", e.arquivoUrl || ""]));
+    const csv = linhas.map(l => l.map(v => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ranking_${(sim.titulo || "simulado").replace(/[^a-z0-9]+/gi,"_")}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 // ==================== MÓDULO AULAS ====================
