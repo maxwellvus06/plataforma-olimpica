@@ -2,8 +2,59 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
+    }
+
+    function nivel() {
+      return hasProfile() ? userProfile().data.nivel : "";
+    }
+
+    function isAdmin() {
+      return nivel() == "ADM";
+    }
+
+    function isMonitor() {
+      return nivel() == "Monitor";
+    }
+
+    // Perfis de usuário. Documento preferencial: sistema_usuarios/{authUid}
+    match /sistema_usuarios/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if signedIn() && isAdmin();
+    }
+
+    // Configurações visuais e debug
+    match /sistema_layout/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && isAdmin();
+    }
+
+    match /sistema_debug/{docId} {
+      allow read: if signedIn() && isAdmin();
+      allow write: if signedIn();
+    }
+
+    // Dados anuais da plataforma.
+    // Nesta etapa, qualquer usuário autenticado pode ler/escrever.
+    // A restrição fina por nível continua no front-end; a próxima etapa é endurecer por módulo.
+    match /anos/{ano}/{colecao}/{docId} {
+      allow read, write: if signedIn();
+    }
+
+    // Coleções globais antigas/compatibilidade
+    match /{collection}/{docId} {
+      allow read, write: if signedIn();
     }
   }
 }

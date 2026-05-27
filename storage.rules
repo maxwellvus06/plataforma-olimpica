@@ -2,11 +2,26 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // DESENVOLVIMENTO / TESTE
-    // Publicar em: Firebase Console > Build > Storage > Rules > Publicar
-    // Se publicar em Firestore Rules, não resolve upload.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Layout institucional: todos logados leem; escrita para usuários autenticados.
+    // A trava fina por ADM pode ser adicionada depois usando custom claims ou perfil via Cloud Functions.
+    match /layout/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // Materiais, anexos de fórum, resoluções e imagens de dúvidas.
+    match /plataforma/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // Bloqueia qualquer pasta não prevista.
     match /{allPaths=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

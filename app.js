@@ -9,6 +9,7 @@ let firebaseApp = null;
 let firebaseDB = null;
 let firebaseFirestore = null;
 let firebaseStorage = null;
+let firebaseAuth = null;
 let monitoriaListenerAtivo = null;
 let salaMoniAtual = null;
 
@@ -193,95 +194,148 @@ function initLogin() {
         const btn = form.querySelector('button[type="submit"]');
 
         try {
-            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando...'; }
-            await sincronizarUsuariosFirebaseInicial();
-            const usuariosCadastrados = getStorage("app_usuarios");
-            const contaEncontrada = usuariosCadastrados.find(u => normalizarTexto(u.login) === userInput && String(u.senha) === passInput);
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Entrando pelo Firebase Auth...'; }
+            initFirebase();
+            if (!firebaseAuth) throw new Error("Firebase Auth não inicializado. Confira se o SDK firebase-auth-compat.js está carregado.");
 
-            if (contaEncontrada) {
-                usuarioLogado = contaEncontrada;
-                salvarSessaoLocalSeNecessario(contaEncontrada, lembrar);
+            await firebaseAuth.setPersistence(lembrar ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
 
-                if (btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando dados...'; }
-                await carregarDadosPosLogin();
-                aplicarTemaUsuario(contaEncontrada);
+            const authEmail = emailAuthParaLogin(userInput);
+            let authUser = null;
+            let perfil = null;
 
-                logarSucesso(contaEncontrada);
-            } else {
-                alert("Erro de Autenticação: Login inválido.");
+            try {
+                const cred = await firebaseAuth.signInWithEmailAndPassword(authEmail, passInput);
+                authUser = cred.user;
+            } catch (erroLoginAuth) {
+                // Primeiro acesso/migração: permite criar conta Auth a partir dos usuários-semente do database.js.
+                // Para usuários já criados depois, entre como ADM uma vez para provisionar as contas Auth em lote.
+                const usuarioSemente = buscarUsuarioSementePorCredencial(userInput, passInput);
+                if (!usuarioSemente) throw erroLoginAuth;
+                const credCriado = await firebaseAuth.createUserWithEmailAndPassword(emailAuthDoUsuario(usuarioSemente), passInput);
+                authUser = credCriado.user;
+                perfil = await gravarPerfilAuthUsuario(authUser.uid, usuarioSemente, passInput);
             }
+
+            if (!perfil) perfil = await carregarPerfilUsuarioAuth(authUser, userInput);
+            if (!perfil) {
+                const usuarioSemente = buscarUsuarioSementePorCredencial(userInput, passInput);
+                if (usuarioSemente) perfil = await gravarPerfilAuthUsuario(authUser.uid, usuarioSemente, passInput);
+            }
+            if (!perfil) throw new Error("Login autenticado, mas o perfil da plataforma não foi encontrado em sistema_usuarios.");
+
+            usuarioLogado = perfil;
+            if (btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando dados...'; }
+            await carregarDadosPosLogin();
+            if (usuarioLogado?.nivel === "ADM") await provisionarUsuariosAuthExistentes();
+            aplicarTemaUsuario(usuarioLogado);
+            logarSucesso(usuarioLogado);
         } catch (erro) {
             console.error("Erro ao tentar login", erro);
-            alert(`Erro ao tentar login. Verifique conexão/Firebase.
-
-${erro.message || erro}`);
+            alert(`Erro ao tentar login pelo Firebase Auth.\n\n${traduzirErroAuth(erro)}`);
         } finally {
             if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
         }
     });
 }
 
-const SESSAO_LOCAL_KEY = "avance_sessao_lembrar_v2";
 const TEMA_LOCAL_KEY = "avance_tema_preferido_v2";
 
-function salvarSessaoLocalSeNecessario(usuario, lembrar) {
-    try {
-        if (!lembrar) {
-            localStorage.removeItem(SESSAO_LOCAL_KEY);
-            return;
-        }
-        localStorage.setItem(SESSAO_LOCAL_KEY, JSON.stringify({
-            userId: String(usuario.id || ""),
-            login: String(usuario.login || ""),
-            criadoEm: Date.now(),
-            expiraEm: Date.now() + 1000 * 60 * 60 * 24 * 30
-        }));
-    } catch (erro) {
-        console.warn("Não foi possível salvar sessão local.", erro);
-    }
+function normalizarLoginAuth(valor) {
+    return String(valor || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
 
-function lerSessaoLocal() {
-    try {
-        const bruto = localStorage.getItem(SESSAO_LOCAL_KEY);
-        if (!bruto) return null;
-        const sessao = JSON.parse(bruto);
-        if (!sessao?.userId || !sessao?.expiraEm || Date.now() > sessao.expiraEm) {
-            localStorage.removeItem(SESSAO_LOCAL_KEY);
-            return null;
-        }
-        return sessao;
-    } catch (_) {
-        localStorage.removeItem(SESSAO_LOCAL_KEY);
-        return null;
+function emailAuthParaLogin(loginOuEmail) {
+    const valor = String(loginOuEmail || "").trim().toLowerCase();
+    if (valor.includes("@")) return valor;
+    return `${normalizarLoginAuth(valor)}@avance.local`;
+}
+
+function emailAuthDoUsuario(usuario) {
+    if (usuario?.authEmail) return String(usuario.authEmail).toLowerCase();
+    // Mantém o login tradicional: admin, CPF, gestor etc. viram e-mails internos do Firebase Auth.
+    // O e-mail real continua salvo no perfil do usuário.
+    return emailAuthParaLogin(usuario?.login || usuario?.cpf || usuario?.email || usuario?.id || novoId());
+}
+
+function buscarUsuarioSementePorCredencial(login, senha) {
+    const sementes = (typeof DATABASE !== "undefined" && Array.isArray(DATABASE.usuarios)) ? DATABASE.usuarios : [];
+    return sementes.find(u => normalizarTexto(u.login) === normalizarTexto(login) && String(u.senha) === String(senha)) || null;
+}
+
+function traduzirErroAuth(erro) {
+    const code = erro?.code || "";
+    if (code.includes("auth/user-not-found") || code.includes("auth/invalid-login-credentials")) return "Usuário não encontrado no Firebase Auth. Entre como ADM uma vez para migrar/provisionar os usuários existentes.";
+    if (code.includes("auth/wrong-password")) return "Senha inválida.";
+    if (code.includes("auth/email-already-in-use")) return "Este login/e-mail interno já existe no Firebase Auth.";
+    if (code.includes("auth/operation-not-allowed")) return "Ative o provedor E-mail/Senha em Firebase Console → Authentication → Sign-in method.";
+    if (code.includes("auth/weak-password")) return "A senha precisa ter pelo menos 6 caracteres.";
+    return erro?.message || String(erro);
+}
+
+async function gravarPerfilAuthUsuario(uid, usuario, senhaOriginal = "") {
+    initFirebase();
+    const perfil = {
+        ...usuario,
+        id: usuario.id || uid,
+        authUid: uid,
+        authEmail: emailAuthDoUsuario(usuario),
+        senhaMigradaParaAuth: true,
+        senha: usuario.senha || senhaOriginal || "",
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await firebaseFirestore.collection("sistema_usuarios").doc(uid).set(perfil, { merge: true });
+    return { ...perfil, id: perfil.id };
+}
+
+async function carregarPerfilUsuarioAuth(authUser, loginDigitado = "") {
+    initFirebase();
+    if (!authUser || !firebaseFirestore) return null;
+    const direto = await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).get();
+    if (direto.exists) return { id: direto.data().id || direto.id, ...direto.data(), authUid: authUser.uid };
+
+    // Compatibilidade com usuários antigos cujo documento ainda não usa UID como id.
+    const snap = await firebaseFirestore.collection("sistema_usuarios").get();
+    let encontrado = null;
+    snap.forEach(doc => {
+        if (encontrado) return;
+        const u = doc.data() || {};
+        const emails = [u.authEmail, u.email, u.emailInstitucional, u.emailPessoal].filter(Boolean).map(x => String(x).toLowerCase());
+        const bate = String(u.authUid || "") === String(authUser.uid)
+            || emails.includes(String(authUser.email || "").toLowerCase())
+            || normalizarTexto(u.login) === normalizarTexto(loginDigitado);
+        if (bate) encontrado = { id: u.id || doc.id, ...u, authUid: authUser.uid, authEmail: u.authEmail || authUser.email };
+    });
+    if (encontrado) {
+        await firebaseFirestore.collection("sistema_usuarios").doc(authUser.uid).set(encontrado, { merge: true });
+        return encontrado;
     }
+    return null;
 }
 
 async function verificarSessao() {
-    const sessao = lerSessaoLocal();
-    if (!sessao) return;
-
+    initFirebase();
+    if (!firebaseAuth) return;
     const form = document.getElementById("loginForm");
     const btn = form?.querySelector('button[type="submit"]');
-    try {
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Restaurando sessão...'; }
-        await sincronizarUsuariosFirebaseInicial();
-        const usuarios = getStorage("app_usuarios", []);
-        const usuario = usuarios.find(u => String(u.id) === String(sessao.userId) && (!sessao.login || normalizarTexto(u.login) === normalizarTexto(sessao.login)));
-        if (!usuario) {
-            localStorage.removeItem(SESSAO_LOCAL_KEY);
-            return;
+    firebaseAuth.onAuthStateChanged(async (authUser) => {
+        if (!authUser || usuarioLogado) return;
+        try {
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Restaurando sessão...'; }
+            const perfil = await carregarPerfilUsuarioAuth(authUser, authUser.email);
+            if (!perfil) return;
+            usuarioLogado = perfil;
+            await carregarDadosPosLogin();
+            if (usuarioLogado?.nivel === "ADM") await provisionarUsuariosAuthExistentes();
+            aplicarTemaUsuario(usuarioLogado);
+            logarSucesso(usuarioLogado);
+        } catch (erro) {
+            console.warn("Não foi possível restaurar sessão Auth. Faça login novamente.", erro);
+            try { await firebaseAuth.signOut(); } catch (_) {}
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
         }
-        usuarioLogado = usuario;
-        await carregarDadosPosLogin();
-        aplicarTemaUsuario(usuario);
-        logarSucesso(usuario);
-    } catch (erro) {
-        console.warn("Não foi possível restaurar sessão. Faça login novamente.", erro);
-        localStorage.removeItem(SESSAO_LOCAL_KEY);
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = 'Acessar Painel'; }
-    }
+    });
 }
 
 function logarSucesso(usuario) {
@@ -655,8 +709,8 @@ function resultadoDentroDoEscopoResultadosUsuario(resultado) {
     return municipioTravado === "TODOS" || normalizarTexto(resultado.municipio) === normalizarTexto(municipioTravado);
 }
 
-function logout() {
-    try { localStorage.removeItem(SESSAO_LOCAL_KEY); } catch (_) {}
+async function logout() {
+    try { if (firebaseAuth) await firebaseAuth.signOut(); } catch (_) {}
     usuarioLogado = null;
     if (monitoriaListenerAtivo) {
         monitoriaListenerAtivo();
@@ -665,7 +719,7 @@ function logout() {
     salaMoniAtual = null;
     document.getElementById("mainPanel").classList.add("hidden");
     document.getElementById("loginScreen").classList.remove("hidden");
-    document.getElementById("loginForm").reset();
+    document.getElementById("loginForm")?.reset();
 }
 
 function clonarDados(valor) {
@@ -792,7 +846,8 @@ async function substituirColecaoFirestore(nomeColecao, lista) {
     });
 
     dados.forEach(item => {
-        batch.set(col.doc(String(item.id)), item);
+        const docId = nomeColecao === "sistema_usuarios" ? String(item.authUid || item.id) : String(item.id);
+        batch.set(col.doc(docId), item);
         ops++;
     });
 
@@ -930,8 +985,17 @@ function salvarUsuariosFirebase(usuarios) {
     return salvarChaveFirebase("app_usuarios", usuarios);
 }
 
-function salvarUsuariosSistema(usuarios) {
-    setStorage("app_usuarios", usuarios);
+async function salvarUsuariosSistema(usuarios) {
+    setStorageLocal("app_usuarios", usuarios);
+    if (usuarioLogado?.nivel === "ADM") {
+        try {
+            const provisionados = await provisionarAuthUsuarios(usuarios);
+            return salvarChaveFirebase("app_usuarios", provisionados);
+        } catch (erro) {
+            console.warn("Provisionamento Auth falhou. Salvando perfis no Firestore mesmo assim.", erro);
+        }
+    }
+    return salvarChaveFirebase("app_usuarios", usuarios);
 }
 
 function garantirCadastrosBasicos() {
@@ -1143,6 +1207,71 @@ function confirmarExclusao(tipo, nome) {
 function existeResultadoParaCampo(campo, valor) {
     const alvo = normalizarTexto(valor);
     return dadosTrabalho.some(item => normalizarTexto(item[campo]) === alvo);
+}
+
+
+// ==================== FIREBASE AUTH — PROVISIONAMENTO DE USUÁRIOS ====================
+function firebaseConfigAtual() {
+    return (typeof FIREBASE_CONFIG_AVANCE !== "undefined") ? FIREBASE_CONFIG_AVANCE : firebase.app().options;
+}
+
+function getAuthSecundario() {
+    const nomeApp = "authProvisionamentoSecundario";
+    const appSec = firebase.apps.find(app => app.name === nomeApp) || firebase.initializeApp(firebaseConfigAtual(), nomeApp);
+    return appSec.auth();
+}
+
+async function criarOuEntrarAuthSecundario(email, senha) {
+    const authSec = getAuthSecundario();
+    try {
+        const cred = await authSec.createUserWithEmailAndPassword(email, senha);
+        const uid = cred.user.uid;
+        await authSec.signOut();
+        return uid;
+    } catch (erro) {
+        if (String(erro?.code || "").includes("email-already-in-use")) {
+            const cred = await authSec.signInWithEmailAndPassword(email, senha);
+            const uid = cred.user.uid;
+            await authSec.signOut();
+            return uid;
+        }
+        throw erro;
+    }
+}
+
+async function provisionarAuthUsuario(usuario) {
+    if (!usuario) return usuario;
+    if (usuario.authUid && usuario.authEmail) return usuario;
+    const senha = String(usuario.senha || usuario.senhaPadrao || "alunoavance@2026");
+    if (senha.length < 6) throw new Error(`Senha fraca para ${usuario.nome || usuario.login}. Use pelo menos 6 caracteres.`);
+    const email = emailAuthDoUsuario(usuario);
+    const uid = await criarOuEntrarAuthSecundario(email, senha);
+    return { ...usuario, authUid: uid, authEmail: email, senhaMigradaParaAuth: true };
+}
+
+async function provisionarAuthUsuarios(usuarios) {
+    const lista = [];
+    for (const usuario of normalizarListaFirebase(usuarios)) {
+        try {
+            lista.push(await provisionarAuthUsuario(usuario));
+        } catch (erro) {
+            console.warn(`Não foi possível provisionar Auth para ${usuario?.nome || usuario?.login}.`, erro);
+            lista.push(usuario);
+        }
+    }
+    setStorageLocal("app_usuarios", lista);
+    return lista;
+}
+
+async function provisionarUsuariosAuthExistentes() {
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const usuarios = getStorage("app_usuarios", []);
+    if (!usuarios.length) return;
+    const pendentes = usuarios.filter(u => !u.authUid || !u.authEmail);
+    if (!pendentes.length) return;
+    const atualizados = await provisionarAuthUsuarios(usuarios);
+    await salvarChaveFirebase("app_usuarios", atualizados);
+    console.log(`Firebase Auth: ${pendentes.length} usuário(s) provisionado(s).`);
 }
 
 // ==================== CRUD USUÁRIOS ====================
@@ -4977,7 +5106,7 @@ async function resetarLayoutVisual() {
 }
 
 function initFirebase() {
-    if (firebaseApp && firebaseFirestore && firebaseStorage) return;
+    if (firebaseApp && firebaseFirestore && firebaseStorage && firebaseAuth) return;
 
     const firebaseConfig = (typeof FIREBASE_CONFIG_AVANCE !== "undefined") ? FIREBASE_CONFIG_AVANCE : {
         apiKey: "AIzaSyDn5eAVOerIiknYMRdvMo_2YmXVXR0NwL0",
@@ -4997,6 +5126,7 @@ function initFirebase() {
         if (!firebaseDB && firebase.database) firebaseDB = firebase.database();
         if (!firebaseFirestore && firebase.firestore) firebaseFirestore = firebase.firestore();
         if (!firebaseStorage && firebase.storage) firebaseStorage = firebase.storage();
+        if (!firebaseAuth && firebase.auth) firebaseAuth = firebase.auth();
         if (firebase.analytics) { try { firebase.analytics(); } catch (_) {} }
         if (firebaseFirestore) {
             firebaseFirestore.collection("sistema_debug").doc("ultimo_acesso").set({
