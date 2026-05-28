@@ -257,6 +257,42 @@ function rotuloListaSuspensa(select) {
     return label || select?.id || "Lista suspensa";
 }
 
+function listaSuspensaProtegidaPorModulo(select) {
+    // Listas que representam entidades centrais devem ser gerenciadas nos módulos próprios,
+    // não pelo editor rápido de listas suspensas. Isso evita inconsistência entre select e banco.
+    if (!select) return true;
+    const texto = [
+        select.id,
+        select.name,
+        select.dataset?.listaKey,
+        select.closest("div")?.querySelector("label")?.innerText,
+        select.getAttribute("aria-label"),
+        select.title
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    const termosProtegidos = [
+        "aluno", "alunos",
+        "escola", "escolas",
+        "olimpiada", "olimpíada", "olimpiadas", "olimpíadas",
+        "cidade", "cidades", "municipio", "município", "municipios", "municípios"
+    ];
+    return termosProtegidos.some(t => texto.includes(t));
+}
+
+function snapshotOpcoesOriginaisLista(select) {
+    if (!select) return [];
+    if (select.dataset.listaOpcoesOriginais) {
+        try { return JSON.parse(select.dataset.listaOpcoesOriginais) || []; } catch (_) {}
+    }
+    const opcoes = Array.from(select.options || []).map(opt => ({
+        valor: valorOpcaoLista(opt),
+        texto: opt.textContent.trim(),
+        custom: opt.dataset.customOption === "true"
+    })).filter(o => o.valor || o.texto);
+    try { select.dataset.listaOpcoesOriginais = JSON.stringify(opcoes); } catch (_) {}
+    return opcoes;
+}
+
 function carregarConfigListasSuspensasEmMemoria() {
     const arr = getStorage("app_listas_suspensas", []);
     listasSuspensasConfig = {};
@@ -303,6 +339,15 @@ function garantirConfigLista(key, nome = "") {
 
 function aplicarCustomizacaoSelect(select) {
     if (!select || select.dataset.noListEditor === "true") return;
+    snapshotOpcoesOriginaisLista(select);
+
+    // Não permitir personalização rápida em listas que dependem de entidades cadastradas.
+    // Elas devem vir dos módulos próprios: Alunos, Escolas, Cidades e Olimpíadas.
+    if (listaSuspensaProtegidaPorModulo(select)) {
+        select.dataset.noListEditor = "true";
+        return;
+    }
+
     const key = chaveListaSuspensa(select);
     const cfg = listasSuspensasConfig[key];
     if (cfg) {
@@ -334,6 +379,7 @@ function aplicarCustomizacoesListasSuspensas(context = document) {
 
 function anexarBotaoEditorLista(select) {
     if (!podeEditarListasSuspensas() || !select || select.dataset.listEditorReady === "true" || select.dataset.noListEditor === "true") return;
+    if (listaSuspensaProtegidaPorModulo(select)) { select.dataset.noListEditor = "true"; return; }
     if (!select.id && !select.name) return;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -347,6 +393,7 @@ function anexarBotaoEditorLista(select) {
 
 function abrirModalListaSuspensa(select) {
     if (!podeEditarListasSuspensas()) return alert("Apenas ADM pode editar listas suspensas.");
+    if (listaSuspensaProtegidaPorModulo(select)) return alert("Esta lista é gerada por cadastro próprio. Use o módulo de Alunos, Escolas, Cidades ou Olimpíadas para alterar as opções.");
     listaSuspensaAtualSelect = select;
     listaSuspensaAtualKey = chaveListaSuspensa(select);
     garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(select));
@@ -375,16 +422,25 @@ function renderizarItensListaSuspensaAtual() {
     if (!alvo || !listaSuspensaAtualSelect || !listaSuspensaAtualKey) return;
     const cfg = garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(listaSuspensaAtualSelect));
     const removidos = new Set((cfg.removidos || []).map(String));
-    const base = opcoesAtuaisListaSuspensa(listaSuspensaAtualSelect);
-    const adicionadosOcultos = (cfg.adicionados || []).filter(v => !base.some(o => normalizarTexto(o.valor) === normalizarTexto(v)));
-    const linhas = [...base, ...adicionadosOcultos.map(v => ({ valor: v, texto: v, custom: true }))];
+    const originais = snapshotOpcoesOriginaisLista(listaSuspensaAtualSelect);
+    const atuais = opcoesAtuaisListaSuspensa(listaSuspensaAtualSelect);
+    const mapa = new Map();
+    [...originais, ...atuais].forEach(o => {
+        const chave = normalizarTexto(o.valor || o.texto);
+        if (chave && !mapa.has(chave)) mapa.set(chave, o);
+    });
+    (cfg.adicionados || []).forEach(v => {
+        const chave = normalizarTexto(v);
+        if (chave && !mapa.has(chave)) mapa.set(chave, { valor: v, texto: v, custom: true });
+    });
+    const linhas = Array.from(mapa.values()).sort((a,b) => String(a.texto || a.valor).localeCompare(String(b.texto || b.valor), "pt-BR", { sensitivity: "base", numeric: true }));
     if (!linhas.length) { alvo.innerHTML = `<p class="text-sm text-gray-500 text-center py-4">Nenhuma opção encontrada.</p>`; return; }
     alvo.innerHTML = linhas.map(item => {
         const val = textoSeguro(item.valor || item.texto);
         const oculto = removidos.has(item.valor) || removidos.has(item.texto);
         return `<div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${oculto ? 'border-red-900/40 bg-red-950/20 opacity-70' : 'border-gray-700 bg-gray-900/50'}">
-            <div class="min-w-0"><p class="text-sm font-bold text-white truncate">${textoSeguro(item.texto || item.valor)}</p><p class="text-[10px] text-gray-500">${item.custom ? 'Opção adicionada pelo ADM' : 'Opção original da lista'}</p></div>
-            <button onclick="alternarRemocaoOpcaoListaSuspensa('${val.replace(/'/g, "&#39;")}')" class="px-3 py-1.5 rounded-lg ${oculto ? 'bg-emerald-700/30 text-emerald-300 border border-emerald-800/50' : 'bg-red-900/30 text-red-300 border border-red-900/50'} text-[10px] font-black uppercase tracking-wider">${oculto ? 'Reexibir' : 'Ocultar'}</button>
+            <div class="min-w-0"><p class="text-sm font-bold text-white truncate">${textoSeguro(item.texto || item.valor)}</p><p class="text-[10px] text-gray-500">${item.custom ? 'Opção adicionada pelo ADM' : 'Opção original da lista'}${oculto ? ' • atualmente oculta' : ''}</p></div>
+            <button onclick="alternarRemocaoOpcaoListaSuspensa('${val.replace(/'/g, "&#39;")}')" class="px-3 py-1.5 rounded-lg ${oculto ? 'bg-emerald-700/30 text-emerald-300 border border-emerald-800/50' : 'bg-red-900/30 text-red-300 border border-red-900/50'} text-[10px] font-black uppercase tracking-wider">${oculto ? 'Habilitar' : 'Ocultar'}</button>
         </div>`;
     }).join("");
 }
