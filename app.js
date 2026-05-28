@@ -1069,6 +1069,36 @@ function initSeletorAnoDados() {
     atualizarRotuloAnoDados();
 }
 
+
+// ==================== FIRESTORE AUTH GUARD / DIAGNÓSTICO ====================
+function esperarAuthFirebase(timeoutMs = 8000) {
+    initFirebase();
+    return new Promise((resolve, reject) => {
+        if (!firebaseAuth) return reject(new Error('Firebase Auth não inicializado.'));
+        if (firebaseAuth.currentUser) return resolve(firebaseAuth.currentUser);
+        const timer = setTimeout(() => {
+            try { unsub && unsub(); } catch (_) {}
+            reject(new Error('Usuário ainda não autenticado no Firebase Auth. Saia e entre novamente.'));
+        }, timeoutMs);
+        const unsub = firebaseAuth.onAuthStateChanged((user) => {
+            if (!user) return;
+            clearTimeout(timer);
+            try { unsub && unsub(); } catch (_) {}
+            resolve(user);
+        }, (erro) => {
+            clearTimeout(timer);
+            try { unsub && unsub(); } catch (_) {}
+            reject(erro);
+        });
+    });
+}
+
+function mensagemFirestoreDetalhada(acao, chave, colecao, erro) {
+    const uid = firebaseAuth?.currentUser?.uid || 'SEM_AUTH_CURRENT_USER';
+    const email = firebaseAuth?.currentUser?.email || 'SEM_EMAIL_AUTH';
+    return `${acao} falhou no Firestore.\n\nChave: ${chave}\nColeção/caminho: ${colecao}\nUID Auth atual: ${uid}\nE-mail Auth atual: ${email}\nAno ativo: ${anoDadosAtivo}\n\nErro: ${erro?.message || erro}`;
+}
+
 function prepararListaParaFirestore(lista) {
     return normalizarListaFirebase(lista).map(item => {
         const copia = { ...(item || {}) };
@@ -1135,24 +1165,25 @@ async function apagarUsuarioFirestore(usuario) {
     if (ids.size) await batch.commit();
 }
 
-function salvarChaveFirebase(chave, valor) {
+async function salvarChaveFirebase(chave, valor) {
     initFirebase();
     if (!firebaseFirestore) {
         console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`);
         alert(`Firebase/Firestore não inicializou. ${chave} não foi salvo no banco.`);
-        return Promise.reject(new Error("Cloud Firestore não inicializado"));
+        throw new Error("Cloud Firestore não inicializado");
     }
     const colecao = getFirebaseCollectionName(chave);
-    return substituirColecaoFirestore(colecao, valor).then((dados) => {
+    try {
+        if (chave !== "app_usuarios") await esperarAuthFirebase();
+        const dados = await substituirColecaoFirestore(colecao, valor);
         setStorageLocal(chave, dados);
         console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}`);
-    }).catch(erro => {
+        return dados;
+    } catch (erro) {
         console.error(`${chave} NÃO foi salvo no Firestore na coleção ${colecao}.`, erro);
-        alert(`${chave} não foi salvo no Firestore. Verifique as Rules do Cloud Firestore.
-
-${erro.message || erro}`);
+        alert(mensagemFirestoreDetalhada(`${chave} não foi salvo`, chave, colecao, erro));
         throw erro;
-    });
+    }
 }
 
 async function carregarChaveFirebase(chave, fallback = []) {
@@ -1173,6 +1204,9 @@ async function carregarChaveFirebase(chave, fallback = []) {
     const colecao = getFirebaseCollectionName(chave);
 
     try {
+        // Garante que leituras de coleções protegidas só ocorram depois do Auth estar pronto.
+        // Isso evita "Missing or insufficient permissions" por leitura antes do Firebase Auth restaurar sessão.
+        if (chave !== "app_usuarios") await esperarAuthFirebase();
         const snap = await firebaseFirestore.collection(colecao).get();
         let remotos = [];
         snap.forEach(doc => {
@@ -1203,9 +1237,7 @@ async function carregarChaveFirebase(chave, fallback = []) {
         return getStorage(chave, []);
     } catch (erro) {
         console.error(`Erro de Firebase ao carregar ${chave} na coleção ${colecao}.`, erro);
-        alert(`Erro de Firebase ao carregar ${chave}. Verifique as Rules do Cloud Firestore.
-
-${erro.message || erro}`);
+        alert(mensagemFirestoreDetalhada(`Erro ao carregar ${chave}`, chave, colecao, erro));
         throw erro;
     }
 }
