@@ -270,7 +270,6 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("btnAtualizarReuniao")?.addEventListener("click", gerarPainelReuniao);
         initMobileUX();
         initOrdenacaoGlobalTabelasESelects();
-        inicializarPaineisRetrateis();
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -2167,20 +2166,17 @@ function editarCronograma(id) {
         campos: [
             { nome: "olimpiadaId", label: "Olimpíada vinculada", tipo: "select", valor: atual.olimpiadaId, options: getStorage("app_olimpiadas").map(o => ({ value: o.id, text: o.nome })) },
             { nome: "etapa", label: "Etapa / fase", tipo: "selectGrouped", valor: atual.etapa || "" },
-            { nome: "dataInicio", label: "Data início", tipo: "date", valor: atual.dataInicio || "" },
-            { nome: "dataFim", label: "Data final", tipo: "date", valor: atual.dataFim || "" },
-            { nome: "data", label: "Texto do período (opcional/legado)", valor: atual.data || "" },
+            { nome: "data", label: "Data / janela crítica", valor: atual.data || "" },
             { nome: "segmento", label: "Público-alvo / séries elegíveis", valor: atual.segmento || "" },
             { nome: "acao", label: "Diretriz operacional", tipo: "textarea", valor: atual.acao || "" }
         ],
         onSalvar: (d) => {
-            if (!d.olimpiadaId || !d.etapa || (!d.dataInicio && !d.dataFim && !d.data) || !d.segmento || !d.acao) return alert("Preencha etapa, período, público e diretriz do evento."), false;
+            if (!d.olimpiadaId || !d.etapa || !d.data || !d.segmento || !d.acao) return alert("Todos os campos do evento são obrigatórios."), false;
             const lista = getStorage("app_cronograma");
             const i = lista.findIndex(c => c.id === id);
             if (i === -1) return alert("Evento não encontrado."), false;
             const infoEtapa = normalizarEtapaCronograma(d.etapa);
-            const dataTexto = textoPeriodoCronograma(d.dataInicio, d.dataFim, d.data);
-            const atualizado = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, dataInicio: d.dataInicio || "", dataFim: d.dataFim || "", data: dataTexto, segmento: d.segmento, acao: d.acao };
+            const atualizado = { ...lista[i], olimpiadaId: d.olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: d.data, segmento: d.segmento, acao: d.acao };
             const resultado = inserirOuSubstituirEventoCronograma(lista, atualizado, id, true);
             if (resultado.cancelado) return false;
             setStorage("app_cronograma", resultado.lista);
@@ -3141,34 +3137,17 @@ function salvarNovaOlimpiada(event) {
     alert("Olimpíada homologada com cadastro completo.");
 }
 
-
-function formatarDataISOParaBR(valor) {
-    if (!valor) return "";
-    const [ano, mes, dia] = String(valor).split("-");
-    if (ano && mes && dia) return `${dia}/${mes}/${ano}`;
-    return String(valor);
-}
-function textoPeriodoCronograma(dataInicio, dataFim, fallback = "") {
-    const ini = formatarDataISOParaBR(dataInicio);
-    const fim = formatarDataISOParaBR(dataFim);
-    if (ini && fim && ini !== fim) return `${ini} a ${fim}`;
-    if (ini) return ini;
-    if (fim) return fim;
-    return fallback || "A confirmar";
-}
 function salvarNovoCronograma(event) {
     event.preventDefault();
     if (usuarioLogado?.nivel !== "ADM") return;
     const olimpiadaId = document.getElementById("addCroOlimpiadaSelect").value;
     const etapa = document.getElementById("addCroEtapa").value.trim();
-    const dataInicio = document.getElementById("addCroDataInicio")?.value || "";
-    const dataFim = document.getElementById("addCroDataFim")?.value || "";
-    const data = textoPeriodoCronograma(dataInicio, dataFim, document.getElementById("addCroData")?.value?.trim() || "");
+    const data = document.getElementById("addCroData").value.trim();
     const segmento = document.getElementById("addCroSegmento").value.trim();
     const acao = document.getElementById("addCroAcao").value.trim();
     const infoEtapa = normalizarEtapaCronograma(etapa);
     const cronograma = getStorage("app_cronograma");
-    const novo = { id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, dataInicio, dataFim, data, segmento, acao };
+    const novo = { id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data, segmento, acao };
     const resultado = inserirOuSubstituirEventoCronograma(cronograma, novo, null, true);
     if (resultado.cancelado) return;
     setStorage("app_cronograma", resultado.lista);
@@ -4369,10 +4348,7 @@ function processarPlanilhaCronograma(arquivo) {
                 if (foundOli) {
                     const etapaOriginal = linha["FASE / ETAPA"] || linha.Etapa || "Fase Única — Aplicação";
                     const infoEtapa = normalizarEtapaCronograma(etapaOriginal);
-                    const dataInicio = linha["DATA INÍCIO"] || linha["DATA DE INÍCIO"] || linha.DataInicio || linha.dataInicio || "";
-                    const dataFim = linha["DATA FIM"] || linha["DATA FINAL"] || linha["DATA DE TÉRMINO"] || linha.DataFim || linha.dataFim || "";
-                    const dataLegada = linha["DATA / PERÍODO 2026"] || linha["DATA / PERÍODO"] || linha.Data || "";
-                    const novoEvento = { id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, dataInicio, dataFim, data: textoPeriodoCronograma(dataInicio, dataFim, dataLegada || "A confirmar"), segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." };
+                    const novoEvento = { id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data: linha["DATA / PERÍODO 2026"] || linha.Data || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." };
                     const resultado = inserirOuSubstituirEventoCronograma(cronograma, novoEvento, null, false);
                     cronograma.splice(0, cronograma.length, ...resultado.lista);
                     if (resultado.substituido) substituidos++;
@@ -4498,8 +4474,7 @@ async function downloadCronogramaTemplate() {
     ws.columns = [
         { header: "SIGLA", key: "SIGLA", width: 44 },
         { header: "FASE / ETAPA", key: "etapa", width: 36 },
-        { header: "DATA INÍCIO", key: "dataInicio", width: 16 },
-        { header: "DATA FIM", key: "dataFim", width: 16 },
+        { header: "DATA / PERÍODO 2026", key: "data", width: 22 },
         { header: "SÉRIES ELEGÍVEIS", key: "segmento", width: 24 },
         { header: "OBSERVAÇÃO CRÍTICA", key: "observacao", width: 56 }
     ];
@@ -4508,16 +4483,14 @@ async function downloadCronogramaTemplate() {
     ws.addRow({
         SIGLA: olimpiadas[0] || "OBMEP (Olimpíada Brasileira de Matemática das Escolas Públicas)",
         etapa: "1ª Fase — Aplicação Escolar",
-        dataInicio: "2026-06-09",
-        dataFim: "2026-06-09",
+        data: "09/06/2026",
         segmento: "6º EF a 3ª EM",
         observacao: "Imprimir cadernos de prova; recolher cartões."
     });
     ws.addRow({
         SIGLA: olimpiadas[1] || "Canguru de Matemática Brasil",
         etapa: "Fase Única — Aplicação",
-        dataInicio: "2026-03-19",
-        dataFim: "2026-03-25",
+        data: "19/03 a 25/03/2026",
         segmento: "3º EF a 3ª EM",
         observacao: "Aplicação nas salas sob fiscalização."
     });
@@ -4525,7 +4498,7 @@ async function downloadCronogramaTemplate() {
     // Linhas em branco para preenchimento em lote
     for (let i = 0; i < 98; i++) ws.addRow({});
 
-    estilizarCabecalhoTemplate(ws, 6);
+    estilizarCabecalhoTemplate(ws, 5);
     ws.getColumn(5).alignment = { wrapText: true, vertical: "top" };
 
     const listas = obterOuCriarAbaListas(workbook);
@@ -4535,7 +4508,7 @@ async function downloadCronogramaTemplate() {
 
     aplicarListaSuspensa(ws, "A", 2, 101, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
     aplicarListaSuspensa(ws, "B", 2, 101, rangeEtapas, "Escolha uma etapa padronizada.");
-    aplicarListaSuspensa(ws, "E", 2, 101, rangeSegmentos, "Escolha uma série/segmento da lista.");
+    aplicarListaSuspensa(ws, "D", 2, 101, rangeSegmentos, "Escolha uma série/segmento da lista.");
 
     await baixarWorkbookExcelJS(workbook, "modelo_carga_cronograma_com_listas.xlsx");
 }
@@ -5118,95 +5091,20 @@ function iconeMaterialPlataforma(m) {
     return { icone: "fa-link", cor: "text-blue-400" };
 }
 
-
-// ==================== VISUALIZADOR INTERNO DE MÍDIAS ====================
-function obterUrlMidia(item, preferirSolucao = false) {
-    if (!item) return "";
-    if (typeof item === "string") return item;
-    if (preferirSolucao) return item.solucaoArquivoUrl || item.solucaoUrl || item.url || item.arquivoUrl || item.dados || "";
-    return item.url || item.arquivoUrl || item.dados || item.imagemUrl || item.fileUrl || item.href || "";
-}
-
-function extensaoArquivo(url = "") {
-    const limpo = String(url || "").split("?")[0].split("#")[0];
-    const m = limpo.match(/\.([a-zA-Z0-9]+)$/);
-    return m ? m[1].toLowerCase() : "";
-}
-
-function tipoMidiaInterna(url = "", mime = "") {
-    const ext = extensaoArquivo(url);
-    const m = String(mime || "").toLowerCase();
-    if (converterUrlYoutube(url) || youtubeEmbedUrl(url)) return "youtube";
-    if (m.startsWith("image/") || ["png","jpg","jpeg","webp","gif","bmp","svg"].includes(ext)) return "imagem";
-    if (m.startsWith("video/") || ["mp4","webm","ogg","mov","m4v"].includes(ext)) return "video";
-    if (m.startsWith("audio/") || ["mp3","wav","ogg","m4a","aac"].includes(ext)) return "audio";
-    if (m.includes("pdf") || ext === "pdf") return "pdf";
-    if (["doc","docx","ppt","pptx","xls","xlsx"].includes(ext)) return "office";
-    return "link";
-}
-
-function abrirMidiaInterna(url, titulo = "Mídia", mime = "") {
-    url = String(url || "").trim();
-    if (!url) return alert("Mídia não encontrada.");
-    const overlay = document.getElementById("modalMidiaInterna");
-    const corpo = document.getElementById("modalMidiaInternaCorpo");
-    const tituloEl = document.getElementById("modalMidiaInternaTitulo");
-    if (!overlay || !corpo) {
-        window.open(url, "_blank", "noopener");
-        return;
-    }
-    if (tituloEl) tituloEl.innerText = titulo || "Mídia";
-    const safeUrl = textoSeguro(url);
-    const tipo = tipoMidiaInterna(url, mime);
-    let html = "";
-    if (tipo === "youtube") {
-        const embed = converterUrlYoutube(url) || youtubeEmbedUrl(url);
-        html = `<iframe src="${textoSeguro(embed)}" class="w-full h-[78vh] rounded-2xl bg-black border border-gray-700" allowfullscreen></iframe>`;
-    } else if (tipo === "imagem") {
-        html = `<div class="w-full min-h-[70vh] flex items-center justify-center bg-gray-950 rounded-2xl border border-gray-700 overflow-auto"><img src="${safeUrl}" class="max-w-full max-h-[82vh] object-contain" alt="${textoSeguro(titulo)}"></div>`;
-    } else if (tipo === "video") {
-        html = `<video src="${safeUrl}" controls class="w-full max-h-[82vh] rounded-2xl bg-black border border-gray-700"></video>`;
-    } else if (tipo === "audio") {
-        html = `<div class="bg-gray-900 border border-gray-700 rounded-2xl p-8"><audio src="${safeUrl}" controls class="w-full"></audio></div>`;
-    } else if (tipo === "pdf") {
-        html = `<iframe src="${safeUrl}#toolbar=1&navpanes=0" class="w-full h-[82vh] rounded-2xl bg-white border border-gray-700"></iframe>`;
-    } else if (tipo === "office") {
-        const viewer = `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(url)}`;
-        html = `<iframe src="${viewer}" class="w-full h-[82vh] rounded-2xl bg-white border border-gray-700"></iframe><p class="mt-2 text-[10px] text-gray-500">Documentos Word/PowerPoint/Excel usam visualizador interno. Se o arquivo privado não carregar, baixe pelo botão de emergência.</p>`;
-    } else {
-        html = `<iframe src="${safeUrl}" class="w-full h-[82vh] rounded-2xl bg-white border border-gray-700"></iframe><p class="mt-2 text-[10px] text-gray-500">Alguns sites bloqueiam abertura interna por segurança. Use o botão de emergência se necessário.</p>`;
-    }
-    corpo.innerHTML = `${html}<div class="mt-3 flex justify-end"><a href="${safeUrl}" target="_blank" rel="noopener" class="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir fora, se necessário</a></div>`;
-    overlay.classList.remove("hidden");
-    overlay.classList.add("flex");
-}
-
-function fecharMidiaInterna() {
-    const overlay = document.getElementById("modalMidiaInterna");
-    const corpo = document.getElementById("modalMidiaInternaCorpo");
-    if (corpo) corpo.innerHTML = "";
-    if (overlay) { overlay.classList.add("hidden"); overlay.classList.remove("flex"); }
-}
-
-function botaoMidiaInterna(url, titulo, label = "Abrir", classe = "px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold", icone = "fa-up-right-from-square", mime = "") {
-    if (!url) return "";
-    return `<button type="button" onclick="abrirMidiaInterna('${textoSeguro(String(url)).replace(/'/g, "&#39;")}', '${textoSeguro(String(titulo || 'Mídia')).replace(/'/g, "&#39;")}', '${textoSeguro(String(mime || '')).replace(/'/g, "&#39;")}')" class="${classe}"><i class="fa-solid ${icone} mr-1"></i>${textoSeguro(label)}</button>`;
-}
-
 function renderizarConteudoMaterial(m) {
     const isVideo = m.tipo === "video";
     const isLink = m.tipo === "link";
     const isArquivo = m.tipo === "arquivo";
     if (isVideo && m.url) {
-        const embedUrl = converterUrlYoutube(m.url) || youtubeEmbedUrl(m.url);
+        const embedUrl = converterUrlYoutube(m.url);
         return embedUrl
-            ? `<div class="aspect-video w-full rounded-xl overflow-hidden my-3 bg-gray-950"><iframe src="${textoSeguro(embedUrl)}" frameborder="0" allowfullscreen class="w-full h-full"></iframe></div>`
-            : `<div class="my-3">${botaoMidiaInterna(m.url, m.titulo || "Vídeo", "Abrir vídeo", "block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition", "fa-play")}</div>`;
+            ? `<div class="aspect-video w-full rounded-xl overflow-hidden my-3 bg-gray-950"><iframe src="${embedUrl}" frameborder="0" allowfullscreen class="w-full h-full"></iframe></div>`
+            : `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-play mr-2"></i>Abrir vídeo</a>`;
     }
-    if (isLink && m.url) return `<div class="my-3">${botaoMidiaInterna(m.url, m.titulo || "Recurso", "Acessar recurso", "block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition", "fa-external-link")}</div>`;
+    if (isLink && m.url) return `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-external-link mr-2"></i>Acessar recurso</a>`;
     if (isArquivo && (m.arquivoUrl || m.dados)) {
         const href = m.arquivoUrl || m.dados;
-        return `<div class="my-3">${botaoMidiaInterna(href, m.nomeArquivo || m.titulo || "Arquivo", "Abrir arquivo", "block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition", "fa-file-arrow-down", m.arquivoMimeType || "")}</div>`;
+        return `<a href="${textoSeguro(href)}" target="_blank" rel="noopener" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-file-arrow-down mr-2"></i>Abrir / baixar arquivo</a>`;
     }
     return "";
 }
@@ -5221,7 +5119,7 @@ function renderizarInteracoesMaterial(m) {
                     <span class="text-[10px] text-gray-500">${textoSeguro(i.criadoPor || "Usuário")} · ${formatarDataHora(i.criadoEm)}</span>
                 </div>
                 <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">${textoSeguro(i.texto || "")}</p>
-                ${i.imagemUrl ? `<button type="button" onclick="abrirMidiaInterna('${textoSeguro(i.imagemUrl).replace(/'/g, "&#39;")}', 'Imagem enviada')" class="inline-block mt-2 text-left"><img src="${textoSeguro(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></button>` : ""}
+                ${i.imagemUrl ? `<a href="${textoSeguro(i.imagemUrl)}" target="_blank" class="inline-block mt-2"><img src="${textoSeguro(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></a>` : ""}
             </div>
         `).join("")
         : `<p class="text-xs text-gray-600 italic">Nenhuma interação ainda. Seja o primeiro a comentar, perguntar ou enviar uma resolução.</p>`;
@@ -5341,7 +5239,7 @@ async function renderizarPlataformaEnsino() {
 
 function renderizarSolucaoMaterial(m) {
     if (!m.solucaoUrl && !m.solucaoArquivoUrl) return "";
-    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? botaoMidiaInterna(m.solucaoUrl, "Gabarito / resolução", "Abrir link", "px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold", "fa-arrow-up-right-from-square") : ""}${m.solucaoArquivoUrl ? botaoMidiaInterna(m.solucaoArquivoUrl, "Arquivo de gabarito / resolução", "Abrir arquivo", "px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold", "fa-file-circle-check") : ""}</div></details>`;
+    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? `<a href="${m.solucaoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-arrow-up-right-from-square mr-1"></i>Abrir link</a>` : ""}${m.solucaoArquivoUrl ? `<a href="${m.solucaoArquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-file-circle-check mr-1"></i>Abrir arquivo</a>` : ""}</div></details>`;
 }
 
 function converterUrlYoutube(url) {
@@ -5405,20 +5303,53 @@ async function enviarArquivoParaFirebaseStorage(arquivo, pasta = "materiais") {
 }
 
 async function excluirArquivoFirebaseStorage(storagePath) {
-    if (!storagePath) return { success: true };
+    if (!storagePath) return { success: true, skipped: true };
     initFirebase();
-    if (!firebaseStorage) return { success: false };
-    await firebaseStorage.ref().child(storagePath).delete();
-    return { success: true };
+    if (!firebaseStorage) return { success: false, skipped: true, reason: "Firebase Storage não inicializado" };
+
+    const path = String(storagePath || "").trim();
+
+    // Links públicos antigos, URLs do Google Drive ou URLs completas do Storage não são paths válidos para child().
+    // Nestes casos, não travamos a exclusão do registro no Firestore: apenas ignoramos a remoção física do arquivo legado.
+    if (!path || /^https?:\/\//i.test(path) || path.includes("drive.google.com") || path.includes("googleusercontent.com")) {
+        console.warn("Arquivo legado/URL externa ignorado na exclusão física:", path);
+        return { success: true, skipped: true, legacy: true };
+    }
+
+    try {
+        await firebaseStorage.ref().child(path).delete();
+        return { success: true };
+    } catch (erro) {
+        // Se o arquivo já não existe, não impedimos apagar o material do Firestore.
+        if (erro?.code === "storage/object-not-found") {
+            console.warn("Arquivo já não existia no Storage:", path);
+            return { success: true, skipped: true, missing: true };
+        }
+        throw erro;
+    }
 }
 
-// Mantém os nomes antigos para não quebrar outras chamadas do app.
+// Nomes legados mantidos só como alias para compatibilidade.
+// A plataforma agora usa Firebase Storage; não usa mais Google Drive.
 async function enviarArquivoParaGoogleDrive(arquivo) {
     return enviarArquivoParaFirebaseStorage(arquivo, "materiais");
 }
 
 async function excluirArquivoGoogleDrive(storagePath) {
     return excluirArquivoFirebaseStorage(storagePath);
+}
+
+async function excluirArquivoMaterialSeExistir(material) {
+    const possiveisPaths = [
+        material?.storagePath,
+        material?.arquivoStoragePath,
+        material?.solucaoStoragePath,
+        material?.driveFileId // legado: em versões antigas esse campo pode guardar o path do Storage
+    ].filter(Boolean);
+
+    for (const path of possiveisPaths) {
+        await excluirArquivoFirebaseStorage(path);
+    }
 }
 
 async function salvarNovoMaterial(event) {
@@ -5612,9 +5543,7 @@ async function excluirMaterial(id) {
         const snap = await docRef.get();
         const material = snap.exists ? snap.data() : null;
 
-        if (material?.storagePath || material?.driveFileId) {
-            await excluirArquivoGoogleDrive(material.storagePath || material.driveFileId);
-        }
+        await excluirArquivoMaterialSeExistir(material);
 
         await docRef.delete();
 
@@ -6635,37 +6564,6 @@ async function fecharModalMonitoria() {
     }
 
     salaMoniAtual = null;
-}
-
-
-// ==================== PAINÉIS RETRÁTEIS DE CADASTRO / IMPORTAÇÃO ====================
-function tornarPainelRetratil(painel, abertoInicial = false) {
-    if (!painel || painel.dataset.retratilReady === "true") return;
-    const filhos = Array.from(painel.children);
-    if (filhos.length < 2) return;
-    const cabecalho = filhos[0];
-    const corpo = document.createElement("div");
-    corpo.className = "painel-retratil-corpo";
-    filhos.slice(1).forEach(el => corpo.appendChild(el));
-    painel.appendChild(corpo);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ml-auto px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-gray-700 border border-gray-700 text-[10px] font-bold uppercase text-gray-300 transition";
-    btn.innerHTML = `<i class="fa-solid ${abertoInicial ? "fa-chevron-up" : "fa-chevron-down"} mr-1"></i>${abertoInicial ? "Recolher" : "Expandir"}`;
-    btn.onclick = () => {
-        const fechado = corpo.classList.toggle("hidden");
-        btn.innerHTML = `<i class="fa-solid ${fechado ? "fa-chevron-down" : "fa-chevron-up"} mr-1"></i>${fechado ? "Expandir" : "Recolher"}`;
-    };
-    if (!abertoInicial) corpo.classList.add("hidden");
-    cabecalho.classList.add("gap-3");
-    cabecalho.appendChild(btn);
-    painel.dataset.retratilReady = "true";
-}
-
-function inicializarPaineisRetrateis() {
-    ["painelAddMaterial", "painelAddSimulado", "painelGeradorSimuladoQuestoes", "painelAddAula", "painelAddQuestao"].forEach(id => tornarPainelRetratil(document.getElementById(id), false));
-    const cron = document.getElementById("admCronogramaPanel");
-    if (cron) Array.from(cron.children).forEach(card => tornarPainelRetratil(card, false));
 }
 
 // ==================== EXPOSIÇÃO GLOBAL ====================
@@ -7979,7 +7877,7 @@ function renderizarSimulados() {
             : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>${envio?.status === "encerrado" ? "Simulado encerrado" : (encerrado ? "Prazo encerrado" : "Indisponível")}</button>`)
             : "";
         const rankingMini = rankingSimulado(s).slice(0, 5);
-        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Tempo</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "—"}</td><td class="p-2">${e.arquivoUrl ? botaoMidiaInterna(e.arquivoUrl, `Anexo de ${e.alunoNome || e.usuarioNome || "aluno"}`, "Anexo", "text-blue-400 font-bold", "fa-paperclip", e.arquivoMimeType || "") : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}${enviosDoSimulado(s).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? botaoMidiaInterna(e.arquivoUrl, `Anexo de ${e.alunoNome || e.usuarioNome || "aluno"}`, "Abrir anexo", "text-blue-400 text-xs font-bold mt-2 inline-block", "fa-paperclip", e.arquivoMimeType || "") : ""}</div>`).join("")}</div></details>` : "";
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Tempo</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "—"}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}${enviosDoSimulado(s).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block"><i class="fa-solid fa-paperclip mr-1"></i>Abrir anexo</a>` : ""}</div>`).join("")}</div></details>` : "";
         return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
             <div class="flex flex-col lg:flex-row lg:items-start gap-4">
                 <div class="flex-1">
@@ -7987,7 +7885,7 @@ function renderizarSimulados() {
                     <h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3>
                     <p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${textoPrazoSimulado(s)} · ${textoSeguro(s.duracao || "")}</p>
                     ${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}
-                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl && podeGerenciarSimulados() ? botaoMidiaInterna(s.arquivoUrl, s.titulo || "Simulado", "Abrir simulado", "px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold", "fa-file-arrow-down", s.arquivoMimeType || "") : ""}${s.imagemUrl && podeGerenciarSimulados() ? botaoMidiaInterna(s.imagemUrl, `${s.titulo || "Simulado"} — imagem`, "Imagem", "px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold", "fa-image") : ""}${botaoAluno}${ger}</div>
+                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl && podeGerenciarSimulados() ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir simulado</a>` : ""}${s.imagemUrl && podeGerenciarSimulados() ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${botaoAluno}${ger}</div>
                     <div class="mt-3">${renderLinksGabaritoSimulado(s)}</div>
                 </div>
                 ${!podeGerenciarSimulados() ? `<div class="w-full lg:w-80 bg-gray-900/70 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Como responder</h4><p class="text-xs text-gray-400 leading-relaxed">Clique em <b>Entrar no simulado</b>. O simulado será aberto em um ambiente próprio, com cronômetro, arquivo da prova e cartão-resposta. Ao sair depois de iniciar, o envio será encerrado automaticamente.</p>${envio ? `<div class="mt-3 rounded-xl bg-emerald-900/30 border border-emerald-900/40 p-3 text-xs text-emerald-200"><b>Último envio:</b><br>${envio.encerradoEm ? new Date(envio.encerradoEm).toLocaleString("pt-BR") : "registrado"}</div>` : ""}</div>` : ""}
@@ -8131,73 +8029,6 @@ async function excluirAula(id) {
     renderizarAulas();
 }
 
-
-function renderizarMidiaAulaInterna(aula) {
-    if (!aula) return `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Aula não encontrada.</div>`;
-    const url = aula.url || aula.arquivoUrl || "";
-    if (!url) return `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhuma mídia cadastrada para esta aula.</div>`;
-    const embed = aula.origem === "youtube" ? (converterUrlYoutube(url) || youtubeEmbedUrl(url)) : "";
-    if (embed) return `<iframe class="w-full h-[62vh] rounded-2xl border border-gray-700 bg-black" src="${textoSeguro(embed)}" allowfullscreen></iframe>`;
-    const tipo = tipoMidiaInterna(url, aula.arquivoMimeType || "");
-    const safeUrl = textoSeguro(url);
-    if (tipo === "video") return `<video src="${safeUrl}" controls class="w-full max-h-[70vh] rounded-2xl bg-black border border-gray-700"></video>`;
-    if (tipo === "audio") return `<div class="bg-gray-900 border border-gray-700 rounded-2xl p-8"><audio src="${safeUrl}" controls class="w-full"></audio></div>`;
-    if (tipo === "pdf") return `<iframe src="${safeUrl}#toolbar=1&navpanes=0" class="w-full h-[70vh] rounded-2xl bg-white border border-gray-700"></iframe>`;
-    if (tipo === "imagem") return `<div class="w-full min-h-[50vh] flex items-center justify-center bg-gray-950 rounded-2xl border border-gray-700 overflow-auto"><img src="${safeUrl}" class="max-w-full max-h-[70vh] object-contain"></div>`;
-    if (tipo === "office") return `<iframe src="https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(url)}" class="w-full h-[70vh] rounded-2xl bg-white border border-gray-700"></iframe>`;
-    return `<iframe src="${safeUrl}" class="w-full h-[70vh] rounded-2xl bg-white border border-gray-700"></iframe>`;
-}
-
-function abrirAmbienteAula(aulaId) {
-    const aula = getStorage("app_aulas", []).find(a => String(a.id) === String(aulaId));
-    if (!aula) return alert("Aula não encontrada.");
-    const overlay = document.getElementById("modalMidiaInterna");
-    const corpo = document.getElementById("modalMidiaInternaCorpo");
-    const tituloEl = document.getElementById("modalMidiaInternaTitulo");
-    if (!overlay || !corpo) return abrirMidiaInterna(aula.url || aula.arquivoUrl, aula.tema || "Aula", aula.arquivoMimeType || "");
-    if (tituloEl) tituloEl.innerText = aula.tema || "Aula";
-    const comentarios = Array.isArray(aula.comentarios) ? [...aula.comentarios].sort((a,b)=>Number(b.criadoEm||0)-Number(a.criadoEm||0)) : [];
-    corpo.innerHTML = `
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <div class="xl:col-span-2 space-y-4">
-                ${renderizarMidiaAulaInterna(aula)}
-                <div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-4">
-                    <p class="text-[10px] uppercase tracking-widest font-bold text-blue-300">${textoSeguro(aula.nivel || "Geral")} · ${textoSeguro(aula.disciplina || "Geral")} · ${textoSeguro(aula.playlist || "Playlist")}</p>
-                    <h3 class="text-lg font-black text-white mt-1">${textoSeguro(aula.tema || "Aula")}</h3>
-                    ${aula.descricao ? `<p class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap mt-3">${textoSeguro(aula.descricao)}</p>` : `<p class="text-xs text-gray-500 mt-3">Sem descrição cadastrada.</p>`}
-                </div>
-            </div>
-            <div class="space-y-4">
-                <div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-4">
-                    <h4 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-comments text-blue-400 mr-2"></i>Comentários da aula</h4>
-                    <form onsubmit="publicarComentarioAula('${textoSeguro(aula.id)}', event)" class="mt-3 space-y-2">
-                        <textarea id="comentarioAula_${textoSeguro(aula.id)}" required rows="4" class="w-full p-3 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-200 resize-none" placeholder="Comente, tire dúvidas ou complemente a aula..."></textarea>
-                        <button type="submit" class="w-full px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar comentário</button>
-                    </form>
-                </div>
-                <div id="listaComentariosAula_${textoSeguro(aula.id)}" class="space-y-3">
-                    ${comentarios.length ? comentarios.map(c => `<div class="rounded-xl border border-gray-700 bg-gray-900/70 p-3"><div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-gray-200">${textoSeguro(c.autorNome || "Usuário")}</span><span class="text-[10px] text-gray-500">${formatarDataHora(c.criadoEm)}</span></div><p class="mt-2 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">${textoSeguro(c.texto || "")}</p></div>`).join("") : `<p class="text-xs text-gray-500 italic">Nenhum comentário ainda.</p>`}
-                </div>
-            </div>
-        </div>`;
-    overlay.classList.remove("hidden");
-    overlay.classList.add("flex");
-}
-
-async function publicarComentarioAula(aulaId, event) {
-    event.preventDefault();
-    const texto = document.getElementById(`comentarioAula_${aulaId}`)?.value.trim();
-    if (!texto) return;
-    const aulas = getStorage("app_aulas", []);
-    const idx = aulas.findIndex(a => String(a.id) === String(aulaId));
-    if (idx === -1) return alert("Aula não encontrada.");
-    const comentario = { id: novoId(), texto, autorId: usuarioLogado?.authUid || usuarioLogado?.id || "", autorNome: usuarioLogado?.nome || "Usuário", autorNivel: usuarioLogado?.nivel || "", criadoEm: Date.now() };
-    aulas[idx].comentarios = Array.isArray(aulas[idx].comentarios) ? aulas[idx].comentarios : [];
-    aulas[idx].comentarios.push(comentario);
-    await setStorage("app_aulas", aulas);
-    abrirAmbienteAula(aulaId);
-}
-
 function renderizarAulas() {
     popularFiltrosAulas();
     const grid = document.getElementById("gridAulas");
@@ -8224,7 +8055,7 @@ function renderizarAulas() {
         <div class="p-5 border-b border-gray-700 bg-gray-900/40"><p class="text-[10px] uppercase tracking-widest text-blue-300 font-black">${textoSeguro(g.nivel)} · ${textoSeguro(g.disciplina)}</p><h3 class="text-lg font-black text-white mt-1"><i class="fa-solid fa-play mr-2 text-blue-400"></i>${textoSeguro(g.playlist)}</h3></div>
         <div class="divide-y divide-gray-700/50">${g.aulas.map(a => {
             const embed = a.origem === "youtube" ? youtubeEmbedUrl(a.url) : "";
-            const media = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-4 text-center"><button type="button" onclick="abrirAmbienteAula('${textoSeguro(a.id)}')" class="w-full px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-play mr-1"></i>Abrir ambiente da aula</button><p class="text-[10px] text-gray-500 mt-2">Mídia, descrição e comentários abrem dentro da plataforma.</p></div>`;
+            const media = embed ? `<iframe class="w-full aspect-video rounded-xl border border-gray-700 bg-black" src="${embed}" allowfullscreen></iframe>` : (a.url ? `<a href="${a.url}" target="_blank" class="inline-flex items-center px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir aula</a>` : "");
             const del = podeGerenciarAulas() ? `<button onclick="excluirAula('${a.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
             return `<div class="p-5 grid grid-cols-1 lg:grid-cols-3 gap-4"><div class="lg:col-span-2"><h4 class="font-black text-white">${textoSeguro(a.tema)}</h4><p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(a.criadoPor || "Sistema")}</p>${a.descricao ? `<p class="text-sm text-gray-300 mt-3">${textoSeguro(a.descricao)}</p>` : ""}<div class="mt-3 flex gap-2 flex-wrap">${del}</div></div><div>${media}</div></div>`;
         }).join("")}</div>
@@ -8956,10 +8787,3 @@ async function enviarSimuladoPublico(simuladoId, ano) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => { popularTaxonomiaQuestoes(); atualizarDistribuicaoGeradorSimulado(); abrirSimuladoPublico(); }, 1200);
 });
-
-window.abrirMidiaInterna = abrirMidiaInterna;
-window.fecharMidiaInterna = fecharMidiaInterna;
-window.inicializarPaineisRetrateis = inicializarPaineisRetrateis;
-
-window.abrirAmbienteAula = abrirAmbienteAula;
-window.publicarComentarioAula = publicarComentarioAula;
