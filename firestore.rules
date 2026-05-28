@@ -2,91 +2,56 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)); }
-    function profile() { return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)).data; }
-    function nivel() { return hasProfile() ? profile().nivel : ""; }
-    function isAdmin() { return nivel() == "ADM"; }
-    function isStaff() { return nivel() == "Staff"; }
-    function isMonitor() { return nivel() == "Monitor"; }
-    function isProfessor() { return nivel() == "Professor/Orientador"; }
-    function isAluno() { return nivel() == "Aluno"; }
-    function isEquipe() { return isAdmin() || isStaff() || isMonitor() || isProfessor(); }
-    function isAdmOuStaff() { return isAdmin() || isStaff(); }
-    function isOwnerProfile(userId) { return signedIn() && (userId == request.auth.uid || resource.data.authUid == request.auth.uid || resource.data.emailAuth == request.auth.token.email || resource.data.email == request.auth.token.email); }
-    function isCreatingOwnProfile(userId) { return signedIn() && (userId == request.auth.uid || request.resource.data.authUid == request.auth.uid || request.resource.data.emailAuth == request.auth.token.email || request.resource.data.email == request.auth.token.email); }
-    function isOwnerEnvio() { return signedIn() && request.resource.data.usuarioId == request.auth.uid; }
-    function isPublicLeadCreate() { return request.resource.data.visitante == true && request.resource.data.simuladoPublico == true; }
+    function estaLogado() { return request.auth != null; }
+    function perfilExiste() { return estaLogado() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)); }
+    function perfil() { return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)).data; }
+    function nivel() { return perfil().nivel; }
+    function ehAdm() { return perfilExiste() && nivel() == "ADM"; }
+    function ehStaff() { return perfilExiste() && nivel() == "Staff"; }
+    function ehEquipe() { return perfilExiste() && nivel() in ["ADM", "Staff", "Monitor", "Professor/Orientador"]; }
+    function ehAluno() { return perfilExiste() && nivel() == "Aluno"; }
+    function ehUsuarioValido() { return perfilExiste(); }
 
     match /sistema_usuarios/{userId} {
-      allow read: if hasProfile() && (isAdmin() || isStaff() || userId == request.auth.uid || resource.data.authUid == request.auth.uid);
-      allow create: if isAdmin() || isStaff() || isCreatingOwnProfile(userId);
-      allow update: if isAdmin() || isStaff() || isOwnerProfile(userId);
-      allow delete: if isAdmin() && userId != request.auth.uid;
+      allow read: if ehUsuarioValido();
+      allow create, update: if ehAdm() || ehStaff() || request.auth.uid == userId;
+      allow delete: if (ehAdm() || ehStaff()) && request.auth.uid != userId;
     }
 
     match /sistema_layout/{docId} {
       allow read: if true;
-      allow write: if isAdmOuStaff();
-    }
-
-    match /sistema_debug/{docId} {
-      allow read, write: if isAdmOuStaff();
+      allow write: if ehAdm() || ehStaff();
     }
 
     match /anos/{ano}/sistema_simulados/{docId} {
-      allow read: if hasProfile() || resource.data.publico == true;
-      allow create, update, delete: if isEquipe();
+      allow read: if ehUsuarioValido() || resource.data.publico == true;
+      allow create, update, delete: if ehEquipe();
     }
 
     match /anos/{ano}/sistema_simulados_envios/{docId} {
-      allow read: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid) || resource.data.visitante == true;
-      allow create: if (hasProfile() && request.resource.data.usuarioId == request.auth.uid) || isPublicLeadCreate();
-      allow update: if (hasProfile() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid) || isEquipe();
-      allow delete: if isEquipe();
+      allow read: if ehEquipe() || (perfilExiste() && resource.data.usuarioId == request.auth.uid);
+      allow create: if (ehAluno() && request.resource.data.usuarioId == request.auth.uid) || request.resource.data.visitante == true;
+      allow update: if (ehAluno() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid) || ehEquipe();
+      allow delete: if ehEquipe();
     }
 
     match /anos/{ano}/sistema_simulados_leads/{docId} {
-      allow read, update, delete: if isAdmOuStaff();
-      allow create: if isPublicLeadCreate() || isAdmOuStaff();
+      allow read, update, delete: if ehAdm() || ehStaff();
+      allow create: if request.resource.data.visitante == true;
     }
 
     match /anos/{ano}/sistema_questoes/{docId} {
-      allow read, write: if isEquipe();
-    }
-    match /anos/{ano}/sistema_banco_questoes/{docId} {
-      allow read, write: if isEquipe();
-    }
-    match /anos/{ano}/sistema_questoes_temas/{docId} {
-      allow read: if hasProfile();
-      allow write: if isEquipe();
+      allow read, create, update, delete: if ehEquipe();
     }
 
     match /anos/{ano}/{colecao}/{docId} {
-      allow read: if hasProfile();
-      allow create, update, delete: if isAdmOuStaff()
-        || (isEquipe() && colecao in ["sistema_plataforma", "sistema_aulas", "sistema_cronograma", "sistema_premiados", "sistema_alunos"])
-        || (isMonitor() && colecao in ["sistema_plataforma", "sistema_aulas"])
-        || (isProfessor() && colecao in ["sistema_plataforma", "sistema_aulas"]);
+      allow read: if ehUsuarioValido();
+      allow create, update, delete: if (ehAdm() || ehStaff() || ehEquipe()) && colecao in [
+        "sistema_cidades", "sistema_escolas", "sistema_olimpiadas", "sistema_cronograma", "sistema_premiados", "sistema_plataforma", "sistema_alunos", "sistema_aulas", "sistema_banco_questoes"
+      ];
     }
 
-    // Compatibilidade com coleções globais antigas
-    match /sistema_cidades/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
-    match /sistema_escolas/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
-    match /sistema_olimpiadas/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
-    match /sistema_cronograma/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
-    match /sistema_premiados/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
-    match /sistema_alunos/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
-    match /sistema_plataforma/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
-    match /sistema_simulados/{docId} { allow read: if hasProfile() || resource.data.publico == true; allow write: if isEquipe(); }
-    match /sistema_aulas/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
-    match /sistema_questoes/{docId} { allow read, write: if isEquipe(); }
-    match /sistema_banco_questoes/{docId} { allow read, write: if isEquipe(); }
-    match /sistema_simulados_envios/{docId} { allow read: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid) || resource.data.visitante == true; allow create: if (hasProfile() && request.resource.data.usuarioId == request.auth.uid) || isPublicLeadCreate(); allow update: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid); allow delete: if isEquipe(); }
-    match /sistema_simulados_leads/{docId} { allow read, write: if isAdmOuStaff(); }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /sistema_debug/{docId} { allow read, write: if ehAdm() || ehStaff(); }
+    match /{document=**} { allow read, write: if false; }
   }
 }
