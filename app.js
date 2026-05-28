@@ -1,5 +1,108 @@
 // Gerenciador e Inteligência do Sistema Olímpico 2026
 let chartInstance = null;
+
+
+// ============================================================
+// POPUPS INTERNOS DA PLATAFORMA
+// Avisos/erros deixam de usar alert() do navegador.
+// ============================================================
+function garantirModalSistemaPlataforma() {
+    let modal = document.getElementById("modalSistemaPlataforma");
+    if (modal) return modal;
+    modal = document.createElement("div");
+    modal.id = "modalSistemaPlataforma";
+    modal.className = "fixed inset-0 z-[99999] hidden items-center justify-center px-4 py-6";
+    modal.innerHTML = `
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" data-modal-sistema-overlay></div>
+        <div class="relative w-full max-w-lg rounded-2xl border border-amber-400/40 bg-slate-950 text-slate-100 shadow-2xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
+                <div class="flex items-start gap-3">
+                    <div id="modalSistemaIcone" class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/15 text-amber-300">
+                        <i class="fa-solid fa-circle-info"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h3 id="modalSistemaTitulo" class="font-bold text-lg leading-tight">Aviso</h3>
+                        <p class="text-xs text-slate-400 mt-1">Mensagem da plataforma</p>
+                    </div>
+                </div>
+            </div>
+            <div class="px-5 py-5">
+                <div id="modalSistemaMensagem" class="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap"></div>
+            </div>
+            <div class="px-5 py-4 border-t border-slate-800 bg-slate-950/95 flex flex-wrap justify-end gap-2">
+                <button id="modalSistemaCancelar" type="button" class="hidden px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800 transition">Cancelar</button>
+                <button id="modalSistemaOk" type="button" class="px-5 py-2 rounded-xl bg-amber-400 text-slate-950 font-bold hover:bg-amber-300 transition">OK</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function modalSistemaPlataforma({ titulo = "Aviso", mensagem = "", tipo = "info", confirmar = false, textoOk = "OK", textoCancelar = "Cancelar" } = {}) {
+    return new Promise(resolve => {
+        const modal = garantirModalSistemaPlataforma();
+        const tituloEl = document.getElementById("modalSistemaTitulo");
+        const msgEl = document.getElementById("modalSistemaMensagem");
+        const okBtn = document.getElementById("modalSistemaOk");
+        const cancelBtn = document.getElementById("modalSistemaCancelar");
+        const iconEl = document.getElementById("modalSistemaIcone");
+        const overlay = modal.querySelector("[data-modal-sistema-overlay]");
+        const icons = {
+            erro: '<i class="fa-solid fa-triangle-exclamation"></i>',
+            sucesso: '<i class="fa-solid fa-circle-check"></i>',
+            pergunta: '<i class="fa-solid fa-circle-question"></i>',
+            info: '<i class="fa-solid fa-circle-info"></i>'
+        };
+        if (tituloEl) tituloEl.textContent = titulo;
+        if (msgEl) msgEl.textContent = String(mensagem ?? "");
+        if (okBtn) okBtn.textContent = textoOk || "OK";
+        if (cancelBtn) {
+            cancelBtn.textContent = textoCancelar || "Cancelar";
+            cancelBtn.classList.toggle("hidden", !confirmar);
+        }
+        if (iconEl) iconEl.innerHTML = icons[tipo] || icons.info;
+        const fechar = (valor) => {
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+            okBtn?.removeEventListener("click", onOk);
+            cancelBtn?.removeEventListener("click", onCancel);
+            overlay?.removeEventListener("click", onCancel);
+            document.removeEventListener("keydown", onKey);
+            resolve(valor);
+        };
+        const onOk = () => fechar(true);
+        const onCancel = () => fechar(false);
+        const onKey = (ev) => {
+            if (ev.key === "Escape") fechar(false);
+            if (ev.key === "Enter" && !ev.shiftKey) fechar(true);
+        };
+        okBtn?.addEventListener("click", onOk);
+        cancelBtn?.addEventListener("click", onCancel);
+        overlay?.addEventListener("click", confirmar ? onCancel : onOk);
+        document.addEventListener("keydown", onKey);
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+        setTimeout(() => okBtn?.focus(), 40);
+    });
+}
+
+function avisoPlataforma(mensagem, titulo = "Aviso", tipo = "info") {
+    return modalSistemaPlataforma({ titulo, mensagem, tipo, confirmar: false, textoOk: "OK" });
+}
+
+function confirmarPlataforma(mensagem, titulo = "Confirmação", textoOk = "Confirmar", textoCancelar = "Cancelar") {
+    return modalSistemaPlataforma({ titulo, mensagem, tipo: "pergunta", confirmar: true, textoOk, textoCancelar });
+}
+
+(function ativarAlertasInternosDaPlataforma(){
+    const alertaNativo = window.alert?.bind(window);
+    window.__alertaNativoOriginal = alertaNativo;
+    window.alert = function(mensagem){
+        try { avisoPlataforma(mensagem, "Aviso", "info"); }
+        catch(e) { if (alertaNativo) alertaNativo(String(mensagem ?? "")); }
+    };
+})();
+
 let dadosTrabalho = [];
 let usuarioLogado = null;
 let memoriaDadosSistema = {}; // cache em memória da aba atual; não grava no navegador
@@ -8506,9 +8609,9 @@ function abrirAmbienteSimulado(simuladoId) {
     document.body.classList.add("overflow-hidden");
 }
 
-function fecharAmbienteSimulado() {
+async function fecharAmbienteSimulado() {
     if (simuladoSessaoAtual?.iniciado) {
-        if (!confirm("Ao sair deste ambiente, o simulado será encerrado e as respostas marcadas até agora serão enviadas. Deseja sair e enviar?")) return;
+        if (!(await confirmarPlataforma("Ao sair deste ambiente, o simulado será encerrado e as respostas marcadas até agora serão enviadas. Deseja sair e enviar?", "Sair do simulado", "Sair e enviar", "Continuar prova"))) return;
         finalizarSimuladoAmbiente(false, "saida_da_pagina");
         return;
     }
@@ -8705,7 +8808,7 @@ async function enviarRespostaSimulado(simuladoId) {
     const temGabaritoObjetivo = Array.isArray(simulado.gabaritoObjetivo) && simulado.gabaritoObjetivo.length > 0;
     if (!texto && !arquivo && !respostasObjetivas.length) return alert("Preencha o cartão-resposta, digite uma resposta ou envie uma imagem/arquivo de resolução.");
     if (temGabaritoObjetivo && respostasObjetivas.length < simulado.gabaritoObjetivo.length) {
-        if (!confirm(`Você respondeu ${respostasObjetivas.length} de ${simulado.gabaritoObjetivo.length} questões objetivas. Enviar mesmo assim?`)) return;
+        if (!(await confirmarPlataforma(`Você respondeu ${respostasObjetivas.length} de ${simulado.gabaritoObjetivo.length} questões objetivas. Enviar mesmo assim?`, "Respostas pendentes", "Enviar mesmo assim", "Voltar"))) return;
     }
     try {
         const uid = String(usuarioLogado.authUid || usuarioLogado.id);
@@ -10151,7 +10254,7 @@ async function salvarNovoSimulado(event) {
         if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados"); Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, arquivoTamanho: up.size }); }
         if (imagem) { const up = await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens"); Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName }); }
         if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); Object.assign(sim, { solucaoArquivoUrl: up.fileUrl, solucaoStoragePath: up.storagePath, solucaoNomeArquivo: up.fileName }); }
-        if (!questoesManuais.length && ["objetivo", "misto"].includes(sim.formato) && !sim.gabaritoObjetivo.length && !confirm("Você não preencheu o gabarito objetivo. Publicar mesmo assim?")) return;
+        if (!questoesManuais.length && ["objetivo", "misto"].includes(sim.formato) && !sim.gabaritoObjetivo.length && !(await confirmarPlataforma("Você não preencheu o gabarito objetivo. Publicar mesmo assim?", "Publicar sem gabarito", "Publicar", "Voltar"))) return;
         const idx = lista.findIndex(s => String(s.id) === String(sim.id));
         if (idx >= 0) lista[idx] = { ...lista[idx], ...sim }; else lista.push(sim);
         await setStorage("app_simulados", lista);
@@ -10524,7 +10627,7 @@ async function finalizarSimuladoAmbiente(automatico = false, motivo = "finalizad
         const pendencias = [];
         if (totalObj && respostasObjetivas.length < totalObj) pendencias.push(`${totalObj - respostasObjetivas.length} objetiva(s)`);
         if (totalDisc && discRespondidas < totalDisc) pendencias.push(`${totalDisc - discRespondidas} dissertativa(s)`);
-        if (pendencias.length && !confirm(`Ainda faltam respostas: ${pendencias.join(" e ")}. Deseja concluir mesmo assim?`)) return;
+        if (pendencias.length && !(await confirmarPlataforma(`Ainda faltam respostas: ${pendencias.join(" e ")}. Deseja concluir mesmo assim?`, "Respostas pendentes", "Concluir mesmo assim", "Voltar para a prova"))) return;
     }
     simuladoEnvioEmAndamento = true;
     try {
@@ -10597,11 +10700,11 @@ async function salvarNovoSimulado(event) {
         const arquivo = document.getElementById("simArquivo")?.files?.[0] || null;
         const imagem = document.getElementById("simImagem")?.files?.[0] || null;
         const solucaoArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
-        if (!manual && !arquivo && !antigo?.arquivoUrl && !confirm("Você escolheu prova pronta, mas não anexou PDF/imagem da prova. Publicar mesmo assim?")) return;
+        if (!manual && !arquivo && !antigo?.arquivoUrl && !(await confirmarPlataforma("Você escolheu prova pronta, mas não anexou PDF/imagem da prova. Publicar mesmo assim?", "Publicar sem anexo", "Publicar", "Voltar"))) return;
         if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados"); Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, arquivoTamanho: up.size }); }
         if (imagem) { const up = await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens"); Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName }); }
         if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); Object.assign(sim, { solucaoArquivoUrl: up.fileUrl, solucaoStoragePath: up.storagePath, solucaoNomeArquivo: up.fileName }); }
-        if (["objetivo", "misto"].includes(formato) && !sim.gabaritoObjetivo.length && !confirm("Você não preencheu o gabarito objetivo. Publicar mesmo assim?")) return;
+        if (["objetivo", "misto"].includes(formato) && !sim.gabaritoObjetivo.length && !(await confirmarPlataforma("Você não preencheu o gabarito objetivo. Publicar mesmo assim?", "Publicar sem gabarito", "Publicar", "Voltar"))) return;
         const idx = lista.findIndex(s => String(s.id) === String(sim.id));
         if (idx >= 0) lista[idx] = { ...lista[idx], ...sim }; else lista.push(sim);
         await setStorage("app_simulados", lista);
@@ -11224,3 +11327,356 @@ window.addEventListener("beforeunload", (e) => {
         return e.returnValue;
     }
 });
+
+// ============================================================================
+// PATCH SIMULADOS — MODO HARDCORE OPCIONAL + AVISOS INTERNOS DA PLATAFORMA
+// ============================================================================
+function simuladoEhHardcore(sim) {
+    return !!(sim && (sim.hardcore === true || sim.modoHardcore === true || sim.telaCheiaObrigatoria === true));
+}
+
+function garantirCampoHardcoreSimulado() {
+    const form = document.getElementById("formCadSimulado");
+    if (!form || document.getElementById("simHardcore")) return;
+    const alvo = document.getElementById("simPublico")?.closest("label") || document.getElementById("simPublico")?.parentElement || form.querySelector("button[type='submit']")?.parentElement;
+    const bloco = document.createElement("label");
+    bloco.className = "flex items-start gap-3 rounded-2xl border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-100 cursor-pointer";
+    bloco.innerHTML = `<input type="checkbox" id="simHardcore" class="mt-1 scale-125 accent-red-600">
+        <span><b class="text-red-200">Hardcore</b><br><span class="text-xs text-red-100/80">Ativa modo prova realista: tenta abrir em tela cheia e encerra o simulado se o aluno sair da tela cheia, trocar de aba ou minimizar. Deixe desmarcado para simulados descontraídos.</span></span>`;
+    if (alvo && alvo.parentElement) alvo.parentElement.insertBefore(bloco, alvo.nextSibling);
+    else form.insertBefore(bloco, form.querySelector("button[type='submit']") || null);
+}
+
+function garantirModaisInternosSimulado() {
+    if (document.getElementById("modalInternoSimulado")) return;
+    const div = document.createElement("div");
+    div.id = "modalInternoSimulado";
+    div.className = "hidden fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4";
+    div.innerHTML = `<div class="w-full max-w-xl rounded-3xl border border-gray-700 bg-gray-900 shadow-2xl overflow-hidden">
+        <div class="p-5 border-b border-gray-800 flex items-start gap-3">
+            <div id="modalInternoSimuladoIcone" class="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div class="flex-1"><h3 id="modalInternoSimuladoTitulo" class="text-lg font-black text-white">Aviso</h3><p id="modalInternoSimuladoTexto" class="text-sm text-gray-300 mt-1 whitespace-pre-wrap leading-relaxed"></p></div>
+        </div>
+        <div id="modalInternoSimuladoDetalhes" class="hidden px-5 pt-4 text-sm text-gray-300"></div>
+        <div id="modalInternoSimuladoAcoes" class="p-5 flex flex-col sm:flex-row justify-end gap-3"></div>
+    </div>`;
+    document.body.appendChild(div);
+}
+
+function modalInternoSimulado({ titulo = "Aviso", texto = "", tipo = "aviso", detalhes = "", botoes = [] } = {}) {
+    garantirModaisInternosSimulado();
+    return new Promise(resolve => {
+        const modal = document.getElementById("modalInternoSimulado");
+        const icon = document.getElementById("modalInternoSimuladoIcone");
+        const tit = document.getElementById("modalInternoSimuladoTitulo");
+        const txt = document.getElementById("modalInternoSimuladoTexto");
+        const det = document.getElementById("modalInternoSimuladoDetalhes");
+        const acoes = document.getElementById("modalInternoSimuladoAcoes");
+        const mapa = {
+            sucesso: ["bg-emerald-500/10 text-emerald-300", "fa-circle-check"],
+            erro: ["bg-red-500/10 text-red-300", "fa-circle-xmark"],
+            pergunta: ["bg-blue-500/10 text-blue-300", "fa-circle-question"],
+            aviso: ["bg-amber-500/10 text-amber-300", "fa-triangle-exclamation"]
+        };
+        const [cls, ic] = mapa[tipo] || mapa.aviso;
+        icon.className = `w-11 h-11 rounded-2xl ${cls} flex items-center justify-center text-xl`;
+        icon.innerHTML = `<i class="fa-solid ${ic}"></i>`;
+        tit.textContent = titulo;
+        txt.textContent = texto;
+        if (detalhes) { det.classList.remove("hidden"); det.innerHTML = detalhes; } else { det.classList.add("hidden"); det.innerHTML = ""; }
+        const lista = botoes.length ? botoes : [{ texto: "OK", valor: true, classe: "bg-amber-600 hover:bg-amber-500 text-white" }];
+        acoes.innerHTML = lista.map((b, i) => `<button data-i="${i}" class="px-5 py-3 rounded-2xl text-xs font-black uppercase ${b.classe || 'bg-gray-700 hover:bg-gray-600 text-white'}">${b.texto}</button>`).join("");
+        modal.classList.remove("hidden");
+        acoes.querySelectorAll("button").forEach(btn => btn.onclick = () => {
+            const i = Number(btn.dataset.i);
+            const valor = lista[i]?.valor;
+            modal.classList.add("hidden");
+            resolve(valor);
+        });
+    });
+}
+
+function avisarSimuladoInterno(titulo, texto, tipo = "aviso", detalhes = "") {
+    return modalInternoSimulado({ titulo, texto, tipo, detalhes });
+}
+
+function confirmarSimuladoInterno(titulo, texto, detalhes = "") {
+    return modalInternoSimulado({
+        titulo,
+        texto,
+        tipo: "pergunta",
+        detalhes,
+        botoes: [
+            { texto: "Continuar prova", valor: false, classe: "bg-gray-700 hover:bg-gray-600 text-gray-100" },
+            { texto: "Concluir mesmo assim", valor: true, classe: "bg-emerald-600 hover:bg-emerald-500 text-white" }
+        ]
+    });
+}
+
+const __renderizarSimuladosBase_HardcoreModal = typeof renderizarSimulados === "function" ? renderizarSimulados : null;
+if (__renderizarSimuladosBase_HardcoreModal) {
+    renderizarSimulados = function() {
+        __renderizarSimuladosBase_HardcoreModal();
+        garantirCampoHardcoreSimulado();
+    };
+}
+
+document.addEventListener("DOMContentLoaded", () => setTimeout(() => { garantirCampoHardcoreSimulado(); garantirModaisInternosSimulado(); }, 300));
+setTimeout(() => { garantirCampoHardcoreSimulado(); garantirModaisInternosSimulado(); }, 800);
+
+const __salvarNovoSimuladoBase_HardcoreModal = typeof salvarNovoSimulado === "function" ? salvarNovoSimulado : null;
+if (__salvarNovoSimuladoBase_HardcoreModal) {
+    salvarNovoSimulado = async function(event) {
+        const antes = getStorage("app_simulados", []).map(s => String(s.id));
+        await __salvarNovoSimuladoBase_HardcoreModal(event);
+        try {
+            const lista = getStorage("app_simulados", []);
+            const novo = [...lista].reverse().find(s => !antes.includes(String(s.id)));
+            if (novo) {
+                novo.hardcore = !!document.getElementById("simHardcore")?.checked;
+                novo.modoHardcore = novo.hardcore;
+                await setStorage("app_simulados", lista);
+                renderizarSimulados();
+            }
+        } catch (e) { console.warn("Não foi possível registrar modo Hardcore no simulado.", e); }
+    };
+}
+
+const __prepararEdicaoSimuladoBase_HardcoreModal = typeof prepararEdicaoSimulado === "function" ? prepararEdicaoSimulado : null;
+if (__prepararEdicaoSimuladoBase_HardcoreModal) {
+    prepararEdicaoSimulado = function(id) {
+        __prepararEdicaoSimuladoBase_HardcoreModal(id);
+        garantirCampoHardcoreSimulado();
+        const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+        const chk = document.getElementById("simHardcore");
+        if (chk && sim) chk.checked = simuladoEhHardcore(sim);
+    };
+}
+
+function textoBloqueioTelaCheiaSimuladoPorSimulado(sim) {
+    if (!simuladoEhHardcore(sim)) return "Modo Hardcore desativado: o simulado abre em ambiente cronometrado, mas sem encerramento automático por tela cheia/troca de aba.";
+    return "Modo Hardcore ativado: ao iniciar, a prova tentará entrar em tela cheia. Se você sair da tela cheia, trocar de aba, minimizar ou abandonar o ambiente, o simulado será encerrado e o que estiver respondido será enviado.";
+}
+
+const __renderizarAmbienteSimuladoBase_HardcoreModal = typeof renderizarAmbienteSimulado === "function" ? renderizarAmbienteSimulado : null;
+if (__renderizarAmbienteSimuladoBase_HardcoreModal) {
+    renderizarAmbienteSimulado = function() {
+        __renderizarAmbienteSimuladoBase_HardcoreModal();
+        const box = document.getElementById("simuladoAmbienteConteudo");
+        if (!box || !simuladoSessaoAtual) return;
+        const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+        if (!sim || simuladoSessaoAtual.iniciado) return;
+        const antigo = box.querySelector("[data-hardcore-aviso]");
+        if (antigo) antigo.remove();
+        const aviso = document.createElement("div");
+        aviso.dataset.hardcoreAviso = "1";
+        aviso.className = `max-w-3xl mx-auto mt-4 rounded-2xl border p-4 text-sm ${simuladoEhHardcore(sim) ? 'border-red-800/60 bg-red-950/30 text-red-100' : 'border-blue-800/60 bg-blue-950/25 text-blue-100'}`;
+        aviso.innerHTML = `<i class="fa-solid ${simuladoEhHardcore(sim) ? 'fa-lock' : 'fa-face-smile'} mr-2"></i><b>${simuladoEhHardcore(sim) ? 'Hardcore ativado' : 'Hardcore desativado'}:</b> ${textoSeguro(textoBloqueioTelaCheiaSimuladoPorSimulado(sim))}`;
+        box.appendChild(aviso);
+    };
+}
+
+const __iniciarSimuladoCronometradoBase_HardcoreModal = typeof iniciarSimuladoCronometrado === "function" ? iniciarSimuladoCronometrado : null;
+if (__iniciarSimuladoCronometradoBase_HardcoreModal) {
+    iniciarSimuladoCronometrado = async function() {
+        if (!simuladoSessaoAtual) return;
+        const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+        if (simuladoEhHardcore(sim)) {
+            await solicitarTelaCheiaSimuladoSeguro();
+            simuladoSaidaPermitida = false;
+            simuladoTelaCheiaAtiva = !!document.fullscreenElement;
+        } else {
+            simuladoSaidaPermitida = true;
+            simuladoTelaCheiaAtiva = false;
+        }
+        __iniciarSimuladoCronometradoBase_HardcoreModal();
+    };
+}
+
+async function finalizarSimuladoPodeProsseguirInterno(sim, automatico) {
+    if (automatico || simuladoSessaoAtual?.preview) return true;
+    const respostasObjetivas = lerRespostaObjetivaAmbiente();
+    const totalObj = Array.isArray(sim.gabaritoObjetivo) ? sim.gabaritoObjetivo.length : 0;
+    const texto = document.getElementById("simAmbTexto")?.value?.trim() || "";
+    const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+    const faltas = [];
+    if (["objetivo", "misto"].includes(String(sim.formato || "").toLowerCase()) && totalObj && respostasObjetivas.length < totalObj) faltas.push(`${totalObj - respostasObjetivas.length} questão(ões) objetiva(s)`);
+    if (["dissertativo", "misto"].includes(String(sim.formato || "").toLowerCase()) && !texto && !arquivo) faltas.push("resposta/anexo dissertativo");
+    if (!faltas.length) return true;
+    return await confirmarSimuladoInterno("Ainda há respostas pendentes", "Você ainda não respondeu tudo. Deseja concluir mesmo assim?", `<div class="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4"><p class="font-bold text-amber-200 mb-2">Pendências encontradas:</p><ul class="list-disc pl-5 space-y-1">${faltas.map(f => `<li>${textoSeguro(f)}</li>`).join("")}</ul></div>`);
+}
+
+finalizarSimuladoAmbiente = async function(automatico = false, motivo = "finalizado") {
+    if (!simuladoSessaoAtual || simuladoEnvioEmAndamento) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    if (simuladoSessaoAtual.preview) {
+        simuladoSaidaPermitida = true;
+        limparAmbienteSimulado();
+        await avisarSimuladoInterno("Pré-visualização encerrada", "Nenhum envio foi registrado.", "sucesso");
+        return;
+    }
+    const prosseguir = await finalizarSimuladoPodeProsseguirInterno(sim, automatico);
+    if (!prosseguir) return;
+    simuladoEnvioEmAndamento = true;
+    simuladoSaidaPermitida = true;
+    try {
+        const uid = String(usuarioLogado.authUid || usuarioLogado.id);
+        const respostasObjetivas = lerRespostaObjetivaAmbiente();
+        const texto = document.getElementById("simAmbTexto")?.value?.trim() || "";
+        const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+        const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostasObjetivas);
+        const alunoAtual = alunoDoUsuarioLogado();
+        const envioAnterior = envioSimuladoUsuario(sim);
+        const inicio = simuladoSessaoAtual.inicio || Date.now();
+        const envio = { id: `${sim.id}_${uid}`, simuladoId: sim.id, simuladoTitulo: sim.titulo || "", publico: false, visitante: false, usuarioId: uid, usuarioNome: usuarioLogado.nome, usuarioNivel: usuarioLogado.nivel, alunoId: usuarioLogado.alunoId || alunoAtual?.id || "", alunoNome: alunoAtual?.nome || usuarioLogado.nome || "", escolaId: alunoAtual?.escolaId || usuarioLogado.vinculoId || "", escolaNome: alunoAtual?.escola || getEscolaVinculadaUsuario()?.nome || "", cidade: alunoAtual?.cidade || "", email: usuarioLogado.emailAuth || usuarioLogado.email || alunoAtual?.emailInstitucional || alunoAtual?.emailPessoal || "", whatsapp: alunoAtual?.contato || alunoAtual?.telefone || "", respostasObjetivas, texto, acertos: correcao.acertos, totalObjetivas: correcao.total, respondidasObjetivas: correcao.respondidas, percentual: correcao.percentual, iniciadoEm: envioAnterior?.iniciadoEm || inicio, enviadoEm: Date.now(), encerradoEm: Date.now(), tempoGastoSegundos: Math.max(0, Math.round((Date.now() - inicio) / 1000)), status: "encerrado", motivoEncerramento: motivo, automatico: !!automatico, statusCorrecao: simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica" };
+        if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_respostas"); Object.assign(envio, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType }); }
+        else if (envioAnterior?.arquivoUrl) Object.assign(envio, { arquivoUrl: envioAnterior.arquivoUrl, arquivoStoragePath: envioAnterior.arquivoStoragePath || "", arquivoNome: envioAnterior.arquivoNome || "", arquivoMimeType: envioAnterior.arquivoMimeType || "" });
+        await salvarEnvioSimuladoFirestore(envio);
+        limparAmbienteSimulado(); renderizarSimulados();
+        await avisarSimuladoInterno(automatico ? "Simulado encerrado" : "Parabéns!", automatico ? "O simulado foi encerrado e suas respostas foram enviadas com o que estava preenchido." : "Simulado concluído e enviado com sucesso.", automatico ? "aviso" : "sucesso");
+    } catch (erro) {
+        console.error("Erro ao finalizar simulado", erro);
+        await avisarSimuladoInterno("Erro ao enviar simulado", String(erro.message || erro), "erro");
+    } finally {
+        simuladoEnvioEmAndamento = false;
+        simuladoTelaCheiaAtiva = false;
+        if (simuladoEhHardcore(sim)) await sairTelaCheiaSimuladoSeguro();
+    }
+};
+
+const __abrirAmbienteSimuladoBase_HardcoreModal = typeof abrirAmbienteSimulado === "function" ? abrirAmbienteSimulado : null;
+if (__abrirAmbienteSimuladoBase_HardcoreModal) {
+    abrirAmbienteSimulado = async function(simuladoId) {
+        const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+        if (!sim) return avisarSimuladoInterno("Simulado não encontrado", "Não foi possível localizar este simulado.", "erro");
+        if (!podeGerenciarSimulados() && !podeIniciarSimulado(sim)) {
+            const envio = envioSimuladoUsuario(sim);
+            if (envio?.status === "encerrado") return avisarSimuladoInterno("Simulado já encerrado", "Você já encerrou este simulado. O envio registrado está disponível para a equipe pedagógica.", "aviso");
+            if (!simuladoDentroDaJanelaSeisHoras(sim)) return avisarSimuladoInterno("Simulado ainda indisponível", "Este simulado só aparece para o aluno faltando até 6 horas para o início.", "aviso");
+            if (simuladoAindaNaoAbriu(sim)) return avisarSimuladoInterno("Simulado ainda não aberto", "Aguarde o horário de abertura definido pela equipe.", "aviso");
+            if (simuladoPrazoEncerrado(sim)) return avisarSimuladoInterno("Prazo encerrado", "O prazo deste simulado já foi encerrado.", "aviso");
+        }
+        simuladoSessaoAtual = { simuladoId: String(simuladoId), iniciado: false, inicio: null, limiteMs: minutosDuracaoSimulado(sim) * 60 * 1000, preview: podeGerenciarSimulados() };
+        renderizarAmbienteSimulado();
+        document.getElementById("simuladoAmbienteOverlay")?.classList.remove("hidden");
+        document.body.classList.add("overflow-hidden");
+    };
+}
+
+const __renderizarProvaPublicaSimuladoSeguroBase_HardcoreModal = typeof renderizarProvaPublicaSimuladoSeguro === "function" ? renderizarProvaPublicaSimuladoSeguro : null;
+if (__renderizarProvaPublicaSimuladoSeguroBase_HardcoreModal) {
+    renderizarProvaPublicaSimuladoSeguro = function(sim, ano, dados) {
+        __renderizarProvaPublicaSimuladoSeguroBase_HardcoreModal(sim, ano, dados);
+        const box = document.getElementById("simuladoPublicoConteudo");
+        if (!box) return;
+        const aviso = box.querySelector(".rounded-2xl.border.border-red-800\/50, .rounded-2xl.border.border-red-800\\/50");
+        // Não tentamos remover por seletor complexo em todos os navegadores; apenas acrescentamos o aviso correto no topo.
+        const novo = document.createElement("div");
+        novo.className = `rounded-2xl border p-4 text-sm mb-4 ${simuladoEhHardcore(sim) ? 'border-red-800/50 bg-red-950/20 text-red-100' : 'border-blue-800/50 bg-blue-950/20 text-blue-100'}`;
+        novo.innerHTML = `<i class="fa-solid ${simuladoEhHardcore(sim) ? 'fa-lock' : 'fa-face-smile'} mr-2"></i><b>${simuladoEhHardcore(sim) ? 'Hardcore ativado' : 'Hardcore desativado'}:</b> ${textoSeguro(textoBloqueioTelaCheiaSimuladoPorSimulado(sim))}`;
+        const container = box.firstElementChild;
+        if (container) container.insertBefore(novo, container.children[1] || null);
+    };
+}
+
+iniciarSimuladoPublicoTelaCheia = async function(simuladoId, ano) {
+    if (simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+        const simBloq = await carregarSimuladoPublicoPorId(simuladoId, ano);
+        renderizarBloqueioSimuladoPublico(simBloq);
+        return;
+    }
+    const dados = lerDadosPublicosSimulado();
+    if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+        await avisarSimuladoInterno("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp antes de iniciar.", "aviso");
+        return;
+    }
+    const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+    if (simuladoEhHardcore(sim)) {
+        await solicitarTelaCheiaSimuladoSeguro();
+        simuladoPublicoSaidaPermitida = false;
+        simuladoPublicoTelaCheiaAtiva = !!document.fullscreenElement;
+    } else {
+        simuladoPublicoSaidaPermitida = true;
+        simuladoPublicoTelaCheiaAtiva = false;
+    }
+    simuladoPublicoSessaoAtual = { simuladoId, ano, sim, dados, iniciado: true, inicio: Date.now(), limiteMs: minutosDuracaoSimulado(sim) * 60 * 1000 };
+    renderizarProvaPublicaSimuladoSeguro(sim, ano, dados);
+    if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+    simuladoPublicoTimerInterval = setInterval(atualizarTimerSimuladoPublico, 1000);
+    atualizarTimerSimuladoPublico();
+};
+
+const __enviarSimuladoPublicoBase_HardcoreModal = typeof enviarSimuladoPublico === "function" ? enviarSimuladoPublico : null;
+enviarSimuladoPublico = async function(simuladoId, ano, automatico = false, motivo = "finalizado") {
+    if (simuladoPublicoEnvioEmAndamento) return;
+    if (simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+        const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+        renderizarBloqueioSimuladoPublico(sim);
+        return;
+    }
+    const dados = simuladoPublicoSessaoAtual?.dados || lerDadosPublicosSimulado();
+    if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+        await avisarSimuladoInterno("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.", "aviso");
+        return;
+    }
+    const btn = document.getElementById("btnEnviarSimuladoPublico");
+    try {
+        simuladoPublicoEnvioEmAndamento = true;
+        simuladoPublicoSaidaPermitida = true;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+        const sim = simuladoPublicoSessaoAtual?.sim || await carregarSimuladoPublicoPorId(simuladoId, ano);
+        if (!validarConteudoEducacionalIA([dados.nome, dados.escolaOrigem, dados.cidade, dados.email, dados.whatsapp, document.getElementById("pubTexto")?.value], "envio público")) {
+            simuladoPublicoEnvioEmAndamento = false;
+            if (btn) { btn.disabled = false; btn.innerHTML = "Enviar simulado"; }
+            return;
+        }
+        const respostas = [];
+        document.querySelectorAll('[name^="pub_q_"]:checked').forEach(inp => respostas.push({ numero: Number(inp.name.replace("pub_q_", "")), resposta: inp.value }));
+        const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostas);
+        const dispositivoId = obterDispositivoPublicoSimulado();
+        const agora = Date.now();
+        const inicio = simuladoPublicoSessaoAtual?.inicio || agora;
+        const doc = { id: `${simuladoId}_visitante_${agora}_${dispositivoId}`, simuladoId, simuladoTitulo: sim.titulo || "", publico: true, visitante: true, dispositivoId, alunoNome: dados.nome, nome: dados.nome, escolaOrigem: dados.escolaOrigem, escolaNome: dados.escolaOrigem, cidade: dados.cidade, email: dados.email, whatsapp: dados.whatsapp, respostasObjetivas: respostas, texto: document.getElementById("pubTexto")?.value.trim() || "", acertos: correcao.acertos, totalObjetivas: correcao.total, respondidasObjetivas: correcao.respondidas, percentual: correcao.percentual, iniciadoEm: inicio, enviadoEm: agora, encerradoEm: agora, tempoGastoSegundos: Math.max(0, Math.round((agora - inicio) / 1000)), status: "encerrado", motivoEncerramento: motivo, automatico: !!automatico, statusCorrecao: simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica" };
+        await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(doc.id).set(doc);
+        await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(doc.id).set(doc);
+        marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano);
+        if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+        simuladoPublicoTimerInterval = null;
+        simuladoPublicoSessaoAtual = null;
+        simuladoPublicoTelaCheiaAtiva = false;
+        if (simuladoEhHardcore(sim)) await sairTelaCheiaSimuladoSeguro();
+        renderizarPaginaAgradecimentoSimuladoPublico(sim, automatico ? "O simulado foi encerrado porque houve saída da tela de prova. As respostas já marcadas foram registradas." : "Suas respostas foram registradas. A equipe responsável terá acesso aos seus dados, respostas, presença e correção quando aplicável.");
+    } catch(e) {
+        console.error(e);
+        await avisarSimuladoInterno("Erro ao enviar simulado público", String(e.message || e), "erro");
+        if (btn) { btn.disabled = false; btn.innerHTML = "Enviar simulado"; }
+    } finally {
+        simuladoPublicoEnvioEmAndamento = false;
+    }
+};
+
+// Ajusta o texto do botão/entrada pública quando o simulado não é Hardcore.
+const __abrirSimuladoPublicoBase_HardcoreModal = typeof abrirSimuladoPublico === "function" ? abrirSimuladoPublico : null;
+if (__abrirSimuladoPublicoBase_HardcoreModal) {
+    abrirSimuladoPublico = async function() {
+        await __abrirSimuladoPublicoBase_HardcoreModal();
+        try {
+            const params = new URLSearchParams(location.search);
+            const id = params.get("simuladoPublico");
+            const ano = params.get("ano") || anoDadosAtivo || String(new Date().getFullYear());
+            if (!id) return;
+            const sim = await carregarSimuladoPublicoPorId(id, ano);
+            const btn = document.querySelector("button[onclick^='iniciarSimuladoPublicoTelaCheia']");
+            if (btn) btn.innerHTML = simuladoEhHardcore(sim) ? '<i class="fa-solid fa-expand mr-2"></i>Iniciar simulado em tela cheia' : '<i class="fa-solid fa-play mr-2"></i>Iniciar simulado';
+            const cards = document.querySelectorAll("#simuladoPublicoConteudo .rounded-2xl");
+            cards.forEach(c => {
+                if (c.textContent.includes("Modo prova protegido")) {
+                    c.className = `rounded-2xl border p-4 text-sm ${simuladoEhHardcore(sim) ? 'border-red-800/50 bg-red-950/20 text-red-100' : 'border-blue-800/50 bg-blue-950/20 text-blue-100'}`;
+                    c.innerHTML = `<i class="fa-solid ${simuladoEhHardcore(sim) ? 'fa-lock' : 'fa-face-smile'} mr-2"></i><b>${simuladoEhHardcore(sim) ? 'Hardcore ativado' : 'Hardcore desativado'}:</b> ${textoSeguro(textoBloqueioTelaCheiaSimuladoPorSimulado(sim))}`;
+                }
+            });
+        } catch (e) { console.warn(e); }
+    };
+}
+
