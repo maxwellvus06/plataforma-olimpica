@@ -10187,7 +10187,7 @@ function renderizarSimulados() {
         const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
         const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
         const publicoBtns = podeGerenciarSimulados() && s.publico ? `<button onclick="copiarLinkSimuladoPublico('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-900/40 text-purple-200 border border-purple-800/40 text-xs font-bold"><i class="fa-solid fa-link mr-1"></i>Copiar link</button><button onclick="abrirLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold">Abrir link</button>` : "";
-        const ger = podeGerenciarSimulados() ? `<button onclick="previsualizarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button><button onclick="prepararEdicaoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button><button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>${publicoBtns}` : "";
+        const ger = podeGerenciarSimulados() ? `<button onclick="previsualizarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button><button onclick="abrirRelatorioCorrecaoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black"><i class="fa-solid fa-clipboard-list mr-1"></i>Respostas / presença / correção</button><button onclick="prepararEdicaoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button><button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>${publicoBtns}` : "";
         const botaoAluno = !podeGerenciarSimulados() ? (podeIniciarSimulado(s) ? `<button onclick="abrirAmbienteSimulado('${s.id}')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-stopwatch mr-1"></i>Entrar no simulado</button>` : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>${envio?.status === "encerrado" ? "Simulado encerrado" : (encerrado ? "Prazo encerrado" : "Indisponível")}</button>`) : "";
         const rankingMini = rankingSimulado(s).slice(0, 5);
         const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno/Visitante</th><th class="p-2 text-left">Escola</th><th class="p-2 text-left">Cidade</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Contato</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome || e.nome)}</td><td class="p-2 text-gray-400">${textoSeguro(e.escolaNome || e.escolaOrigem || "—")}</td><td class="p-2 text-gray-400">${textoSeguro(e.cidade || "—")}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${textoSeguro([e.email,e.whatsapp].filter(Boolean).join(" · ") || "—")}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}</div></details>` : "";
@@ -10816,3 +10816,37 @@ function exportarRankingSimuladoCSV() {
     a.click();
     URL.revokeObjectURL(a.href);
 }
+
+
+// ==================== PATCH VISIBILIDADE — SIMULADOS: RESPOSTAS, PRESENÇA E CORREÇÃO ====================
+function abrirRelatorioCorrecaoSimulado(simuladoId) {
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para ver respostas e correções de simulados.");
+    const painel = document.getElementById("painelRankingSimulados");
+    const sel = document.getElementById("selectRankingSimulado");
+    if (!painel || !sel) return alert("Painel de respostas não encontrado nesta tela. Recarregue a página e tente novamente.");
+    painel.classList.remove("hidden");
+    sel.value = String(simuladoId || "");
+    renderizarRankingSimulado(true);
+    painel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+const __renderizarSimuladosBase_VisibilidadeCorrecao = renderizarSimulados;
+renderizarSimulados = function() {
+    __renderizarSimuladosBase_VisibilidadeCorrecao();
+    const painel = document.getElementById("painelRankingSimulados");
+    const box = document.getElementById("rankingSimuladoResumo");
+    if (painel && podeGerenciarSimulados()) {
+        painel.classList.remove("hidden");
+        painel.classList.add("ring-1", "ring-purple-900/30");
+    }
+    if (box && podeGerenciarSimulados() && !document.getElementById("selectRankingSimulado")?.value && !box.innerHTML.trim()) {
+        box.innerHTML = `<div class="rounded-2xl border border-purple-900/40 bg-purple-950/20 p-4 text-sm text-purple-100"><b>Painel de respostas, presença e correção.</b><br>Selecione um simulado acima ou clique no botão roxo <b>Respostas / presença / correção</b> dentro do card do simulado.</div>`;
+    }
+};
+
+const __atualizarSelectRankingSimuladosBase_VisibilidadeCorrecao = atualizarSelectRankingSimulados;
+atualizarSelectRankingSimulados = function() {
+    __atualizarSelectRankingSimuladosBase_VisibilidadeCorrecao();
+    const painel = document.getElementById("painelRankingSimulados");
+    if (painel && podeGerenciarSimulados()) painel.classList.remove("hidden");
+};
