@@ -908,7 +908,7 @@ function ativarPrimeiraAbaPermitida() {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
+        meusresultados: "Meus Resultados", importar: "Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -2517,6 +2517,7 @@ function editarResultado(chaveCodificada) {
             { nome: "olimpiada", label: "Olimpíada", tipo: "select", valor: atual.olimpiada || "", options: opcoesOlimpiadasNome() },
             { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
             { nome: "premio", label: "Premiação", tipo: "select", valor: atual.premio || "", options: PREMIOS_PADRAO },
+            { nome: "observacao", label: "Observação", tipo: "textarea", valor: atual.observacao || "" },
             { nome: "certificadoArquivo", label: "Certificado do resultado (PDF ou imagem)", tipo: "file", valor: "" }
         ],
         onDepoisMontar: () => {
@@ -2555,7 +2556,8 @@ function editarResultado(chaveCodificada) {
                 escola: d.escola,
                 olimpiada: d.olimpiada,
                 serie: d.serie,
-                premio: d.premio
+                premio: d.premio,
+                observacao: d.observacao || ""
             };
             const atualizado = await anexarCertificadoAoResultado(atualizadoBase, d.certificadoArquivo);
             dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chaveOriginal);
@@ -2961,7 +2963,7 @@ function navegarAba(abaId, botaoTarget) {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
+        meusresultados: "Meus Resultados", importar: "Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -4062,6 +4064,7 @@ function initResultadoManual() {
             const olimpiada = document.getElementById("addResOlimpiadaSelect").value;
             const serie = document.getElementById("addResSerieSelect").value;
             const premio = document.getElementById("addResPremioSelect").value;
+            const observacao = document.getElementById("addResObservacao")?.value?.trim() || "";
 
             if (!aluno || !municipio || !escola || !olimpiada || !serie || !premio) return alert("Preencha todos os campos.");
 
@@ -4072,7 +4075,7 @@ function initResultadoManual() {
             if (!cidade || !escolaObj) return alert("Cidade ou escola inválida.");
             if (escolaObj.cidadeId !== cidade.id) return alert("A escola não pertence à cidade selecionada.");
 
-            gravarResultadoComSobrescrita({ aluno, alunoId: alunoObjSelecionado?.id || "", alunoCpf: alunoObjSelecionado?.cpf || "", escola, municipio, olimpiada, serie, premio });
+            gravarResultadoComSobrescrita({ aluno, alunoId: alunoObjSelecionado?.id || "", alunoCpf: alunoObjSelecionado?.cpf || "", escola, municipio, olimpiada, serie, premio, observacao });
             salvarPremiados();
             popularSeletores();
             renderizarPlataformaDashboard();
@@ -4271,20 +4274,7 @@ function renderizarCronograma() {
     const tbody = document.getElementById("tableCronogramaCorpo");
     if (!tbody) return;
     const podeEditar = permissao("calendario.podeEditar");
-    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
-    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
-    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
-    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
-
-    const cronogramaFiltrado = ordenarCronogramaPorModo(cronograma.filter(c => {
-        const info = normalizarEtapaCronograma(c.etapa);
-        const porGrupo = filtroGrupo === "TODOS" ||
-            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
-        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
-        const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
-        const porMes = cronogramaEventoNoMes(c, filtroMes);
-        return porGrupo && porEtapa && porOlimpiada && porMes;
-    }));
+    const cronogramaFiltrado = obterCronogramaFiltradoExibido();
 
     if (!cronogramaFiltrado.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum evento encontrado para os filtros selecionados.</td></tr>`;
@@ -4589,16 +4579,16 @@ function atualizarGraficoPremios(dados) {
 }
 
 // ==================== IMPORTAR RESULTADOS ====================
-function renderizarResultadosImportacao() {
+function podeExportarExcelOperacional() {
+    return ["ADM", "Staff", "Gestor", "Escola"].includes(usuarioLogado?.nivel || "");
+}
+
+function obterResultadosFiltradosExibidos() {
     const nFiltro = document.getElementById("filterResultadoNome")?.value?.trim().toLowerCase() || "";
     const cFiltro = document.getElementById("filterResultadoCidade")?.value || "TODOS";
     const eFiltro = document.getElementById("filterResultadoEscola")?.value || "TODOS";
     const pFiltro = document.getElementById("filterResultadoPremio")?.value || "TODOS";
-
-    const municipioTravado = getMunicipioFiltradoUsuario();
-    const podeEditar = permissao("resultados.podeEditar");
-
-    const filtrados = dadosTrabalho.filter(r => {
+    return dadosTrabalho.filter(r => {
         const porMuni = resultadoDentroDoEscopoResultadosUsuario(r);
         const porNome = !nFiltro || normalizarTexto(r.aluno).includes(nFiltro);
         const porCidade = cFiltro === "TODOS" || normalizarTexto(r.municipio) === normalizarTexto(cFiltro);
@@ -4606,11 +4596,122 @@ function renderizarResultadosImportacao() {
         const porPremio = pFiltro === "TODOS" || normalizarTexto(r.premio) === normalizarTexto(pFiltro);
         return porMuni && porNome && porCidade && porEscola && porPremio;
     });
+}
+
+function obterCronogramaFiltradoExibido() {
+    const cronograma = getStorage("app_cronograma");
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
+    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
+    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
+    return ordenarCronogramaPorModo(cronograma.filter(c => {
+        const info = normalizarEtapaCronograma(c.etapa);
+        const porGrupo = filtroGrupo === "TODOS" ||
+            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
+        const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
+        const porMes = cronogramaEventoNoMes(c, filtroMes);
+        return porGrupo && porEtapa && porOlimpiada && porMes;
+    }));
+}
+
+async function exportarTabelaExcelOperacional(nomeArquivo, titulo, colunas, linhas) {
+    if (!podeExportarExcelOperacional()) return alert("A exportação em Excel está disponível apenas para ADM, Staff, Gestor e Escola.");
+    if (!linhas.length) return alert("Não há dados filtrados para exportar.");
+    if (!bibliotecaExcelJSPresente()) return alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico";
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet("Relatório");
+    ws.addRow([titulo]);
+    ws.mergeCells(1, 1, 1, colunas.length);
+    ws.getRow(1).font = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
+    ws.addRow([`Ano: ${anoDadosAtivo}`, `Gerado em: ${new Date().toLocaleString("pt-BR")}`, `Responsável: ${usuarioLogado?.nome || ""}`]);
+    ws.mergeCells(2, 3, 2, colunas.length);
+    ws.addRow([]);
+    ws.addRow(colunas.map(c => c.header));
+    const header = ws.getRow(4);
+    header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+    linhas.forEach(item => ws.addRow(colunas.map(c => item[c.key] ?? "")));
+    ws.columns.forEach((col, i) => {
+        col.width = Math.max(14, Math.min(60, colunas[i]?.width || 22));
+        col.alignment = { vertical: "top", wrapText: true };
+    });
+    ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: colunas.length } };
+    await baixarWorkbookExcelJS(workbook, nomeArquivo);
+}
+
+function exportarResultadosFiltradosExcel() {
+    const linhas = obterResultadosFiltradosExibidos().map(r => ({
+        aluno: r.aluno || "",
+        escola: r.escola || "",
+        cidade: r.municipio || "",
+        serie: r.serie || "",
+        olimpiada: r.olimpiada || "",
+        premio: r.premio || "",
+        observacao: r.observacao || "",
+        certificado: r.certificadoUrl || ""
+    }));
+    return exportarTabelaExcelOperacional(
+        `resultados_filtrados_${anoDadosAtivo}.xlsx`,
+        "Relatório de resultados filtrados",
+        [
+            { header: "Aluno", key: "aluno", width: 34 },
+            { header: "Escola", key: "escola", width: 36 },
+            { header: "Cidade", key: "cidade", width: 24 },
+            { header: "Série", key: "serie", width: 18 },
+            { header: "Olimpíada", key: "olimpiada", width: 44 },
+            { header: "Prêmio", key: "premio", width: 18 },
+            { header: "Observação", key: "observacao", width: 48 },
+            { header: "Certificado", key: "certificado", width: 54 }
+        ],
+        linhas
+    );
+}
+
+function exportarCalendarioFiltradoExcel() {
+    const olimpiadas = getStorage("app_olimpiadas");
+    const linhas = obterCronogramaFiltradoExibido().map(c => {
+        const oli = olimpiadas.find(o => o.id === c.olimpiadaId);
+        const temporal = classificarTemporalCronograma(c);
+        return {
+            olimpiada: oli ? oli.nome : "Desconhecida",
+            etapa: c.etapa || "",
+            data: formatarPeriodoCronograma(c),
+            dataInicio: c.dataInicio || "",
+            dataFim: c.dataFim || "",
+            publico: c.segmento || "",
+            acao: c.acao || "",
+            status: temporal.label || ""
+        };
+    });
+    return exportarTabelaExcelOperacional(
+        `calendario_filtrado_${anoDadosAtivo}.xlsx`,
+        "Relatório de calendário filtrado",
+        [
+            { header: "Olimpíada", key: "olimpiada", width: 44 },
+            { header: "Fase / Etapa", key: "etapa", width: 34 },
+            { header: "Data / Período", key: "data", width: 24 },
+            { header: "Data início", key: "dataInicio", width: 18 },
+            { header: "Data final", key: "dataFim", width: 18 },
+            { header: "Público", key: "publico", width: 24 },
+            { header: "Ação / Observação", key: "acao", width: 56 },
+            { header: "Status temporal", key: "status", width: 26 }
+        ],
+        linhas
+    );
+}
+
+function renderizarResultadosImportacao() {
+    const podeEditar = permissao("resultados.podeEditar");
+    const filtrados = obterResultadosFiltradosExibidos();
 
     const tbody = document.getElementById("tableResultadosImportacaoCorpo");
     if (!tbody) return;
     if (!filtrados.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
         return;
     }
     tbody.innerHTML = filtrados.map(r => {
@@ -4623,6 +4724,7 @@ function renderizarResultadosImportacao() {
                 <td class="p-4 text-gray-300 font-medium">${textoSeguro(r.serie || "Não informada")}</td>
                 <td class="p-4 text-gray-400">${textoSeguro(r.olimpiada)}</td>
                 <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${textoSeguro(r.premio)}</span></td>
+                <td class="p-4 text-gray-400 max-w-xs"><span title="${textoSeguro(r.observacao || '')}">${textoSeguro(r.observacao || '—')}</span></td>
                 <td class="p-4">${certificadoResultadoHtml(r)}</td>
                 <td class="p-4 text-right">${podeEditar ? `<button onclick="editarResultado('${chave}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
             </tr>
@@ -4872,6 +4974,7 @@ function processarPlanilha(arquivo) {
                 const olimpiada = String(linha.Olimpiada || linha.Olimpíada || "").trim();
                 const premio = String(linha.Premio || linha.Prêmio || "").trim();
                 const serie = String(linha.Serie || linha["Série"] || "").trim();
+                const observacao = String(linha.Observacao || linha["Observação"] || linha.OBSERVACAO || linha["OBSERVAÇÃO"] || "").trim();
                 const nl = idx + 2;
                 if (!aluno && !escola && !municipio && !olimpiada && !serie && !premio) return;
                 if (!aluno || !escola || !municipio || !olimpiada || !serie || !premio) { erros.push(`Linha ${nl}: campo obrigatório vazio.`); return; }
@@ -4880,7 +4983,7 @@ function processarPlanilha(arquivo) {
                 if (!olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(olimpiada))) { erros.push(`Linha ${nl}: olimpíada não cadastrada (${olimpiada}).`); return; }
                 if (!SERIES_PADRAO.some(s => normalizarTexto(s) === normalizarTexto(serie))) { erros.push(`Linha ${nl}: série inválida (${serie}).`); return; }
                 if (!PREMIOS_PADRAO.some(p => normalizarTexto(p) === normalizarTexto(premio))) { erros.push(`Linha ${nl}: prêmio inválido (${premio}).`); return; }
-                gravarResultadoComSobrescrita({ aluno, escola, municipio, olimpiada, serie, premio });
+                gravarResultadoComSobrescrita({ aluno, escola, municipio, olimpiada, serie, premio, observacao });
                 inseridos++;
             });
             salvarPremiados(); popularSeletores(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
@@ -4908,7 +5011,8 @@ async function downloadTemplate() {
         { header: "Municipio", key: "municipio", width: 26 },
         { header: "Olimpiada", key: "olimpiada", width: 54 },
         { header: "Serie", key: "serie", width: 18 },
-        { header: "Premio", key: "premio", width: 20 }
+        { header: "Premio", key: "premio", width: 20 },
+        { header: "Observacao", key: "observacao", width: 56 }
     ];
 
     const escolas = listaEscolasParaTemplate();
@@ -4921,13 +5025,14 @@ async function downloadTemplate() {
         municipio: municipios[0] || "Cidade - UF",
         olimpiada: olimpiadas[0] || "Nome da Olimpíada",
         serie: "6º Ano EF",
-        premio: "Ouro"
+        premio: "Ouro",
+        observacao: "Texto livre opcional: fonte, conferência, observação pedagógica etc."
     });
 
     // Linhas em branco para preenchimento em lote
     for (let i = 0; i < 199; i++) ws.addRow({});
 
-    estilizarCabecalhoTemplate(ws, 6);
+    estilizarCabecalhoTemplate(ws, 7);
 
     const listas = obterOuCriarAbaListas(workbook);
     const rangeEscolas = escreverListaValidacao(listas, "A", "Escolas cadastradas", escolas);
@@ -4941,6 +5046,7 @@ async function downloadTemplate() {
     aplicarListaSuspensa(ws, "D", 2, 201, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
     aplicarListaSuspensa(ws, "E", 2, 201, rangeSeries, "Escolha uma série da lista.");
     aplicarListaSuspensa(ws, "F", 2, 201, rangePremios, "Escolha um prêmio da lista.");
+    ws.getColumn(7).alignment = { wrapText: true, vertical: "top" };
 
     await baixarWorkbookExcelJS(workbook, "modelo_importacao_resultados_com_listas.xlsx");
 }
@@ -7271,6 +7377,8 @@ window.alternarMicrofoneMonitoria = alternarMicrofoneMonitoria;
 window.alternarCameraMonitoria = alternarCameraMonitoria;
 window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
 window.downloadTemplate = downloadTemplate;
+window.exportarResultadosFiltradosExcel = exportarResultadosFiltradosExcel;
+window.exportarCalendarioFiltradoExcel = exportarCalendarioFiltradoExcel;
 window.downloadOlimpiadasTemplate = downloadOlimpiadasTemplate;
 window.downloadAlunosTemplate = downloadAlunosTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
