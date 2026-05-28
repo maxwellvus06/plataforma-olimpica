@@ -9096,3 +9096,245 @@ function renderizarSimulados() {
 window.copiarLinkPublicoSimulado = copiarLinkPublicoSimulado;
 window.carregarSimuladoParaEdicao = carregarSimuladoParaEdicao;
 window.cancelarEdicaoSimulado = cancelarEdicaoSimulado;
+
+// ==================== AJUSTE: MÍDIAS INTERNAS, CARDS RETRÁTEIS E SOLUÇÕES AVANÇADAS ====================
+// Esta seção foi adicionada sobre a base estável para evitar abrir mídias fora da plataforma,
+// deixar listas mais compactas e permitir soluções pedagógicas com anexos no Banco de Questões.
+
+function ehUrlYoutube(url) {
+    return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/i.test(String(url || ""));
+}
+
+function extensaoDaUrl(url) {
+    const clean = String(url || "").split("?")[0].split("#")[0].toLowerCase();
+    const m = clean.match(/\.([a-z0-9]{2,6})$/i);
+    return m ? m[1] : "";
+}
+
+function tipoMidiaPorUrl(url, mime = "") {
+    const u = String(url || "").toLowerCase();
+    const m = String(mime || "").toLowerCase();
+    const ext = extensaoDaUrl(url);
+    if (ehUrlYoutube(url)) return "youtube";
+    if (m.includes("pdf") || ext === "pdf") return "pdf";
+    if (m.startsWith("image/") || ["png","jpg","jpeg","webp","gif","bmp","svg"].includes(ext)) return "imagem";
+    if (m.startsWith("video/") || ["mp4","webm","ogg","mov","m4v"].includes(ext)) return "video";
+    if (m.startsWith("audio/") || ["mp3","wav","ogg","m4a","aac"].includes(ext)) return "audio";
+    if (["doc","docx","ppt","pptx","xls","xlsx"].includes(ext)) return "office";
+    return "iframe";
+}
+
+function youtubeEmbedUrlInterno(url) {
+    try {
+        const raw = String(url || "");
+        if (raw.includes("/embed/")) return raw;
+        const u = new URL(raw);
+        let id = "";
+        if (u.hostname.includes("youtu.be")) id = u.pathname.replace("/", "");
+        else id = u.searchParams.get("v") || "";
+        return id ? `https://www.youtube.com/embed/${id}` : raw;
+    } catch (_) { return String(url || ""); }
+}
+
+function abrirVisualizadorMidia(url, titulo = "Mídia", mime = "") {
+    if (!url) return alert("Mídia não encontrada.");
+    const modal = document.getElementById("modalVisualizadorMidia");
+    const corpo = document.getElementById("modalVisualizadorCorpo");
+    const tituloEl = document.getElementById("modalVisualizadorTitulo");
+    const baixar = document.getElementById("btnVisualizadorBaixar");
+    if (!modal || !corpo) {
+        window.open(url, "_blank");
+        return;
+    }
+    const safeTitle = textoSeguro(titulo || "Mídia");
+    if (tituloEl) tituloEl.innerText = titulo || "Mídia";
+    if (baixar) baixar.onclick = () => {
+        const a = document.createElement("a");
+        a.href = url; a.target = "_blank"; a.rel = "noopener"; a.download = titulo || "arquivo";
+        document.body.appendChild(a); a.click(); a.remove();
+    };
+    const tipo = tipoMidiaPorUrl(url, mime);
+    let html = "";
+    if (tipo === "youtube") {
+        html = `<iframe class="media-viewer-frame" src="${youtubeEmbedUrlInterno(url)}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`;
+    } else if (tipo === "pdf") {
+        html = `<iframe class="media-viewer-frame" src="${url}#toolbar=1&navpanes=0"></iframe>`;
+    } else if (tipo === "imagem") {
+        html = `<img src="${url}" alt="${safeTitle}" class="media-viewer-img">`;
+    } else if (tipo === "video") {
+        html = `<video src="${url}" class="media-viewer-video" controls playsinline></video>`;
+    } else if (tipo === "audio") {
+        html = `<div class="w-full max-w-3xl bg-gray-950 border border-gray-700 rounded-2xl p-6"><p class="text-sm font-bold text-gray-200 mb-4">${safeTitle}</p><audio src="${url}" class="media-viewer-audio" controls></audio></div>`;
+    } else if (tipo === "office") {
+        const viewer = `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(url)}`;
+        html = `<iframe class="media-viewer-frame" src="${viewer}"></iframe>`;
+    } else {
+        html = `<iframe class="media-viewer-frame" src="${url}"></iframe><p class="mt-3 text-xs text-gray-500 text-center">Alguns sites externos podem bloquear incorporação. Nesse caso, use o botão Baixar.</p>`;
+    }
+    corpo.innerHTML = html;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+function fecharVisualizadorMidia() {
+    const modal = document.getElementById("modalVisualizadorMidia");
+    const corpo = document.getElementById("modalVisualizadorCorpo");
+    if (corpo) corpo.innerHTML = "";
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+}
+
+function deveAbrirInterno(url) {
+    if (!url) return false;
+    const u = String(url);
+    if (ehUrlYoutube(u)) return true;
+    const ext = extensaoDaUrl(u);
+    if (["pdf","png","jpg","jpeg","webp","gif","bmp","svg","mp4","webm","ogg","mov","m4v","mp3","wav","m4a","aac","doc","docx","ppt","pptx","xls","xlsx"].includes(ext)) return true;
+    if (/firebasestorage\.googleapis\.com|storage\.googleapis\.com/i.test(u)) return true;
+    return false;
+}
+
+function initInterceptadorMidiasInternas() {
+    if (window.__midiasInternasReady) return;
+    window.__midiasInternasReady = true;
+    document.addEventListener("click", (ev) => {
+        const a = ev.target.closest?.("a[href]");
+        if (!a) return;
+        const href = a.getAttribute("href") || "";
+        if (!/^https?:\/\//i.test(href)) return;
+        if (!deveAbrirInterno(href)) return;
+        ev.preventDefault();
+        abrirVisualizadorMidia(href, a.innerText?.trim() || a.getAttribute("title") || "Mídia", a.dataset.mime || "");
+    }, true);
+}
+
+function renderBotaoMidiaInterna(url, label = "Abrir mídia", titulo = "Mídia", classe = "bg-blue-700 hover:bg-blue-600 text-white") {
+    if (!url) return "";
+    return `<button type="button" onclick="abrirVisualizadorMidia('${String(url).replace(/'/g, "\\'")}', '${String(titulo || label).replace(/'/g, "\\'")}')" class="px-3 py-2 rounded-xl ${classe} text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>${textoSeguro(label)}</button>`;
+}
+
+function tornarCardsRetrateis(containerId, abertoPrimeiro = false) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    Array.from(container.children).forEach((card, idx) => {
+        if (!(card instanceof HTMLElement) || card.dataset.retratilReady === "true") return;
+        if (card.children.length < 1) return;
+        const titulo = card.querySelector("h1,h2,h3,h4")?.innerText?.trim() || "Item";
+        const subtitulo = card.querySelector("p")?.innerText?.trim() || "Clique para expandir/recolher";
+        const body = document.createElement("div");
+        body.className = "retract-body";
+        while (card.firstChild) body.appendChild(card.firstChild);
+        const header = document.createElement("button");
+        header.type = "button";
+        header.className = "retract-header-btn p-4 flex items-center justify-between gap-3 text-left bg-gray-900/45 hover:bg-gray-900/70 border-b border-gray-700 transition";
+        header.innerHTML = `<div class="min-w-0"><h4 class="text-sm font-black text-white truncate"><i class="fa-solid fa-folder mr-2 text-blue-400"></i>${textoSeguro(titulo)}</h4><p class="text-[11px] text-gray-500 truncate mt-1">${textoSeguro(subtitulo)}</p></div><span class="shrink-0 px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-blue-300 text-[10px] font-black uppercase"><i class="fa-solid fa-chevron-down retract-icon mr-1"></i>Abrir</span>`;
+        header.onclick = () => {
+            card.classList.toggle("retract-open");
+            const open = card.classList.contains("retract-open");
+            const badge = header.querySelector("span");
+            if (badge) badge.innerHTML = `<i class="fa-solid ${open ? "fa-chevron-up" : "fa-chevron-down"} retract-icon mr-1"></i>${open ? "Recolher" : "Abrir"}`;
+        };
+        card.classList.add("retract-card", "overflow-hidden");
+        if (abertoPrimeiro && idx === 0) card.classList.add("retract-open");
+        card.appendChild(header);
+        card.appendChild(body);
+        card.dataset.retratilReady = "true";
+    });
+}
+
+function aplicarRetrateisContextuais() {
+    tornarCardsRetrateis("gridMateriais", false);
+    tornarCardsRetrateis("gridSimulados", false);
+    tornarCardsRetrateis("gridAulas", false);
+    tornarCardsRetrateis("gridQuestoes", false);
+}
+
+function initRetrateisContextuais() {
+    if (window.__retrateisReady) return;
+    window.__retrateisReady = true;
+    const obs = new MutationObserver(() => setTimeout(aplicarRetrateisContextuais, 80));
+    obs.observe(document.body, { childList: true, subtree: true });
+    setTimeout(aplicarRetrateisContextuais, 300);
+}
+
+// Sobrescreve renderização de links para abrir sempre no visualizador interno.
+function renderArquivoLinks(arquivos) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    return `<div class="flex flex-wrap gap-2 mt-2">${arquivos.map((a, i) => {
+        const nome = a.nome || a.fileName || `Arquivo ${i+1}`;
+        return renderBotaoMidiaInterna(a.url || a.fileUrl, nome, nome, "bg-blue-950/60 hover:bg-blue-900 text-blue-200 border border-blue-900/40");
+    }).join("")}</div>`;
+}
+
+function renderizarSolucoesQuestao(q) {
+    const sols = Array.isArray(q.solucoes) ? q.solucoes : [];
+    if (!sols.length) return `<p class="text-xs text-gray-500 mt-2">Nenhuma solução cadastrada ainda.</p>`;
+    return `<div class="space-y-3 mt-3">${sols.map(s => `<div class="rounded-2xl bg-gray-950/70 border border-gray-700 p-4"><div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-black tracking-wider">${textoSeguro(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${textoSeguro(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${s.texto ? `<p class="text-sm text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">${textoSeguro(s.texto)}</p>` : ""}<div class="mt-3 flex flex-wrap gap-2">${s.videoUrl ? renderBotaoMidiaInterna(s.videoUrl, "Ver vídeo", "Vídeo da solução", "bg-purple-700 hover:bg-purple-600 text-white") : ""}${renderArquivoLinks(s.arquivos)}</div></div>`).join("")}</div>`;
+}
+
+function abrirModalSolucaoQuestao(questaoId) {
+    const antigo = document.getElementById("modalSolucaoQuestaoAvancada");
+    if (antigo) antigo.remove();
+    const div = document.createElement("div");
+    div.id = "modalSolucaoQuestaoAvancada";
+    div.className = "fixed inset-0 z-[85] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4";
+    div.innerHTML = `<div class="w-full max-w-4xl bg-gray-900 border border-gray-700 rounded-3xl shadow-2xl overflow-hidden"><div class="p-5 border-b border-gray-700 bg-gray-950/80 flex items-center justify-between gap-3"><div><p class="text-[10px] uppercase tracking-widest text-emerald-300 font-black">Banco de Questões</p><h3 class="text-lg font-black text-white">Adicionar solução pedagógica</h3><p class="text-xs text-gray-500 mt-1">Use texto, imagens, PDF, documentos, áudio ou vídeo curto/link externo.</p></div><button onclick="document.getElementById('modalSolucaoQuestaoAvancada')?.remove()" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold">Fechar</button></div><form id="formSolucaoQuestaoAvancada" class="p-5 space-y-4"><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label class="block text-xs font-bold text-gray-400 uppercase mb-1">Tipo de solução</label><select id="solQuestaoTipo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option>Solução comentada</option><option>Resolução alternativa</option><option>Dica pedagógica</option><option>Correção de gabarito</option><option>Comentário do professor</option><option>Vídeo-resolução</option></select></div><div><label class="block text-xs font-bold text-gray-400 uppercase mb-1">Link de vídeo/aula externa</label><input id="solQuestaoVideo" type="url" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white" placeholder="YouTube, Drive, Loom etc."></div></div><div><label class="block text-xs font-bold text-gray-400 uppercase mb-1">Comentário / resolução em texto</label><textarea id="solQuestaoTexto" rows="8" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-none" placeholder="Explique a solução passo a passo, caminhos alternativos, observações didáticas..."></textarea></div><div><label class="block text-xs font-bold text-gray-400 uppercase mb-1">Anexos da solução</label><input id="solQuestaoArquivos" type="file" multiple accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.mp4,.webm,.mp3,.wav" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300"><p class="text-[10px] text-gray-500 mt-1">Sugestão: vídeos curtos. Para vídeos longos, prefira link do YouTube/Drive para economizar Storage.</p></div><button type="submit" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Salvar solução</button></form></div>`;
+    document.body.appendChild(div);
+    document.getElementById("formSolucaoQuestaoAvancada").onsubmit = async (ev) => {
+        ev.preventDefault();
+        await salvarSolucaoQuestaoAvancada(questaoId);
+    };
+}
+
+async function salvarSolucaoQuestaoAvancada(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para adicionar solução.");
+    const texto = document.getElementById("solQuestaoTexto")?.value.trim() || "";
+    const videoUrl = document.getElementById("solQuestaoVideo")?.value.trim() || "";
+    const tipo = document.getElementById("solQuestaoTipo")?.value || "Solução comentada";
+    const arquivosInput = document.getElementById("solQuestaoArquivos");
+    if (!texto && !videoUrl && !(arquivosInput?.files?.length)) return alert("Adicione texto, vídeo ou algum anexo.");
+    if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([texto, videoUrl], "solução")) return;
+    const arquivos = [];
+    if (arquivosInput?.files?.length) {
+        for (const file of Array.from(arquivosInput.files)) {
+            const up = await enviarArquivoParaFirebaseStorage(file, "banco_questoes_solucoes");
+            arquivos.push({ url: up.fileUrl, nome: up.fileName, mimeType: up.mimeType, storagePath: up.storagePath, tamanho: up.size || file.size || 0 });
+        }
+    }
+    const lista = getStorage("app_questoes", []);
+    const idx = lista.findIndex(q => String(q.id) === String(questaoId));
+    if (idx < 0) return alert("Questão não encontrada.");
+    lista[idx].solucoes = Array.isArray(lista[idx].solucoes) ? lista[idx].solucoes : [];
+    lista[idx].solucoes.push({ id: novoId(), tipo, texto, videoUrl, arquivos, criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+    await setStorage("app_questoes", lista);
+    document.getElementById("modalSolucaoQuestaoAvancada")?.remove();
+    renderizarBancoQuestoes();
+}
+
+// Override do botão antigo de solução por prompt.
+async function adicionarSolucaoQuestao(questaoId) {
+    abrirModalSolucaoQuestao(questaoId);
+}
+
+// Reaplica compactação após renderizações principais sem mexer na lógica original.
+["renderizarPlataformaEnsino", "renderizarSimulados", "renderizarAulas", "renderizarBancoQuestoes"].forEach(nome => {
+    const original = window[nome] || (typeof globalThis !== "undefined" ? globalThis[nome] : null);
+    if (typeof original === "function" && !original.__retractWrapped) {
+        const wrapped = function(...args) {
+            const ret = original.apply(this, args);
+            Promise.resolve(ret).finally(() => setTimeout(aplicarRetrateisContextuais, 120));
+            return ret;
+        };
+        wrapped.__retractWrapped = true;
+        window[nome] = wrapped;
+        try { globalThis[nome] = wrapped; } catch (_) {}
+    }
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    initInterceptadorMidiasInternas();
+    initRetrateisContextuais();
+});
+
+window.abrirVisualizadorMidia = abrirVisualizadorMidia;
+window.fecharVisualizadorMidia = fecharVisualizadorMidia;
+window.abrirModalSolucaoQuestao = abrirModalSolucaoQuestao;
