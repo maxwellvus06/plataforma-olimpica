@@ -2,123 +2,89 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
+    function signedIn() { return request.auth != null; }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)); }
+    function profile() { return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)).data; }
+    function nivel() { return hasProfile() ? profile().nivel : ""; }
+    function isAdmin() { return nivel() == "ADM"; }
+    function isStaff() { return nivel() == "Staff"; }
+    function isMonitor() { return nivel() == "Monitor"; }
+    function isProfessor() { return nivel() == "Professor/Orientador"; }
+    function isAluno() { return nivel() == "Aluno"; }
+    function isEquipe() { return isAdmin() || isStaff() || isMonitor() || isProfessor(); }
+    function isAdmOuStaff() { return isAdmin() || isStaff(); }
+    function isOwnerProfile(userId) { return signedIn() && (userId == request.auth.uid || resource.data.authUid == request.auth.uid || resource.data.emailAuth == request.auth.token.email || resource.data.email == request.auth.token.email); }
+    function isCreatingOwnProfile(userId) { return signedIn() && (userId == request.auth.uid || request.resource.data.authUid == request.auth.uid || request.resource.data.emailAuth == request.auth.token.email || request.resource.data.email == request.auth.token.email); }
+    function isOwnerEnvio() { return signedIn() && request.resource.data.usuarioId == request.auth.uid; }
+    function isPublicLeadCreate() { return request.resource.data.visitante == true && request.resource.data.simuladoPublico == true; }
 
-    function profileByUid() {
-      return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
-    }
-
-    function hasProfileByUid() {
-      return signedIn() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid));
-    }
-
-    function nivel() {
-      return hasProfileByUid() ? profileByUid().data.nivel : "";
-    }
-
-    function isAdmin() {
-      return nivel() == "ADM";
-    }
-
-    function isMonitor() {
-      return nivel() == "Monitor";
-    }
-
-    function isProfessorOrientador() {
-      return nivel() == "Professor/Orientador";
-    }
-
-    function canPostPlataforma() {
-      return isAdmin() || isMonitor() || isProfessorOrientador();
-    }
-
-    function canPostConteudoPedagogico() {
-      return isAdmin() || isMonitor() || isProfessorOrientador();
-    }
-
-    function colecaoRestritaQuestoes(colecao) {
-      return colecao == "sistema_questoes" || colecao == "sistema_banco_questoes";
-    }
-
-    function isOwnerEnvioSimulado() {
-      return signedIn() && request.resource.data.usuarioId == request.auth.uid;
-    }
-
-    function isOwnerProfile() {
-      return signedIn() && (
-        resource.data.authUid == request.auth.uid ||
-        resource.data.emailAuth == request.auth.token.email ||
-        resource.data.email == request.auth.token.email
-      );
-    }
-
-    function isCreatingOwnProfile(userId) {
-      return signedIn() && (
-        userId == request.auth.uid ||
-        request.resource.data.authUid == request.auth.uid ||
-        request.resource.data.emailAuth == request.auth.token.email ||
-        request.resource.data.email == request.auth.token.email
-      );
-    }
-
-    // Perfis da plataforma.
-    // Permite que o usuário autenticado leia/atualize somente seu próprio perfil.
-    // ADM, depois de já ter perfil por UID, pode gerenciar todos.
     match /sistema_usuarios/{userId} {
-      allow read: if isOwnerProfile() || isAdmin();
-      allow create: if isCreatingOwnProfile(userId) || isAdmin();
-      allow update: if isOwnerProfile() || isAdmin();
-      allow delete: if isAdmin();
+      allow read: if hasProfile() && (isAdmin() || isStaff() || userId == request.auth.uid || resource.data.authUid == request.auth.uid);
+      allow create: if isAdmin() || isStaff() || isCreatingOwnProfile(userId);
+      allow update: if isAdmin() || isStaff() || isOwnerProfile(userId);
+      allow delete: if isAdmin() && userId != request.auth.uid;
     }
 
-    // Layout: todos autenticados leem. Só ADM escreve.
     match /sistema_layout/{docId} {
-      allow read: if signedIn();
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isAdmOuStaff();
     }
 
     match /sistema_debug/{docId} {
-      allow read: if isAdmin();
-      allow write: if signedIn();
+      allow read, write: if isAdmOuStaff();
     }
 
-    // Dados anuais. Nesta etapa segura básica: usuário autenticado lê;
-    // escrita para ADM/Monitor. O front-end ainda aplica escopos finos.
+    match /anos/{ano}/sistema_simulados/{docId} {
+      allow read: if hasProfile() || resource.data.publico == true;
+      allow create, update, delete: if isEquipe();
+    }
+
+    match /anos/{ano}/sistema_simulados_envios/{docId} {
+      allow read: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid) || resource.data.visitante == true;
+      allow create: if (hasProfile() && request.resource.data.usuarioId == request.auth.uid) || isPublicLeadCreate();
+      allow update: if (hasProfile() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid) || isEquipe();
+      allow delete: if isEquipe();
+    }
+
+    match /anos/{ano}/sistema_simulados_leads/{docId} {
+      allow read, update, delete: if isAdmOuStaff();
+      allow create: if isPublicLeadCreate() || isAdmOuStaff();
+    }
+
+    match /anos/{ano}/sistema_questoes/{docId} {
+      allow read, write: if isEquipe();
+    }
+    match /anos/{ano}/sistema_banco_questoes/{docId} {
+      allow read, write: if isEquipe();
+    }
+    match /anos/{ano}/sistema_questoes_temas/{docId} {
+      allow read: if hasProfile();
+      allow write: if isEquipe();
+    }
+
     match /anos/{ano}/{colecao}/{docId} {
-      // Banco de questões é restrito à equipe pedagógica.
-      allow read: if signedIn() && (!colecaoRestritaQuestoes(colecao) || canPostConteudoPedagogico());
-
-      // Simulados oficiais: só equipe pedagógica altera o documento do simulado.
-      allow write: if colecao == "sistema_simulados" && canPostConteudoPedagogico();
-
-      // Envios/respostas de simulados: aluno/usuário autenticado pode criar e atualizar apenas o próprio envio.
-      allow create, update: if colecao == "sistema_simulados_envios" && isOwnerEnvioSimulado();
-      allow delete: if colecao == "sistema_simulados_envios" && (isAdmin() || isMonitor() || isProfessorOrientador() || resource.data.usuarioId == request.auth.uid);
-
-      // Demais coleções anuais administrativas.
-      allow write: if colecao != "sistema_simulados"
-        && colecao != "sistema_simulados_envios"
-        && (isAdmin() || isMonitor() || (isProfessorOrientador() && (colecao == "sistema_plataforma" || colecao == "sistema_aulas" || colecao == "sistema_banco_questoes" || colecao == "sistema_questoes")));
+      allow read: if hasProfile();
+      allow create, update, delete: if isAdmOuStaff()
+        || (isEquipe() && colecao in ["sistema_plataforma", "sistema_aulas", "sistema_cronograma", "sistema_premiados", "sistema_alunos"])
+        || (isMonitor() && colecao in ["sistema_plataforma", "sistema_aulas"])
+        || (isProfessor() && colecao in ["sistema_plataforma", "sistema_aulas"]);
     }
 
-    // Compatibilidade com coleções globais antigas: autenticado lê;
-    // escrita apenas ADM/Monitor.
-    match /sistema_cidades/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /sistema_escolas/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /sistema_olimpiadas/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /sistema_cronograma/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
-    match /sistema_premiados/{docId} { allow read: if signedIn(); allow write: if isAdmin() || isMonitor(); }
-    match /sistema_alunos/{docId} { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /sistema_plataforma/{docId} { allow read: if signedIn(); allow write: if canPostPlataforma(); }
-    match /sistema_simulados/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
-    match /sistema_aulas/{docId} { allow read: if signedIn(); allow write: if canPostConteudoPedagogico(); }
-    match /sistema_questoes/{docId} { allow read, write: if canPostConteudoPedagogico(); }
-    match /sistema_banco_questoes/{docId} { allow read, write: if canPostConteudoPedagogico(); }
-    match /sistema_simulados_envios/{docId} { allow read: if signedIn(); allow create, update: if isOwnerEnvioSimulado(); allow delete: if isAdmin() || isMonitor() || isProfessorOrientador() || resource.data.usuarioId == request.auth.uid; }
+    // Compatibilidade com coleções globais antigas
+    match /sistema_cidades/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
+    match /sistema_escolas/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
+    match /sistema_olimpiadas/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
+    match /sistema_cronograma/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
+    match /sistema_premiados/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
+    match /sistema_alunos/{docId} { allow read: if hasProfile(); allow write: if isAdmOuStaff(); }
+    match /sistema_plataforma/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
+    match /sistema_simulados/{docId} { allow read: if hasProfile() || resource.data.publico == true; allow write: if isEquipe(); }
+    match /sistema_aulas/{docId} { allow read: if hasProfile(); allow write: if isEquipe(); }
+    match /sistema_questoes/{docId} { allow read, write: if isEquipe(); }
+    match /sistema_banco_questoes/{docId} { allow read, write: if isEquipe(); }
+    match /sistema_simulados_envios/{docId} { allow read: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid) || resource.data.visitante == true; allow create: if (hasProfile() && request.resource.data.usuarioId == request.auth.uid) || isPublicLeadCreate(); allow update: if isEquipe() || (hasProfile() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid); allow delete: if isEquipe(); }
+    match /sistema_simulados_leads/{docId} { allow read, write: if isAdmOuStaff(); }
 
-    // Bloqueia o resto.
     match /{document=**} {
       allow read, write: if false;
     }

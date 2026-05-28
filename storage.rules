@@ -2,24 +2,18 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    // Logo, banner e imagens de identidade visual.
+    function signedIn() { return request.auth != null; }
     match /layout/{allPaths=**} {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if signedIn();
     }
-
-    // Materiais, anexos, resoluções e imagens do fórum.
     match /plataforma/{allPaths=**} {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if signedIn();
     }
-
     match /{allPaths=**} {
-      allow read, write: if false;
+      allow read: if true;
+      allow write: if signedIn();
     }
   }
 }
