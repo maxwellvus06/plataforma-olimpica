@@ -36,10 +36,13 @@ const SERIES_PADRAO = ["1º Ano EF", "2º Ano EF", "3º Ano EF", "4º Ano EF", "
 const PREMIOS_PADRAO = ["Ouro", "Prata", "Bronze", "Menção Honrosa"];
 const SEXOS_ALUNO_PADRAO = ["Masculino", "Feminino"];
 const ETNIAS_ALUNO_PADRAO = ["Não informado", "Branca", "Preta", "Parda", "Amarela", "Indígena", "Prefiro não declarar", "Outra"];
+let listasSuspensasConfig = {};
+let listaSuspensaAtualKey = null;
+let listaSuspensaAtualSelect = null;
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
-const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_simulados_envios", "app_aulas", "app_questoes"];
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_simulados_envios", "app_aulas", "app_questoes", "app_listas_suspensas"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -219,6 +222,7 @@ function tornarTabelasOrdenaveis(context = document) {
 function initOrdenacaoGlobalTabelasESelects() {
     ordenarSelectsAlfabeticamente();
     tornarTabelasOrdenaveis();
+    aplicarCustomizacoesListasSuspensas(document);
     const obs = new MutationObserver(muts => {
         for (const m of muts) {
             m.addedNodes.forEach(n => {
@@ -227,10 +231,198 @@ function initOrdenacaoGlobalTabelasESelects() {
                 if (n.matches?.("table")) tornarTabelaOrdenavel(n);
                 ordenarSelectsAlfabeticamente(n);
                 tornarTabelasOrdenaveis(n);
+                aplicarCustomizacoesListasSuspensas(n);
             });
         }
     });
     obs.observe(document.body, { childList: true, subtree: true });
+}
+
+// ==================== ADM: PERSONALIZAÇÃO GLOBAL DE LISTAS SUSPENSAS ====================
+function podeEditarListasSuspensas() {
+    return usuarioLogado?.nivel === "ADM";
+}
+
+function chaveListaSuspensa(select) {
+    if (!select) return "";
+    if (select.dataset.listaKey) return select.dataset.listaKey;
+    const label = select.closest("div")?.querySelector("label")?.innerText || "lista";
+    const key = select.id || select.name || `${label}_${Array.from(document.querySelectorAll("select")).indexOf(select)}`;
+    select.dataset.listaKey = String(key).trim().replace(/\s+/g, "_");
+    return select.dataset.listaKey;
+}
+
+function rotuloListaSuspensa(select) {
+    const label = select?.closest("div")?.querySelector("label")?.innerText;
+    return label || select?.id || "Lista suspensa";
+}
+
+function carregarConfigListasSuspensasEmMemoria() {
+    const arr = getStorage("app_listas_suspensas", []);
+    listasSuspensasConfig = {};
+    if (Array.isArray(arr)) {
+        arr.forEach(item => {
+            if (!item?.id) return;
+            listasSuspensasConfig[item.id] = {
+                id: item.id,
+                nome: item.nome || item.id,
+                adicionados: Array.isArray(item.adicionados) ? item.adicionados : [],
+                removidos: Array.isArray(item.removidos) ? item.removidos : []
+            };
+        });
+    }
+    return listasSuspensasConfig;
+}
+
+function serializarConfigListasSuspensas() {
+    return Object.values(listasSuspensasConfig || {}).map(item => ({
+        id: item.id,
+        nome: item.nome || item.id,
+        adicionados: Array.from(new Set((item.adicionados || []).map(String).filter(Boolean))),
+        removidos: Array.from(new Set((item.removidos || []).map(String).filter(Boolean))),
+        atualizadoEm: Date.now(),
+        atualizadoPor: usuarioLogado?.nome || ""
+    }));
+}
+
+async function salvarConfigListasSuspensas() {
+    setStorageLocal("app_listas_suspensas", serializarConfigListasSuspensas());
+    if (!podeEditarListasSuspensas()) return;
+    await setStorage("app_listas_suspensas", serializarConfigListasSuspensas());
+}
+
+function valorOpcaoLista(opt) {
+    return String(opt?.value || opt?.textContent || "").trim();
+}
+
+function garantirConfigLista(key, nome = "") {
+    if (!listasSuspensasConfig[key]) listasSuspensasConfig[key] = { id: key, nome: nome || key, adicionados: [], removidos: [] };
+    if (nome && !listasSuspensasConfig[key].nome) listasSuspensasConfig[key].nome = nome;
+    return listasSuspensasConfig[key];
+}
+
+function aplicarCustomizacaoSelect(select) {
+    if (!select || select.dataset.noListEditor === "true") return;
+    const key = chaveListaSuspensa(select);
+    const cfg = listasSuspensasConfig[key];
+    if (cfg) {
+        const removidos = new Set((cfg.removidos || []).map(String));
+        Array.from(select.options).forEach(opt => {
+            if (!opt.dataset.valorOriginal) opt.dataset.valorOriginal = valorOpcaoLista(opt);
+            if (removidos.has(valorOpcaoLista(opt)) || removidos.has(opt.textContent.trim())) opt.remove();
+        });
+        (cfg.adicionados || []).forEach(valor => {
+            valor = String(valor || "").trim();
+            if (!valor) return;
+            const existe = Array.from(select.options).some(opt => normalizarTexto(valorOpcaoLista(opt)) === normalizarTexto(valor) || normalizarTexto(opt.textContent) === normalizarTexto(valor));
+            if (!existe) {
+                const opt = document.createElement("option");
+                opt.value = valor;
+                opt.textContent = valor;
+                opt.dataset.customOption = "true";
+                select.appendChild(opt);
+            }
+        });
+        ordenarSelectAlfabeticamente(select);
+    }
+    anexarBotaoEditorLista(select);
+}
+
+function aplicarCustomizacoesListasSuspensas(context = document) {
+    context.querySelectorAll?.("select").forEach(aplicarCustomizacaoSelect);
+}
+
+function anexarBotaoEditorLista(select) {
+    if (!podeEditarListasSuspensas() || !select || select.dataset.listEditorReady === "true" || select.dataset.noListEditor === "true") return;
+    if (!select.id && !select.name) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-900 border border-gray-700 text-[10px] font-bold uppercase tracking-wider text-blue-400 hover:bg-blue-950/30";
+    btn.innerHTML = '<i class="fa-solid fa-list-check"></i> Editar lista';
+    btn.title = "ADM: adicionar/remover opções desta lista suspensa";
+    btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); abrirModalListaSuspensa(select); };
+    select.insertAdjacentElement("afterend", btn);
+    select.dataset.listEditorReady = "true";
+}
+
+function abrirModalListaSuspensa(select) {
+    if (!podeEditarListasSuspensas()) return alert("Apenas ADM pode editar listas suspensas.");
+    listaSuspensaAtualSelect = select;
+    listaSuspensaAtualKey = chaveListaSuspensa(select);
+    garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(select));
+    const modal = document.getElementById("modalListaSuspensa");
+    const titulo = document.getElementById("listaSuspensaNomeAtual");
+    if (titulo) titulo.innerText = `${rotuloListaSuspensa(select)} — chave: ${listaSuspensaAtualKey}`;
+    renderizarItensListaSuspensaAtual();
+    modal?.classList.remove("hidden");
+    modal?.classList.add("flex");
+}
+
+function fecharModalListaSuspensa() {
+    const modal = document.getElementById("modalListaSuspensa");
+    modal?.classList.add("hidden");
+    modal?.classList.remove("flex");
+    listaSuspensaAtualSelect = null;
+    listaSuspensaAtualKey = null;
+}
+
+function opcoesAtuaisListaSuspensa(select) {
+    return Array.from(select?.options || []).map(opt => ({ valor: valorOpcaoLista(opt), texto: opt.textContent.trim(), custom: opt.dataset.customOption === "true" })).filter(o => o.valor || o.texto);
+}
+
+function renderizarItensListaSuspensaAtual() {
+    const alvo = document.getElementById("listaSuspensaItens");
+    if (!alvo || !listaSuspensaAtualSelect || !listaSuspensaAtualKey) return;
+    const cfg = garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(listaSuspensaAtualSelect));
+    const removidos = new Set((cfg.removidos || []).map(String));
+    const base = opcoesAtuaisListaSuspensa(listaSuspensaAtualSelect);
+    const adicionadosOcultos = (cfg.adicionados || []).filter(v => !base.some(o => normalizarTexto(o.valor) === normalizarTexto(v)));
+    const linhas = [...base, ...adicionadosOcultos.map(v => ({ valor: v, texto: v, custom: true }))];
+    if (!linhas.length) { alvo.innerHTML = `<p class="text-sm text-gray-500 text-center py-4">Nenhuma opção encontrada.</p>`; return; }
+    alvo.innerHTML = linhas.map(item => {
+        const val = textoSeguro(item.valor || item.texto);
+        const oculto = removidos.has(item.valor) || removidos.has(item.texto);
+        return `<div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${oculto ? 'border-red-900/40 bg-red-950/20 opacity-70' : 'border-gray-700 bg-gray-900/50'}">
+            <div class="min-w-0"><p class="text-sm font-bold text-white truncate">${textoSeguro(item.texto || item.valor)}</p><p class="text-[10px] text-gray-500">${item.custom ? 'Opção adicionada pelo ADM' : 'Opção original da lista'}</p></div>
+            <button onclick="alternarRemocaoOpcaoListaSuspensa('${val.replace(/'/g, "&#39;")}')" class="px-3 py-1.5 rounded-lg ${oculto ? 'bg-emerald-700/30 text-emerald-300 border border-emerald-800/50' : 'bg-red-900/30 text-red-300 border border-red-900/50'} text-[10px] font-black uppercase tracking-wider">${oculto ? 'Reexibir' : 'Ocultar'}</button>
+        </div>`;
+    }).join("");
+}
+
+async function adicionarOpcaoListaSuspensaAtual() {
+    if (!listaSuspensaAtualKey || !listaSuspensaAtualSelect) return;
+    const input = document.getElementById("listaSuspensaNovaOpcao");
+    const valor = String(input?.value || "").trim();
+    if (!valor) return alert("Digite a nova opção.");
+    const cfg = garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(listaSuspensaAtualSelect));
+    if (![...(cfg.adicionados || []), ...opcoesAtuaisListaSuspensa(listaSuspensaAtualSelect).map(o => o.valor)].some(v => normalizarTexto(v) === normalizarTexto(valor))) {
+        cfg.adicionados.push(valor);
+    }
+    cfg.removidos = (cfg.removidos || []).filter(v => normalizarTexto(v) !== normalizarTexto(valor));
+    if (input) input.value = "";
+    await salvarConfigListasSuspensas();
+    aplicarCustomizacoesListasSuspensas(document);
+    renderizarItensListaSuspensaAtual();
+}
+
+async function alternarRemocaoOpcaoListaSuspensa(valor) {
+    if (!listaSuspensaAtualKey || !listaSuspensaAtualSelect) return;
+    valor = String(valor || "").replace(/&#39;/g, "'");
+    const cfg = garantirConfigLista(listaSuspensaAtualKey, rotuloListaSuspensa(listaSuspensaAtualSelect));
+    const existe = (cfg.removidos || []).some(v => normalizarTexto(v) === normalizarTexto(valor));
+    if (existe) cfg.removidos = cfg.removidos.filter(v => normalizarTexto(v) !== normalizarTexto(valor));
+    else cfg.removidos.push(valor);
+    await salvarConfigListasSuspensas();
+    aplicarCustomizacoesListasSuspensas(document);
+    renderizarItensListaSuspensaAtual();
+}
+
+async function restaurarListaSuspensaAtual() {
+    if (!listaSuspensaAtualKey) return;
+    if (!confirm("Restaurar esta lista? As opções adicionadas/ocultadas pelo ADM serão removidas.")) return;
+    delete listasSuspensasConfig[listaSuspensaAtualKey];
+    await salvarConfigListasSuspensas();
+    location.reload();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -267,7 +459,6 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaOlimpiada")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaMes")?.addEventListener("change", renderizarCronograma);
-        document.getElementById("filterCronogramaModoExibicao")?.addEventListener("change", renderizarCronograma);
         document.getElementById("btnToggleTema")?.addEventListener("click", alternarTemaClaroEscuro);
         document.getElementById("btnAtualizarReuniao")?.addEventListener("click", gerarPainelReuniao);
         initMobileUX();
@@ -511,6 +702,8 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    carregarConfigListasSuspensasEmMemoria();
+    aplicarCustomizacoesListasSuspensas(document);
     popularFiltrosSimulados(); renderizarSimulados();
     popularFiltrosAulas(); renderizarAulas();
     prepararFiltrosRelatoriosComparativos();
@@ -996,7 +1189,8 @@ function dadosSementePorChave(chave) {
         app_simulados: [],
         app_simulados_envios: [],
         app_aulas: [],
-        app_questoes: []
+        app_questoes: [],
+        app_listas_suspensas: []
     };
     return Array.isArray(mapa[chave]) ? clonarDados(mapa[chave]) : [];
 }
@@ -1225,6 +1419,7 @@ async function carregarDadosFirebaseInicial() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
+        "app_listas_suspensas",
         ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
@@ -1249,6 +1444,7 @@ async function carregarDadosPosLogin() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
+        "app_listas_suspensas",
         ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
@@ -1258,6 +1454,8 @@ async function carregarDadosPosLogin() {
 
     dadosTrabalho = getStorage("app_premiados", []);
     if (!Array.isArray(dadosTrabalho)) dadosTrabalho = [];
+    carregarConfigListasSuspensasEmMemoria();
+    setTimeout(() => aplicarCustomizacoesListasSuspensas(document), 100);
 }
 
 async function sincronizarUsuariosFirebaseInicial() {
@@ -5062,7 +5260,8 @@ const FIREBASE_COLLECTIONS = {
     app_simulados: "sistema_simulados",
     app_simulados_envios: "sistema_simulados_envios",
     app_aulas: "sistema_aulas",
-    app_questoes: "sistema_questoes"
+    app_questoes: "sistema_questoes",
+    app_listas_suspensas: "sistema_listas_suspensas"
 };
 function getMateriaisCollectionName() { return getFirebaseCollectionName("app_plataforma"); }
 function getUsuariosCollectionName() { return getFirebaseCollectionName("app_usuarios"); }
@@ -7319,6 +7518,8 @@ function logarSucesso(usuario) {
     renderizarResultadosImportacao();
     ajustarCamposFormUsuario();
     renderizarPlataformaEnsino();
+    carregarConfigListasSuspensasEmMemoria();
+    aplicarCustomizacoesListasSuspensas(document);
     popularFiltrosSimulados(); renderizarSimulados();
     popularFiltrosAulas(); renderizarAulas();
     prepararFiltrosRelatoriosComparativos();
