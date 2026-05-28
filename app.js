@@ -519,6 +519,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("btnAtualizarReuniao")?.addEventListener("click", gerarPainelReuniao);
         initMobileUX();
         initOrdenacaoGlobalTabelasESelects();
+        initValidacaoCpfGlobal();
         document.getElementById("btnLogout")?.addEventListener("click", logout);
         verificarSessao();
     } catch (erro) {
@@ -744,12 +745,203 @@ async function verificarSessao() {
     });
 }
 
+
+function abrirModalInscricaoAluno() {
+    const modal = document.getElementById("modalInscricaoAluno");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    voltarBuscaCpfInscricao();
+    setTimeout(() => document.getElementById("inscricaoAlunoCpf")?.focus(), 80);
+}
+
+function fecharModalInscricaoAluno() {
+    const modal = document.getElementById("modalInscricaoAluno");
+    if (!modal) return;
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+    document.getElementById("inscricaoAlunoCpf") && (document.getElementById("inscricaoAlunoCpf").value = "");
+    document.getElementById("formCriarContaAlunoCpf")?.reset();
+}
+
+function voltarBuscaCpfInscricao() {
+    document.getElementById("passoBuscaCpfAluno")?.classList.remove("hidden");
+    document.getElementById("formCriarContaAlunoCpf")?.classList.add("hidden");
+    const msg = document.getElementById("inscricaoAlunoCpfMsg");
+    if (msg) {
+        msg.className = "text-[11px] text-gray-500 mt-1";
+        msg.innerText = "Digite os 11 números do CPF. O sistema irá formatar e validar automaticamente.";
+    }
+}
+
+function preencherModalCriacaoContaAluno(aluno) {
+    const escola = escolaDoAluno(aluno);
+    document.getElementById("inscricaoAlunoId").value = aluno.id || "";
+    document.getElementById("inscricaoAlunoNome").innerText = aluno.nome || "Aluno encontrado";
+    document.getElementById("inscricaoAlunoResumo").innerText = `${aluno.cpf || "CPF cadastrado"} • ${escola?.nome || aluno.escolaNome || "Escola não informada"} • ${aluno.serie || "Série não informada"}`;
+    const emailSugerido = String(aluno.emailInstitucional || aluno.emailPessoal || "").trim().toLowerCase();
+    const emailInput = document.getElementById("inscricaoAlunoEmail");
+    if (emailInput) emailInput.value = emailSugerido;
+    document.getElementById("passoBuscaCpfAluno")?.classList.add("hidden");
+    document.getElementById("formCriarContaAlunoCpf")?.classList.remove("hidden");
+    setTimeout(() => document.getElementById("inscricaoAlunoEmail")?.focus(), 80);
+}
+
+async function buscarAlunoParaInscricao() {
+    initFirebase();
+    const input = document.getElementById("inscricaoAlunoCpf");
+    const msg = document.getElementById("inscricaoAlunoCpfMsg");
+    if (!formatarCpfAoFinal(input, true)) return;
+    const cpf = cpfLimpo(input.value);
+    if (!validarCpf(cpf)) return alert("CPF inválido. Confira os números digitados.");
+    try {
+        if (msg) { msg.className = "text-[11px] text-blue-400 mt-1"; msg.innerText = "Buscando cadastro do aluno..."; }
+        const aluno = await buscarAlunoPorCpfPublico(cpf);
+        if (!aluno) {
+            if (msg) { msg.className = "text-[11px] text-red-400 mt-1"; msg.innerText = "Não encontrei aluno cadastrado com este CPF. Confira o CPF ou procure a coordenação."; }
+            return;
+        }
+        preencherModalCriacaoContaAluno(aluno);
+    } catch (erro) {
+        console.error("Erro ao buscar aluno por CPF", erro);
+        alert(`Não foi possível consultar o cadastro do aluno.\n\n${erro.message || erro}`);
+    }
+}
+
+async function buscarAlunoPorCpfPublico(cpf) {
+    initFirebase();
+    const cpfNum = cpfLimpo(cpf);
+    if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+    const lookupRef = firebaseFirestore.collection("anos").doc(String(anoDadosAtivo)).collection("sistema_alunos_lookup").doc(cpfNum);
+    const lookup = await lookupRef.get();
+    if (lookup.exists) {
+        const data = lookup.data() || {};
+        return { ...data, cpf: formatarCpf(cpfNum), id: data.alunoId || data.id || "" };
+    }
+    // Fallback para ambientes ainda abertos durante migração. Em regras seguras, este trecho pode ser negado.
+    try {
+        const snap = await firebaseFirestore.collection("anos").doc(String(anoDadosAtivo)).collection("sistema_alunos").where("cpfNumerico", "==", cpfNum).limit(1).get();
+        if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } catch (_) {}
+    return null;
+}
+
+async function criarContaAlunoPorCpf(event) {
+    event.preventDefault();
+    initFirebase();
+    const alunoId = document.getElementById("inscricaoAlunoId")?.value || "";
+    const email = String(document.getElementById("inscricaoAlunoEmail")?.value || "").trim().toLowerCase();
+    const senha = String(document.getElementById("inscricaoAlunoSenha")?.value || "");
+    const senha2 = String(document.getElementById("inscricaoAlunoSenha2")?.value || "");
+    if (!email || !email.includes("@")) return alert("Informe um e-mail válido. Ele será usado para entrar na plataforma.");
+    if (senha.length < 6) return alert("A senha precisa ter pelo menos 6 caracteres.");
+    if (senha !== senha2) return alert("A confirmação de senha não confere.");
+
+    const cpf = cpfLimpo(document.getElementById("inscricaoAlunoCpf")?.value || "");
+    const aluno = await buscarAlunoPorCpfPublico(cpf);
+    if (!aluno || (alunoId && aluno.id && aluno.id !== alunoId && aluno.alunoId !== alunoId)) return alert("Não foi possível confirmar o cadastro do aluno. Tente novamente.");
+    const escola = aluno.escolaId ? (await obterEscolaBasicaParaCadastro(aluno.escolaId)) : null;
+    try {
+        const cred = await firebaseAuth.createUserWithEmailAndPassword(email, senha);
+        const uid = cred.user.uid;
+        const perfil = {
+            id: uid,
+            authUid: uid,
+            authEmail: email,
+            emailAuth: email,
+            login: email,
+            email,
+            senha: "",
+            senhaMigradaParaAuth: true,
+            nivel: "Aluno",
+            nome: aluno.nome || "Aluno",
+            telefone: aluno.contatoAluno || aluno.contatoResponsavel || "",
+            vinculoId: aluno.escolaId || "",
+            escolaId: aluno.escolaId || "",
+            cidadeId: escola?.cidadeId || aluno.cidadeId || "",
+            alunoId: aluno.alunoId || aluno.id || "",
+            alunoCpf: formatarCpf(cpf),
+            cpf: formatarCpf(cpf),
+            criadoEm: new Date().toISOString(),
+            origem: "autoinscricao_cpf"
+        };
+        await firebaseFirestore.collection("sistema_usuarios").doc(uid).set(perfil, { merge: true });
+        usuarioLogado = perfil;
+        fecharModalInscricaoAluno();
+        await carregarDadosPosLogin();
+        aplicarTemaUsuario(usuarioLogado);
+        logarSucesso(usuarioLogado);
+        alert("Conta criada com sucesso. Bem-vindo(a)!");
+    } catch (erro) {
+        console.error("Erro ao criar conta do aluno", erro);
+        alert(`Não foi possível criar sua conta.\n\n${traduzirErroAuth(erro)}`);
+    }
+}
+
+async function obterEscolaBasicaParaCadastro(escolaId) {
+    const local = getStorage("app_escolas", []).find(e => e.id === escolaId);
+    if (local) return local;
+    try {
+        const snap = await firebaseFirestore.collection("anos").doc(String(anoDadosAtivo)).collection("sistema_escolas").doc(String(escolaId)).get();
+        return snap.exists ? { id: snap.id, ...snap.data() } : null;
+    } catch (_) { return null; }
+}
+
+function dadosLookupAluno(aluno) {
+    const cpf = cpfLimpo(aluno?.cpf || "");
+    if (!cpf || !validarCpf(cpf)) return null;
+    return {
+        id: aluno.id || "",
+        alunoId: aluno.id || aluno.alunoId || "",
+        nome: aluno.nome || "",
+        cpf: formatarCpf(cpf),
+        cpfNumerico: cpf,
+        emailInstitucional: aluno.emailInstitucional || "",
+        emailPessoal: aluno.emailPessoal || "",
+        escolaId: aluno.escolaId || "",
+        escolaNome: aluno.escolaNome || "",
+        cidadeId: aluno.cidadeId || "",
+        municipio: aluno.municipio || "",
+        serie: aluno.serie || "",
+        contatoAluno: aluno.contatoAluno || "",
+        contatoResponsavel: aluno.contatoResponsavel || "",
+        atualizadoEm: new Date().toISOString()
+    };
+}
+
+async function salvarAlunoLookupPublico(aluno) {
+    try {
+        initFirebase();
+        const dados = dadosLookupAluno(aluno);
+        if (!dados || !firebaseFirestore || !usuarioLogado) return;
+        await firebaseFirestore.collection("anos").doc(String(anoDadosAtivo)).collection("sistema_alunos_lookup").doc(dados.cpfNumerico).set(dados, { merge: true });
+    } catch (erro) {
+        console.warn("Não foi possível atualizar lookup público de aluno.", erro);
+    }
+}
+
+async function removerAlunoLookupPublico(aluno) {
+    try {
+        initFirebase();
+        const cpf = cpfLimpo(aluno?.cpf || "");
+        if (!cpf || !firebaseFirestore || !usuarioLogado) return;
+        await firebaseFirestore.collection("anos").doc(String(anoDadosAtivo)).collection("sistema_alunos_lookup").doc(cpf).delete();
+    } catch (erro) {
+        console.warn("Não foi possível remover lookup público de aluno.", erro);
+    }
+}
+
+function sincronizarLookupPublicoAlunos(alunos = getStorage("app_alunos", [])) {
+    normalizarListaFirebase(alunos).forEach(a => salvarAlunoLookupPublico(a));
+}
+
 function logarSucesso(usuario) {
     document.getElementById("loginScreen").classList.add("hidden");
     document.getElementById("mainPanel").classList.remove("hidden");
     document.getElementById("userLoggedNome").innerText = usuario.nome;
     document.getElementById("userLoggedNivel").innerText = usuario.nivel;
 
+    if (["ADM", "Staff"].includes(usuario.nivel)) sincronizarLookupPublicoAlunos();
     aplicarPermissoesNavegacao(usuario);
     popularSeletores();
     renderizarPlataformaDashboard();
@@ -2551,6 +2743,7 @@ function editarResultado(chaveCodificada) {
             if (escola.cidadeId !== cidade.id) return alert("A escola selecionada não pertence à cidade escolhida."), false;
 
             const cpfEditado = d.alunoCpf || "";
+            if (cpfEditado && !validarCpf(cpfEditado)) return alert("CPF do aluno inválido."), false;
             const alunoVinculadoPorCpf = cpfLimpo(cpfEditado) ? getStorage("app_alunos", []).find(a => cpfLimpo(a.cpf || "") === cpfLimpo(cpfEditado)) : null;
             const atualizadoBase = {
                 ...atual,
@@ -3510,6 +3703,69 @@ function formatarCpf(valor) {
     return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
 }
 
+function validarCpf(valor) {
+    const cpf = cpfLimpo(valor);
+    if (cpf.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(cpf)) return false;
+    let soma = 0;
+    for (let i = 0; i < 9; i++) soma += Number(cpf[i]) * (10 - i);
+    let digito = (soma * 10) % 11;
+    if (digito === 10) digito = 0;
+    if (digito !== Number(cpf[9])) return false;
+    soma = 0;
+    for (let i = 0; i < 10; i++) soma += Number(cpf[i]) * (11 - i);
+    digito = (soma * 10) % 11;
+    if (digito === 10) digito = 0;
+    return digito === Number(cpf[10]);
+}
+
+function formatarCpfAoFinal(input, obrigatorio = false) {
+    if (!input) return true;
+    const raw = cpfLimpo(input.value);
+    if (!raw) {
+        input.setCustomValidity(obrigatorio ? "CPF obrigatório." : "");
+        return !obrigatorio;
+    }
+    if (raw.length === 11) input.value = formatarCpf(raw);
+    const ok = validarCpf(raw);
+    input.setCustomValidity(ok ? "" : "CPF inválido.");
+    input.classList.toggle("border-red-500", !ok);
+    input.classList.toggle("focus:border-red-500", !ok);
+    if (!ok) input.reportValidity?.();
+    return ok;
+}
+
+function initValidacaoCpfGlobal() {
+    const configurar = (input) => {
+        if (!input || input.dataset.cpfReady === "true") return;
+        const id = String(input.id || "").toLowerCase();
+        const ph = String(input.getAttribute("placeholder") || "").toLowerCase();
+        const label = input.closest("div")?.querySelector("label")?.innerText?.toLowerCase() || "";
+        const ehCpf = id.includes("cpf") || ph.includes("000.000.000-00") || label.includes("cpf");
+        if (!ehCpf) return;
+        input.dataset.cpfReady = "true";
+        input.setAttribute("maxlength", "14");
+        input.classList.add("cpf-input");
+        input.addEventListener("input", () => {
+            const d = cpfLimpo(input.value).slice(0, 11);
+            if (d.length <= 3) input.value = d;
+            else if (d.length <= 6) input.value = `${d.slice(0,3)}.${d.slice(3)}`;
+            else if (d.length <= 9) input.value = `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`;
+            else input.value = `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+            input.setCustomValidity("");
+            input.classList.remove("border-red-500", "focus:border-red-500");
+        });
+        input.addEventListener("blur", () => formatarCpfAoFinal(input, input.required));
+    };
+    document.querySelectorAll("input").forEach(configurar);
+    const obs = new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType !== 1) return;
+        if (n.matches?.("input")) configurar(n);
+        n.querySelectorAll?.("input").forEach(configurar);
+    })));
+    obs.observe(document.body, { childList: true, subtree: true });
+}
+
 function escolaDoAluno(aluno) {
     const escolas = getStorage("app_escolas");
     return escolas.find(e => e.id === aluno.escolaId || normalizarTexto(e.nome) === normalizarTexto(aluno.escolaNome));
@@ -3534,8 +3790,8 @@ function alunosPermitidosParaUsuario() {
 
 function validarDadosAluno(dados, idIgnorado = null) {
     if (!dados.nome) return "Nome completo é obrigatório.";
-    if (!dados.emailInstitucional && !dados.emailPessoal) return "Preencha pelo menos um e-mail: institucional ou pessoal.";
-    if (!dados.cpf || cpfLimpo(dados.cpf).length !== 11) return "CPF do aluno é obrigatório e precisa ter 11 dígitos.";
+    // E-mail é opcional no cadastro do aluno. A conta pode ser criada depois pelo botão “Inscreva-se”.
+    if (!dados.cpf || !validarCpf(dados.cpf)) return "CPF do aluno é obrigatório e precisa ser válido.";
     if (!dados.dataNascimento) return "Data de nascimento é obrigatória.";
     if (!dados.sexo) return "Sexo do aluno é obrigatório.";
     if (!dados.escolaId) return "Escola é obrigatória.";
@@ -3596,15 +3852,17 @@ function popularSeletoresAlunos() {
     }
 }
 
-function salvarNovoAluno(event) {
+async function salvarNovoAluno(event) {
     event.preventDefault();
     if (!permissao("usuarios.podeGerenciar")) return alert("Sem permissão para cadastrar alunos.");
     const dados = montarDadosAlunoDoFormulario();
     const erro = validarDadosAluno(dados);
     if (erro) return alert(erro);
     const alunos = getStorage("app_alunos", []);
-    alunos.push({ ...dados, criadoEm: new Date().toISOString() });
-    setStorage("app_alunos", alunos);
+    const novoAluno = { ...dados, criadoEm: new Date().toISOString() };
+    alunos.push(novoAluno);
+    await setStorage("app_alunos", alunos);
+    await salvarAlunoLookupPublico(novoAluno);
     document.getElementById("formCadAluno")?.reset();
     atualizarIdadeAluno("addAlunoNascimento", "addAlunoIdade");
     popularSeletores();
@@ -3688,6 +3946,7 @@ function editarAluno(id) {
             const idx = lista.findIndex(a => a.id === id);
             lista[idx] = dados;
             setStorage("app_alunos", lista);
+            salvarAlunoLookupPublico(dados);
             popularSeletores();
             renderizarAlunos();
             renderizarResultadosImportacao();
@@ -3704,6 +3963,7 @@ function excluirAluno(id) {
     if (!alunosPermitidosParaUsuario().some(a => a.id === id)) return alert("Você não tem permissão para apagar este aluno.");
     if (!confirmarExclusao("o aluno", aluno.nome)) return;
     setStorage("app_alunos", alunos.filter(a => a.id !== id));
+    removerAlunoLookupPublico(aluno);
     popularSeletores();
     renderizarAlunos();
 }
@@ -3752,7 +4012,7 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
     };
     if (!nome) erros.push(`Linha ${nl}: Nome completo é obrigatório.`);
     if (!emailInstitucional && !emailPessoal) erros.push(`Linha ${nl}: informe e-mail institucional ou pessoal.`);
-    if (!cpf || cpfLimpo(cpf).length !== 11) erros.push(`Linha ${nl}: CPF inválido ou vazio.`);
+    if (!cpf || !validarCpf(cpf)) erros.push(`Linha ${nl}: CPF inválido ou vazio.`);
     if (!dataNascimento) erros.push(`Linha ${nl}: Data de nascimento inválida ou vazia.`);
     if (!escola) erros.push(`Linha ${nl}: escola não cadastrada ou fora do seu escopo (${escolaNome}).`);
     if (!turnoTurma) erros.push(`Linha ${nl}: Turno/Turma é obrigatório.`);
@@ -3804,6 +4064,7 @@ function processarPlanilhaAlunos(arquivo) {
                 }
             });
             setStorage("app_alunos", alunos);
+            sincronizarLookupPublicoAlunos(alunos);
             popularSeletores();
             renderizarAlunos();
             if (document.getElementById("fileInputAlunos")) document.getElementById("fileInputAlunos").value = "";
@@ -3842,7 +4103,7 @@ async function downloadAlunosTemplate() {
         { header: "Contato do pai/responsável", key: "contatoResp", width: 26 }
     ];
     const escolas = escolasPermitidasParaCadastroUsuario().map(e => e.nome);
-    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "000.000.000-00", nascimento: "2010-05-20", sexo: "Feminino", etnia: "Parda", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
+    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "529.982.247-25", nascimento: "2010-05-20", sexo: "Feminino", etnia: "Parda", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
     for (let i = 0; i < 199; i++) ws.addRow({});
     estilizarCabecalhoTemplate(ws, ws.columns.length);
     const listas = obterOuCriarAbaListas(workbook);
@@ -3936,7 +4197,7 @@ async function criarUsuarioAlunoSelecionado() {
     if (!escola) return alert("O aluno precisa estar vinculado a uma escola para criar usuário.");
 
     const emailAluno = String(aluno.emailInstitucional || aluno.emailPessoal || "").trim().toLowerCase();
-    if (!emailAluno || !emailAluno.includes("@")) return alert("Este aluno precisa ter e-mail institucional ou pessoal válido. O e-mail será usado como login no Firebase Auth.");
+    if (!emailAluno || !emailAluno.includes("@")) return alert("Este aluno ainda não tem e-mail cadastrado. Adicione um e-mail ao cadastro dele ou peça para o aluno usar o botão ‘Inscreva-se’ na tela de login para informar o próprio e-mail e criar a conta.");
 
     let novoUsuario = {
         id: novoId(),
@@ -4068,6 +4329,7 @@ function initResultadoManual() {
             const alunoObjSelecionado = alunoIdSelecionado ? getStorage("app_alunos").find(a => a.id === alunoIdSelecionado) : null;
             const aluno = document.getElementById("addResAluno").value.trim();
             const alunoCpfManual = document.getElementById("addResAlunoCpf")?.value?.trim() || "";
+            if (alunoCpfManual && !validarCpf(alunoCpfManual)) return alert("CPF do aluno inválido. Corrija ou deixe em branco para não vincular ao aluno.");
             const municipio = document.getElementById("addResCidadeSelect").value;
             const escola = document.getElementById("addResEscolaSelect").value;
             const olimpiada = document.getElementById("addResOlimpiadaSelect").value;
@@ -4940,7 +5202,7 @@ async function downloadTemplate() {
 
     ws.addRow({
         aluno: "Nome Completo",
-        cpf: "000.000.000-00",
+        cpf: "529.982.247-25",
         escola: escolas[0] || "Nome da Escola",
         municipio: municipios[0] || "Cidade - UF",
         olimpiada: olimpiadas[0] || "Nome da Olimpíada",
