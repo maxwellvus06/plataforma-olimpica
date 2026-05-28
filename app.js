@@ -8756,3 +8756,343 @@ async function enviarSimuladoPublico(simuladoId, ano) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => { popularTaxonomiaQuestoes(); atualizarDistribuicaoGeradorSimulado(); abrirSimuladoPublico(); }, 1200);
 });
+
+// ==================== PATCH FINAL — SIMULADOS: LINK PÚBLICO, EDIÇÃO ATÉ INÍCIO, PRÉVIA E MÍDIAS ====================
+// Baseado na versão estável enviada pelo usuário. Não altera a arquitetura geral.
+let simuladoEdicaoIdAtual = null;
+
+function dataInicioSimuladoComoData(sim) {
+    const data = String(sim?.dataAbertura || "").trim();
+    if (!data) return null;
+    const hora = String(sim?.horaAbertura || "00:00").trim() || "00:00";
+    const d = new Date(`${data}T${hora}`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function simuladoJaIniciou(sim) {
+    const inicio = dataInicioSimuladoComoData(sim);
+    return !!inicio && Date.now() >= inicio.getTime();
+}
+
+function podeEditarSimulado(sim) {
+    return podeGerenciarSimulados() && !simuladoJaIniciou(sim);
+}
+
+function linkPublicoSimulado(sim) {
+    const ano = encodeURIComponent(String(anoDadosAtivo || new Date().getFullYear()));
+    const id = encodeURIComponent(String(sim?.id || ""));
+    return `${location.origin}${location.pathname}?simuladoPublico=${id}&ano=${ano}`;
+}
+
+async function copiarTextoSeguro(texto) {
+    try {
+        await navigator.clipboard.writeText(texto);
+        alert("Link copiado para a área de transferência.");
+    } catch (_) {
+        prompt("Copie o link público:", texto);
+    }
+}
+
+function copiarLinkPublicoSimulado(simuladoId) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+    if (!sim) return alert("Simulado não encontrado.");
+    copiarTextoSeguro(linkPublicoSimulado(sim));
+}
+
+function renderBlocoLinkPublicoSimulado(sim) {
+    if (!sim?.publico || !podeGerenciarSimulados()) return "";
+    const link = linkPublicoSimulado(sim);
+    return `<div class="mt-3 rounded-2xl border border-purple-900/40 bg-purple-950/20 p-3">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+            <div class="min-w-0">
+                <p class="text-[10px] font-black uppercase tracking-wider text-purple-200"><i class="fa-solid fa-link mr-1"></i>Link público do simulado</p>
+                <p class="text-xs text-purple-100/80 mt-1 break-all font-mono">${textoSeguro(link)}</p>
+            </div>
+            <div class="flex flex-wrap gap-2 shrink-0">
+                <button type="button" onclick="copiarLinkPublicoSimulado('${textoSeguro(sim.id)}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-copy mr-1"></i>Copiar</button>
+                <a href="${link}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-900 border border-purple-900/50 text-purple-200 text-xs font-black uppercase"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir</a>
+            </div>
+        </div>
+    </div>`;
+}
+
+function adicionarQuestaoManualSimulado(dados = {}) {
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (!lista) return;
+    const n = lista.querySelectorAll(".sim-questao-manual").length + 1;
+    const wrap = document.createElement("div");
+    wrap.className = "sim-questao-manual rounded-xl border border-blue-900/40 bg-gray-900/60 p-3 space-y-3";
+    wrap.dataset.arquivosExistentes = JSON.stringify(Array.isArray(dados.arquivos) ? dados.arquivos : []);
+    wrap.innerHTML = `
+        <div class="flex items-center justify-between gap-2"><span class="text-xs font-black text-blue-200 uppercase">Questão manual ${n}</span><button type="button" onclick="this.closest('.sim-questao-manual').remove()" class="text-red-300 text-xs font-bold">Remover</button></div>
+        <textarea data-campo="enunciado" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Enunciado da questão...">${textoSeguro(dados.enunciado||"")}</textarea>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <select data-campo="tipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Múltipla escolha</option><option>Dissertativa</option><option>Mista</option><option>Verdadeiro ou Falso</option></select>
+          <select data-campo="dificuldade" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Fácil</option><option>Médio</option><option>Difícil</option><option>Muito difícil</option><option>Olímpica</option><option>Vestibular</option></select>
+          <select data-campo="alternativaCorreta" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option value="">Sem gabarito</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select>
+          <input data-campo="tema" list="listaTemasQuestoes" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Tema">
+        </div>
+        <div class="rounded-xl border border-gray-700 bg-gray-950/60 p-3">
+            <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Mídias da questão</label>
+            <input data-campo="midias" type="file" multiple accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300">
+            <p class="text-[10px] text-gray-500 mt-1">Use imagens, gráficos, diagramas, tabelas, PDFs ou documentos. As mídias aparecem junto da questão no ambiente do simulado.</p>
+            ${Array.isArray(dados.arquivos) && dados.arquivos.length ? `<div class="mt-2 text-[10px] text-blue-300 font-bold">${dados.arquivos.length} mídia(s) já vinculada(s).</div>` : ""}
+        </div>`;
+    lista.appendChild(wrap);
+    if (dados.tipo) wrap.querySelector('[data-campo="tipo"]').value = dados.tipo;
+    if (dados.dificuldade) wrap.querySelector('[data-campo="dificuldade"]').value = dados.dificuldade;
+    if (dados.alternativaCorreta) wrap.querySelector('[data-campo="alternativaCorreta"]').value = dados.alternativaCorreta;
+    if (dados.tema) wrap.querySelector('[data-campo="tema"]').value = dados.tema;
+}
+
+function lerQuestoesManuaisSimulado() {
+    return Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual")).map((el, idx) => ({
+        numero: idx + 1,
+        questaoId: `manual_${idx+1}`,
+        titulo: `Questão ${idx+1}`,
+        enunciado: el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "",
+        tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha",
+        dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio",
+        tema: el.querySelector('[data-campo="tema"]')?.value || "",
+        alternativaCorreta: el.querySelector('[data-campo="alternativaCorreta"]')?.value || "",
+        arquivos: (() => { try { return JSON.parse(el.dataset.arquivosExistentes || "[]"); } catch (_) { return []; } })()
+    })).filter(q => q.enunciado);
+}
+
+async function lerQuestoesManuaisSimuladoComMidias() {
+    const blocos = Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual"));
+    const saida = [];
+    for (let idx = 0; idx < blocos.length; idx++) {
+        const el = blocos[idx];
+        const enunciado = el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "";
+        if (!enunciado) continue;
+        let existentes = [];
+        try { existentes = JSON.parse(el.dataset.arquivosExistentes || "[]"); } catch (_) { existentes = []; }
+        const input = el.querySelector('[data-campo="midias"]');
+        const novos = [];
+        for (const arquivo of Array.from(input?.files || [])) {
+            const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_questoes_midias");
+            novos.push({ nome: arquivo.name, tipo: arquivo.type || "arquivo", url: up.fileUrl, storagePath: up.storagePath, tamanho: arquivo.size || 0 });
+        }
+        saida.push({
+            numero: idx + 1,
+            questaoId: `manual_${idx+1}`,
+            titulo: `Questão ${idx+1}`,
+            enunciado,
+            tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha",
+            dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio",
+            tema: el.querySelector('[data-campo="tema"]')?.value || "",
+            alternativaCorreta: el.querySelector('[data-campo="alternativaCorreta"]')?.value || "",
+            arquivos: [...existentes, ...novos]
+        });
+    }
+    return saida;
+}
+
+function preencherFormularioSimulado(sim) {
+    document.getElementById("simTitulo").value = sim.titulo || "";
+    document.getElementById("simDisciplina").value = sim.disciplina || "Geral";
+    document.getElementById("simNivel").value = sim.nivel || "Geral";
+    document.getElementById("simFormato").value = sim.formato || "objetivo";
+    document.getElementById("simDataAbertura").value = sim.dataAbertura || "";
+    document.getElementById("simHoraAbertura").value = sim.horaAbertura || "";
+    document.getElementById("simDataFim").value = sim.dataFim || "";
+    document.getElementById("simHoraFim").value = sim.horaFim || "";
+    const dur = Number(sim.duracaoMinutos || 0);
+    document.getElementById("simDuracaoHoras").value = Math.floor(dur / 60);
+    document.getElementById("simDuracaoMinutos").value = dur % 60;
+    document.getElementById("simQtdQuestoes").value = sim.quantidadeQuestoes || (Array.isArray(sim.questoesBanco) ? sim.questoesBanco.length : 0) || "";
+    document.getElementById("simGabarito").value = sim.gabarito || "";
+    document.getElementById("simDescricao").value = sim.descricao || "";
+    document.getElementById("simSolucaoUrl").value = sim.solucaoUrl || "";
+    document.getElementById("simPublico").checked = !!sim.publico;
+    document.getElementById("simDestinoTipo").value = sim.destino?.tipo || "todos";
+    atualizarDestinoSimulado();
+    const destinoSel = document.getElementById("simDestinoValores");
+    if (destinoSel && Array.isArray(sim.destino?.valores)) {
+        Array.from(destinoSel.options).forEach(o => o.selected = sim.destino.valores.includes(o.value));
+    }
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (lista) lista.innerHTML = "";
+    (Array.isArray(sim.questoesBanco) ? sim.questoesBanco : []).forEach(q => adicionarQuestaoManualSimulado(q));
+    gerarCamposGabaritoSimulado(false);
+}
+
+function carregarSimuladoParaEdicao(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    if (!podeEditarSimulado(sim)) return alert("Este simulado já iniciou. Para preservar envios, ranking e histórico, a edição fica bloqueada após a data/hora de início.");
+    simuladoEdicaoIdAtual = String(id);
+    preencherFormularioSimulado(sim);
+    const painel = document.getElementById("painelAddSimulado");
+    painel?.classList.remove("hidden");
+    const btn = document.querySelector('#formCadSimulado button[type="submit"]');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar Correções do Simulado';
+    painel?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function cancelarEdicaoSimulado() {
+    simuladoEdicaoIdAtual = null;
+    document.getElementById("formCadSimulado")?.reset();
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (lista) lista.innerHTML = "";
+    gerarCamposGabaritoSimulado(false);
+    const btn = document.querySelector('#formCadSimulado button[type="submit"]');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado';
+}
+
+async function salvarNovoSimulado(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para publicar simulados.");
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    const editando = !!simuladoEdicaoIdAtual;
+    const lista = getStorage("app_simulados", []);
+    const anterior = editando ? lista.find(s => String(s.id) === String(simuladoEdicaoIdAtual)) : null;
+    if (editando && !anterior) return alert("Simulado em edição não encontrado.");
+    if (editando && !podeEditarSimulado(anterior)) return alert("Este simulado já iniciou. A edição não é mais permitida.");
+    try {
+        const titulo = document.getElementById("simTitulo")?.value.trim() || "Simulado sem título";
+        const descricao = document.getElementById("simDescricao")?.value.trim() || "";
+        const gabaritoTexto = document.getElementById("simGabarito")?.value.trim() || "";
+        const questoesManuaisPreview = lerQuestoesManuaisSimulado();
+        if (!validarConteudoEducacionalIA([titulo, descricao, gabaritoTexto, ...questoesManuaisPreview.map(q=>q.enunciado)], "simulado")) return;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const arquivo = document.getElementById("simArquivo")?.files?.[0] || null;
+        const imagem = document.getElementById("simImagem")?.files?.[0] || null;
+        const solucaoArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+        const questoesManuais = await lerQuestoesManuaisSimuladoComMidias();
+        const horas = Math.max(0, Number(document.getElementById("simDuracaoHoras")?.value || 0));
+        const minutos = Math.max(0, Number(document.getElementById("simDuracaoMinutos")?.value || 0));
+        const sim = {
+            ...(anterior || {}),
+            id: editando ? anterior.id : novoId(),
+            titulo,
+            disciplina: document.getElementById("simDisciplina")?.value || "Geral",
+            nivel: document.getElementById("simNivel")?.value || "Geral",
+            formato: document.getElementById("simFormato")?.value || "objetivo",
+            dataAbertura: document.getElementById("simDataAbertura")?.value || "",
+            horaAbertura: document.getElementById("simHoraAbertura")?.value || "",
+            dataFim: document.getElementById("simDataFim")?.value || "",
+            horaFim: document.getElementById("simHoraFim")?.value || "",
+            duracaoMinutos: horas * 60 + minutos,
+            duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido",
+            quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || questoesManuais.length || 0),
+            questoesBanco: questoesManuais,
+            gabaritoObjetivo: questoesManuais.length ? questoesManuais.map((q,i)=>({numero:i+1,resposta:q.alternativaCorreta})).filter(g=>g.resposta) : lerGabaritoObjetivoSimulado(),
+            gabarito: gabaritoTexto,
+            descricao,
+            solucaoUrl: document.getElementById("simSolucaoUrl")?.value.trim() || "",
+            publico: !!document.getElementById("simPublico")?.checked,
+            destino: { tipo: document.getElementById("simDestinoTipo")?.value || "todos", valores: Array.from(document.getElementById("simDestinoValores")?.selectedOptions || []).map(o=>o.value) },
+            atualizadoEm: Date.now(), atualizadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", atualizadoPorNome: usuarioLogado?.nome || ""
+        };
+        if (!editando) Object.assign(sim, { criadoEm: Date.now(), criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || "" });
+        if (arquivo) Object.assign(sim, { arquivoUrl: (await enviarArquivoParaFirebaseStorage(arquivo, "simulados")).fileUrl });
+        if (imagem) Object.assign(sim, { imagemUrl: (await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens")).fileUrl });
+        if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); sim.solucaoArquivoUrl = up.fileUrl; sim.solucaoStoragePath = up.storagePath; }
+        const novaLista = editando ? lista.map(s => String(s.id) === String(sim.id) ? sim : s) : [...lista, sim];
+        await setStorage("app_simulados", novaLista);
+        cancelarEdicaoSimulado();
+        renderizarSimulados(); atualizarSelectRankingSimulados();
+        alert(sim.publico ? `Simulado ${editando ? "atualizado" : "publicado"}. Link público:\n${linkPublicoSimulado(sim)}` : `Simulado ${editando ? "atualizado" : "publicado"} com sucesso.`);
+    } catch (erro) { console.error(erro); alert(`Erro ao salvar simulado.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = editando ? '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar Correções do Simulado' : '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
+}
+
+function abrirAmbienteSimulado(simuladoId, modoPreview = false) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+    if (!sim) return alert("Simulado não encontrado.");
+    if (modoPreview && !podeGerenciarSimulados()) return alert("Sem permissão para pré-visualizar este simulado.");
+    if (!modoPreview && !podeIniciarSimulado(sim)) {
+        const envio = envioSimuladoUsuario(sim);
+        if (envio?.status === "encerrado") return alert("Você já encerrou este simulado. O envio registrado está disponível para a equipe pedagógica.");
+        if (simuladoAindaNaoAbriu(sim)) return alert("Este simulado ainda não está aberto.");
+        if (simuladoPrazoEncerrado(sim)) return alert("O prazo deste simulado já foi encerrado.");
+    }
+    simuladoSessaoAtual = { simuladoId: String(simuladoId), iniciado: !!modoPreview, preview: !!modoPreview, inicio: modoPreview ? Date.now() : null, limiteMs: modoPreview ? 0 : minutosDuracaoSimulado(sim) * 60 * 1000 };
+    renderizarAmbienteSimulado();
+    document.getElementById("simuladoAmbienteOverlay")?.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+
+function fecharAmbienteSimulado() {
+    if (simuladoSessaoAtual?.preview) { limparAmbienteSimulado(); return; }
+    if (simuladoSessaoAtual?.iniciado) {
+        if (!confirm("Ao sair deste ambiente, o simulado será encerrado e as respostas marcadas até agora serão enviadas. Deseja sair e enviar?")) return;
+        finalizarSimuladoAmbiente(false, "saida_da_pagina");
+        return;
+    }
+    limparAmbienteSimulado();
+}
+
+function renderizarAmbienteSimulado() {
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!box || !simuladoSessaoAtual) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    const envio = simuladoSessaoAtual.preview ? null : envioSimuladoUsuario(sim);
+    if (!simuladoSessaoAtual.iniciado) {
+        const mins = minutosDuracaoSimulado(sim);
+        box.innerHTML = `<div class="max-w-3xl mx-auto bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl"><div class="flex items-start gap-4"><div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-2xl"><i class="fa-solid fa-stopwatch"></i></div><div class="flex-1"><h2 class="text-2xl font-black text-white">Ambiente cronometrado</h2><p class="text-sm text-gray-400 mt-2 leading-relaxed">Você irá iniciar o simulado <b class="text-gray-200">${textoSeguro(sim.titulo)}</b>. Após clicar em <b>Iniciar simulado</b>, se você sair deste ambiente, o simulado será encerrado e as respostas marcadas até o momento serão enviadas.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5"><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Prazo</p><p class="text-sm text-gray-200 font-bold mt-1">${textoPrazoSimulado(sim)} ${sim.horaFim ? `às ${textoSeguro(sim.horaFim)}` : ""}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo</p><p class="text-sm text-gray-200 font-bold mt-1">${mins ? `${mins} minutos` : "Sem limite definido"}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Formato</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(sim.formato || "simulado")}</p></div></div><div class="mt-6 flex flex-col sm:flex-row gap-3"><button onclick="iniciarSimuladoCronometrado()" class="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs"><i class="fa-solid fa-play mr-2"></i>Iniciar simulado</button><button onclick="fecharAmbienteSimulado()" class="px-5 py-3 rounded-2xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold uppercase text-xs">Cancelar</button></div></div></div></div>`;
+        return;
+    }
+    const questoesHTML = renderizarQuestoesDoSimuladoSeguro(sim);
+    const embed = questoesHTML || (sim.arquivoUrl ? `<div class="simulado-secure-area"><iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0&scrollbar=1" class="simulado-secure-viewer w-full rounded-2xl border border-gray-700 bg-black"></iframe><p class="mt-2 text-[10px] text-gray-500">Ambiente protegido: copiar, selecionar texto, arrastar e botão direito ficam bloqueados.</p></div>` : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo de simulado anexado. Use as instruções abaixo.</div>`);
+    const preview = !!simuladoSessaoAtual.preview;
+    box.innerHTML = `<div class="space-y-4 simulado-secure-area"><div class="sticky top-0 z-10 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><p class="text-[10px] text-gray-500 uppercase font-bold">${preview ? "Pré-visualização da equipe" : "Simulado em andamento"}</p><h2 class="text-lg font-black text-white">${textoSeguro(sim.titulo)}</h2></div><div class="flex flex-wrap items-center gap-2">${preview ? `<span class="px-4 py-2 rounded-xl bg-blue-900/40 text-blue-200 border border-blue-800/50 text-xs font-black uppercase">Não registra tentativa</span><button onclick="fecharAmbienteSimulado()" class="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold uppercase">Fechar prévia</button>` : `<span id="simAmbTimer" class="px-4 py-2 rounded-xl bg-amber-900/40 text-amber-200 border border-amber-800/50 text-sm font-black">--:--</span><button onclick="finalizarSimuladoAmbiente(false, 'finalizado_pelo_aluno')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Finalizar e enviar</button><button onclick="fecharAmbienteSimulado()" class="px-4 py-2 rounded-xl bg-red-900/40 hover:bg-red-800/50 text-red-200 text-xs font-bold uppercase">Sair</button>`}</div></div><div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,0.8fr)] gap-5"><div class="space-y-3"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4 min-h-[75vh]">${embed}</div>${sim.imagemUrl ? `<img src="${sim.imagemUrl}" class="w-full rounded-2xl border border-gray-700 bg-gray-950">` : ""}${sim.descricao ? `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Instruções</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${textoSeguro(sim.descricao)}</p></div>` : ""}</div><div class="space-y-4"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4">${renderGradeRespostaObjetivaAmbiente(sim, envio)}<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Resposta dissertativa / observações</label><textarea id="simAmbTexto" rows="5" ${preview ? "disabled" : ""} class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Digite comentários, justificativas ou resposta dissertativa...">${textoSeguro(envio?.texto || "")}</textarea>${preview ? `<p class="text-[10px] text-blue-300 mt-2">Prévia da equipe: os campos ficam visíveis para conferência, mas nada é enviado.</p>` : `<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Anexo de resolução</label><input type="file" id="simAmbArquivo" accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">${envio?.arquivoUrl ? `<a href="${envio.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block">Anexo enviado anteriormente</a>` : ""}`}</div></div></div></div>`;
+    if (!preview) atualizarTimerSimulado();
+}
+
+function renderizarSimulados() {
+    popularFiltrosSimulados();
+    const grid = document.getElementById("gridSimulados");
+    if (!grid) return;
+    const fd = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const fn = document.getElementById("filtroSimNivel")?.value || "TODOS";
+    const ff = document.getElementById("filtroSimFormato")?.value || "TODOS";
+    const fs = document.getElementById("filtroSimStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroSimBusca")?.value || "");
+    let sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario);
+    sims = sims.filter(s => (fd === "TODOS" || s.disciplina === fd) && (fn === "TODOS" || s.nivel === fn) && (ff === "TODOS" || s.formato === ff));
+    if (busca) sims = sims.filter(s => normalizarTexto(`${s.titulo} ${s.descricao} ${s.disciplina} ${s.nivel}`).includes(busca));
+    if (fs !== "TODOS") sims = sims.filter(s => fs === "RESPONDIDOS" ? !!envioSimuladoUsuario(s) : !envioSimuladoUsuario(s));
+    sims.sort((a,b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+    if (!sims.length) {
+        grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p></div>`;
+        return;
+    }
+    grid.innerHTML = sims.map(s => {
+        const envio = envioSimuladoUsuario(s);
+        const encerrado = simuladoPrazoEncerrado(s);
+        const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
+        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+        const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
+        const controlesEquipe = podeGerenciarSimulados() ? `<button onclick="abrirAmbienteSimulado('${s.id}', true)" class="px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 border border-blue-800/40 text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button>${podeEditarSimulado(s) ? `<button onclick="carregarSimuladoParaEdicao('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-900/30 text-amber-200 border border-amber-900/40 text-xs font-bold"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar</button>` : `<span class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-500 text-xs font-bold"><i class="fa-solid fa-lock mr-1"></i>Edição bloqueada</span>`}<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
+        const botaoAluno = !podeGerenciarSimulados() ? (podeIniciarSimulado(s)
+            ? `<button onclick="abrirAmbienteSimulado('${s.id}')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-stopwatch mr-1"></i>Entrar no simulado</button>`
+            : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>${envio?.status === "encerrado" ? "Simulado encerrado" : (encerrado ? "Prazo encerrado" : "Indisponível")}</button>`)
+            : "";
+        const rankingMini = rankingSimulado(s).slice(0, 5);
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Tempo</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "—"}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}${enviosDoSimulado(s).map(e => `<div class="bg-gray-950/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome)}</p><p class="text-xs text-gray-400 mt-1">${textoSeguro(e.texto || "—")}</p>${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block"><i class="fa-solid fa-paperclip mr-1"></i>Abrir anexo</a>` : ""}</div>`).join("")}</div></details>` : "";
+        return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
+            <div class="flex flex-col lg:flex-row lg:items-start gap-4">
+                <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-2 mb-2">${enviadoTexto}${prazoBadge}${s.publico ? `<span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-bold uppercase"><i class="fa-solid fa-link mr-1"></i>Público</span>` : ""}<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">${textoSeguro(s.formato || "simulado")}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-400 text-[10px] font-bold uppercase">${textoSeguro(s.nivel || "Geral")}</span></div>
+                    <h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3>
+                    <p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${textoPrazoSimulado(s)} · ${textoSeguro(s.duracao || "")}</p>
+                    ${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}
+                    ${renderBlocoLinkPublicoSimulado(s)}
+                    <div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl && podeGerenciarSimulados() ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir simulado</a>` : ""}${s.imagemUrl && podeGerenciarSimulados() ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${botaoAluno}${controlesEquipe}</div>
+                    <div class="mt-3">${renderLinksGabaritoSimulado(s)}</div>
+                </div>
+                ${!podeGerenciarSimulados() ? `<div class="w-full lg:w-80 bg-gray-900/70 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Como responder</h4><p class="text-xs text-gray-400 leading-relaxed">Clique em <b>Entrar no simulado</b>. O simulado será aberto em um ambiente próprio, com cronômetro, arquivo da prova e cartão-resposta. Ao sair depois de iniciar, o envio será encerrado automaticamente.</p>${envio ? `<div class="mt-3 rounded-xl bg-emerald-900/30 border border-emerald-900/40 p-3 text-xs text-emerald-200"><b>Último envio:</b><br>${envio.encerradoEm ? new Date(envio.encerradoEm).toLocaleString("pt-BR") : "registrado"}</div>` : ""}</div>` : ""}
+            </div>${enviosResumo}</div>`;
+    }).join("");
+    atualizarSelectRankingSimulados();
+    renderizarRankingSimulado(false);
+}
+
+window.copiarLinkPublicoSimulado = copiarLinkPublicoSimulado;
+window.carregarSimuladoParaEdicao = carregarSimuladoParaEdicao;
+window.cancelarEdicaoSimulado = cancelarEdicaoSimulado;
