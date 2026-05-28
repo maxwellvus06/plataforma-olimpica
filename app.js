@@ -11680,3 +11680,221 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     };
 }
 
+
+// ============================================================================
+// FIX FINAL — SIMULADO PÚBLICO COM CRONÔMETRO REAL + TEMPO REGISTRADO
+// ============================================================================
+(function(){
+    function avisoPublicoInterno(titulo, mensagem, tipo = "aviso") {
+        if (typeof avisarSimuladoInterno === "function") return avisarSimuladoInterno(titulo, mensagem, tipo);
+        if (typeof mostrarModalAvisoPlataforma === "function") return mostrarModalAvisoPlataforma(titulo, mensagem, tipo);
+        alert(`${titulo}\n\n${mensagem}`);
+        return Promise.resolve();
+    }
+
+    function duracaoMsSimuladoPublico(sim) {
+        const minutos = typeof minutosDuracaoSimulado === "function"
+            ? Number(minutosDuracaoSimulado(sim) || 0)
+            : Number(sim?.duracaoMinutos || 0);
+        return Math.max(0, minutos * 60 * 1000);
+    }
+
+    function formatarTempoPublico(ms) {
+        if (typeof formatarTempoMs === "function") return formatarTempoMs(ms);
+        const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h ? `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+    }
+
+    function renderizarResumoTempoPublico(sim, sessao) {
+        const limiteMs = duracaoMsSimuladoPublico(sim);
+        const decorrido = Date.now() - Number(sessao?.inicio || Date.now());
+        const restante = limiteMs ? Math.max(0, limiteMs - decorrido) : 0;
+        return limiteMs
+            ? `<span class="text-amber-200">Restante: ${formatarTempoPublico(restante)}</span><span class="text-gray-500 mx-2">•</span><span class="text-blue-200">Decorrido: ${formatarTempoPublico(decorrido)}</span>`
+            : `<span class="text-blue-200">Decorrido: ${formatarTempoPublico(decorrido)}</span>`;
+    }
+
+    window.atualizarTimerSimuladoPublico = function atualizarTimerSimuladoPublicoFix() {
+        const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual;
+        const box = document.getElementById("simPubTimer");
+        const boxDetalhe = document.getElementById("simPubTimerDetalhe");
+        if (!sessao?.iniciado || !sessao?.inicio) return;
+        const limiteMs = Number(sessao.limiteMs || duracaoMsSimuladoPublico(sessao.sim));
+        const decorrido = Date.now() - Number(sessao.inicio);
+        const restante = limiteMs ? Math.max(0, limiteMs - decorrido) : 0;
+        if (box) {
+            box.textContent = limiteMs ? `Tempo restante: ${formatarTempoPublico(restante)}` : `Tempo decorrido: ${formatarTempoPublico(decorrido)}`;
+            box.classList.toggle("bg-red-900", !!limiteMs && restante <= 5 * 60 * 1000);
+        }
+        if (boxDetalhe) boxDetalhe.innerHTML = renderizarResumoTempoPublico(sessao.sim, sessao);
+        if (limiteMs && restante <= 0 && !simuladoPublicoEnvioEmAndamento) {
+            enviarSimuladoPublico(sessao.simuladoId, sessao.ano, true, "tempo_esgotado");
+        }
+    };
+
+    window.renderizarProvaPublicaSimuladoSeguro = function renderizarProvaPublicaSimuladoSeguroFix(sim, ano, dados) {
+        const box = document.getElementById("simuladoPublicoConteudo");
+        if (!box) return;
+        const embed = (typeof renderizarQuestoesDoSimuladoSeguro === "function" && renderizarQuestoesDoSimuladoSeguro(sim))
+            || (sim.arquivoUrl ? `<iframe src="${textoSeguro(sim.arquivoUrl)}#toolbar=0&navpanes=0" class="w-full h-[78vh] rounded-xl bg-black border border-gray-700"></iframe>` : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo anexado.</div>`);
+        const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual || { inicio: Date.now(), sim };
+        const textoModo = (typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim))
+            ? "Modo Hardcore ativo: sair da tela cheia, trocar de aba ou minimizar encerra a prova e salva o que estiver respondido."
+            : "Modo normal: o cronômetro registra o tempo de prova. Finalize pelo botão quando terminar.";
+        box.innerHTML = `<div class="min-h-screen bg-gray-950 text-gray-100 p-4 space-y-4">
+            <input type="hidden" id="pubNome" value="${textoSeguro(dados.nome)}">
+            <input type="hidden" id="pubEscola" value="${textoSeguro(dados.escolaOrigem)}">
+            <input type="hidden" id="pubCidade" value="${textoSeguro(dados.cidade)}">
+            <input type="hidden" id="pubEmail" value="${textoSeguro(dados.email)}">
+            <input type="hidden" id="pubWhatsapp" value="${textoSeguro(dados.whatsapp)}">
+            <div class="sticky top-0 z-20 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 shadow-xl">
+                <div>
+                    <p class="text-[10px] text-purple-300 uppercase font-black tracking-wider">Simulado público em andamento</p>
+                    <h1 class="text-xl font-black text-white">${textoSeguro(sim.titulo)}</h1>
+                    <p class="text-xs text-gray-500 mt-1">Participante: ${textoSeguro(dados.nome)} · ${textoSeguro(dados.escolaOrigem)} · ${textoSeguro(dados.cidade)}</p>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <div class="px-4 py-2 rounded-xl bg-gray-950 border border-amber-800/50 text-sm font-black min-w-[260px] text-center">
+                        <div id="simPubTimer" class="text-amber-200">Carregando cronômetro...</div>
+                        <div id="simPubTimerDetalhe" class="text-[10px] font-bold mt-1">${renderizarResumoTempoPublico(sim, sessao)}</div>
+                    </div>
+                    <button id="btnEnviarSimuladoPublico" onclick="enviarSimuladoPublico('${textoSeguro(sim.id)}','${textoSeguro(ano)}',false,'finalizado_pelo_visitante')" class="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Finalizar e enviar</button>
+                </div>
+            </div>
+            <div class="rounded-2xl border ${typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim) ? "border-red-800/50 bg-red-950/20 text-red-100" : "border-blue-800/50 bg-blue-950/20 text-blue-100"} p-4 text-sm"><i class="fa-solid fa-stopwatch mr-2"></i><b>Cronômetro ativo:</b> ${textoSeguro(textoModo)}</div>
+            <div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2fr)_minmax(420px,0.9fr)] gap-5">
+                <section class="bg-gray-900 border border-gray-700 rounded-2xl p-4">${embed}</section>
+                <aside class="space-y-4">
+                    <section class="bg-gray-900 border border-gray-700 rounded-2xl p-4">
+                        <h3 class="text-sm font-bold text-white uppercase mb-3">Cartão-resposta</h3>
+                        ${renderGradeRespostaPublica(sim)}
+                        <label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Resposta textual / observações</label>
+                        <textarea id="pubTexto" rows="10" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-gray-200" placeholder="Digite sua resposta, justificativa ou observações..."></textarea>
+                    </section>
+                </aside>
+            </div>
+        </div>`;
+        atualizarTimerSimuladoPublico();
+    };
+
+    window.iniciarSimuladoPublicoTelaCheia = async function iniciarSimuladoPublicoTelaCheiaFix(simuladoId, ano) {
+        if (typeof simuladoPublicoJaFeitoNesteDispositivo === "function" && simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+            const simBloq = await carregarSimuladoPublicoPorId(simuladoId, ano);
+            renderizarBloqueioSimuladoPublico(simBloq);
+            return;
+        }
+        const dados = typeof lerDadosPublicosSimulado === "function" ? lerDadosPublicosSimulado() : {
+            nome: document.getElementById("pubNome")?.value.trim() || "",
+            escolaOrigem: document.getElementById("pubEscola")?.value.trim() || "",
+            cidade: document.getElementById("pubCidade")?.value.trim() || "",
+            email: document.getElementById("pubEmail")?.value.trim() || "",
+            whatsapp: document.getElementById("pubWhatsapp")?.value.trim() || ""
+        };
+        if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+            await avisoPublicoInterno("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp antes de iniciar.", "aviso");
+            return;
+        }
+        if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([dados.nome, dados.escolaOrigem, dados.cidade, dados.email, dados.whatsapp], "dados do participante")) return;
+        const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+        const hardcore = typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim);
+        if (hardcore && typeof solicitarTelaCheiaSimuladoSeguro === "function") {
+            await solicitarTelaCheiaSimuladoSeguro();
+            simuladoPublicoSaidaPermitida = false;
+            simuladoPublicoTelaCheiaAtiva = !!document.fullscreenElement;
+        } else {
+            simuladoPublicoSaidaPermitida = true;
+            simuladoPublicoTelaCheiaAtiva = false;
+        }
+        const inicioReal = Date.now();
+        const sessao = { simuladoId, ano, sim, dados, iniciado: true, inicio: inicioReal, iniciadoEm: inicioReal, limiteMs: duracaoMsSimuladoPublico(sim) };
+        simuladoPublicoSessaoAtual = sessao;
+        window.simuladoPublicoSessaoAtual = sessao;
+        renderizarProvaPublicaSimuladoSeguro(sim, ano, dados);
+        if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+        simuladoPublicoTimerInterval = setInterval(atualizarTimerSimuladoPublico, 1000);
+        atualizarTimerSimuladoPublico();
+    };
+
+    window.enviarSimuladoPublico = async function enviarSimuladoPublicoFix(simuladoId, ano, automatico = false, motivo = "finalizado") {
+        if (simuladoPublicoEnvioEmAndamento) return;
+        if (typeof simuladoPublicoJaFeitoNesteDispositivo === "function" && simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+            const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+            renderizarBloqueioSimuladoPublico(sim);
+            return;
+        }
+        const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual;
+        const dados = sessao?.dados || (typeof lerDadosPublicosSimulado === "function" ? lerDadosPublicosSimulado() : {});
+        if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+            await avisoPublicoInterno("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.", "aviso");
+            return;
+        }
+        const btn = document.getElementById("btnEnviarSimuladoPublico");
+        try {
+            simuladoPublicoEnvioEmAndamento = true;
+            simuladoPublicoSaidaPermitida = true;
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+            const sim = sessao?.sim || await carregarSimuladoPublicoPorId(simuladoId, ano);
+            if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([dados.nome, dados.escolaOrigem, dados.cidade, dados.email, dados.whatsapp, document.getElementById("pubTexto")?.value], "envio público")) {
+                simuladoPublicoEnvioEmAndamento = false;
+                if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+                return;
+            }
+            const respostas = [];
+            document.querySelectorAll('[name^="pub_q_"]:checked').forEach(inp => respostas.push({ numero: Number(inp.name.replace("pub_q_", "")), resposta: inp.value }));
+            const correcao = typeof corrigirRespostaObjetiva === "function" ? corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostas) : { acertos: 0, total: 0, respondidas: respostas.length, percentual: 0 };
+            const dispositivoId = typeof obterDispositivoPublicoSimulado === "function" ? obterDispositivoPublicoSimulado() : `disp_${Date.now()}`;
+            const agora = Date.now();
+            const inicio = Number(sessao?.inicio || sessao?.iniciadoEm || agora);
+            const tempoGastoSegundos = Math.max(0, Math.round((agora - inicio) / 1000));
+            const doc = {
+                id: `${simuladoId}_visitante_${agora}_${dispositivoId}`,
+                simuladoId,
+                simuladoTitulo: sim.titulo || "",
+                publico: true,
+                visitante: true,
+                dispositivoId,
+                alunoNome: dados.nome,
+                nome: dados.nome,
+                escolaOrigem: dados.escolaOrigem,
+                escolaNome: dados.escolaOrigem,
+                cidade: dados.cidade,
+                email: dados.email,
+                whatsapp: dados.whatsapp,
+                respostasObjetivas: respostas,
+                texto: document.getElementById("pubTexto")?.value.trim() || "",
+                acertos: correcao.acertos,
+                totalObjetivas: correcao.total,
+                respondidasObjetivas: correcao.respondidas,
+                percentual: correcao.percentual,
+                iniciadoEm: inicio,
+                enviadoEm: agora,
+                encerradoEm: agora,
+                tempoGastoSegundos,
+                tempoGastoTexto: formatarTempoPublico(tempoGastoSegundos * 1000),
+                status: "encerrado",
+                motivoEncerramento: motivo,
+                automatico: !!automatico,
+                statusCorrecao: typeof simuladoPrecisaCorrecaoManual === "function" && simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica"
+            };
+            await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(doc.id).set(doc);
+            await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(doc.id).set(doc);
+            if (typeof marcarSimuladoPublicoFeitoNesteDispositivo === "function") marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano);
+            if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+            simuladoPublicoTimerInterval = null;
+            simuladoPublicoSessaoAtual = null;
+            window.simuladoPublicoSessaoAtual = null;
+            simuladoPublicoTelaCheiaAtiva = false;
+            if (typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim) && typeof sairTelaCheiaSimuladoSeguro === "function") await sairTelaCheiaSimuladoSeguro();
+            renderizarPaginaAgradecimentoSimuladoPublico(sim, automatico ? `O simulado foi encerrado automaticamente. Tempo registrado: ${doc.tempoGastoTexto}. As respostas marcadas foram salvas.` : `Suas respostas foram registradas. Tempo de prova registrado: ${doc.tempoGastoTexto}.`);
+        } catch(e) {
+            console.error(e);
+            await avisoPublicoInterno("Erro ao enviar simulado público", String(e.message || e), "erro");
+            if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+        } finally {
+            simuladoPublicoEnvioEmAndamento = false;
+        }
+    };
+})();
