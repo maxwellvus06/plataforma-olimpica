@@ -39,7 +39,7 @@ const ETNIAS_ALUNO_PADRAO = ["Não informado", "Branca", "Preta", "Parda", "Amar
 
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
-const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_simulados_envios", "app_aulas", "app_questoes"];
+const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_simulados_envios", "app_simulados_leads", "app_aulas", "app_questoes", "app_questoes_temas"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -1223,7 +1223,7 @@ async function carregarDadosFirebaseInicial() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
-        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -1247,7 +1247,7 @@ async function carregarDadosPosLogin() {
         "app_simulados",
         "app_simulados_envios",
         "app_aulas",
-        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -2867,7 +2867,7 @@ async function salvarNovoUsuario(event) {
 
 // ==================== RESET DE SENHAS EM LOTE ====================
 function niveisResetSenhaDisponiveis() {
-    return ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"];
+    return ["ADM", "Staff", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"];
 }
 
 function usuarioPertenceCidade(usuario, cidadeId) {
@@ -4986,7 +4986,9 @@ const FIREBASE_COLLECTIONS = {
     app_simulados: "sistema_simulados",
     app_simulados_envios: "sistema_simulados_envios",
     app_aulas: "sistema_aulas",
-    app_questoes: "sistema_questoes"
+    app_questoes: "sistema_questoes",
+    app_questoes_temas: "sistema_questoes_temas",
+    app_simulados_leads: "sistema_simulados_leads"
 };
 function getMateriaisCollectionName() { return getFirebaseCollectionName("app_plataforma"); }
 function getUsuariosCollectionName() { return getFirebaseCollectionName("app_usuarios"); }
@@ -6033,10 +6035,10 @@ function entrarSalaMonitoria(salaId) {
         const meuId = usuarioLogado.id;
         const jaEsta = ativos.find(([id]) => id === meuId);
         const ativosOutros = ativos.filter(([id]) => id !== meuId);
-        const usuarioEhMonitor = ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
+        const usuarioEhMonitor = ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
         const usuarioPodeSalaOrientador = usuarioLogado.nivel === "ADM" || usuarioLogado.nivel === "Professor/Orientador";
-        const haMonitorNaSala = ativosOutros.some(([_, v]) => ["ADM", "Monitor", "Professor/Orientador"].includes(v.nivel));
-        const haNaoMonitorNaSala = ativosOutros.some(([_, v]) => !["ADM", "Monitor", "Professor/Orientador"].includes(v.nivel));
+        const haMonitorNaSala = ativosOutros.some(([_, v]) => ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(v.nivel));
+        const haNaoMonitorNaSala = ativosOutros.some(([_, v]) => !["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(v.nivel));
 
         if (sala.restritoOrientador && !usuarioPodeSalaOrientador) {
             return alert("Esta sala é exclusiva para Professor/Orientador e ADM.");
@@ -7093,7 +7095,7 @@ function atualizarAlvosLayoutEditor() {
 
     let opcoes = [];
     if (tipo === "nivel") {
-        opcoes = ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"].map(n => ({ value: n, text: n }));
+        opcoes = ["ADM", "Staff", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"].map(n => ({ value: n, text: n }));
     } else if (tipo === "cidade") {
         opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id, text: `${c.nome} (${c.uf})` }));
     } else if (tipo === "escola") {
@@ -7253,11 +7255,11 @@ window.atualizarEstadoEscopoProfessorCadastro = atualizarEstadoEscopoProfessorCa
 
 // ==================== MÓDULO SIMULADOS ====================
 function podeGerenciarSimulados() {
-    return ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
+    return ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
 }
 
 function podeGerenciarAulas() {
-    return ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
+    return ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel);
 }
 
 function selectValores(id) {
@@ -8045,7 +8047,7 @@ function toggleSenhaLogin() {
 }
 
 function podeGerenciarQuestoes() {
-    return !!usuarioLogado && ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
+    return !!usuarioLogado && ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
 }
 
 function normalizarListaUnicaOrdenada(lista) {
@@ -8306,3 +8308,561 @@ function renderizarAmbienteSimulado() {
         }
     }, true);
 });
+
+// ==================== AJUSTES CONSOLIDADOS — ETAPA 1 IA, STAFF, RESULTADOS, SIMULADOS E QUESTÕES ====================
+const DIFICULDADES_QUESTOES_EXTENDIDAS = ["Fácil", "Médio", "Difícil", "Muito difícil", "Olímpica", "Vestibular"];
+const TAXONOMIA_TEMAS_QUESTOES = {
+  "Matemática": {
+    "Aritmética": ["Operações", "Divisibilidade", "Múltiplos e divisores", "Primos", "MMC/MDC", "Frações", "Porcentagem", "Razão e proporção", "Médias", "Potências e raízes", "Restos e congruências"],
+    "Álgebra": ["Expressões algébricas", "Equações", "Sistemas", "Inequações", "Produtos notáveis", "Fatoração", "Funções", "Sequências", "PA/PG", "Polinômios"],
+    "Geometria": ["Ângulos", "Triângulos", "Quadriláteros", "Polígonos", "Circunferência", "Áreas", "Volumes", "Semelhança", "Pitágoras", "Geometria espacial"],
+    "Combinatória": ["Princípio multiplicativo", "Permutações", "Combinações", "Arranjos", "Contagem com restrições", "Casas de pombos", "Invariantes"],
+    "Probabilidade e Estatística": ["Probabilidade básica", "Eventos", "Gráficos", "Tabelas", "Medidas de tendência", "Análise de dados"]
+  },
+  "Física": {
+    "Mecânica": ["Cinemática", "Dinâmica", "Leis de Newton", "Trabalho e energia", "Quantidade de movimento", "Gravitação", "Estática"],
+    "Termologia": ["Temperatura", "Calor", "Dilatação", "Gases", "Termodinâmica"],
+    "Óptica e Ondulatória": ["Reflexão", "Refração", "Lentes", "Espelhos", "Ondas", "Som"],
+    "Eletricidade": ["Carga elétrica", "Campo elétrico", "Potencial", "Circuitos", "Resistores", "Magnetismo"]
+  },
+  "Química": {
+    "Química Geral": ["Estrutura atômica", "Tabela periódica", "Ligações químicas", "Funções inorgânicas", "Reações químicas", "Estequiometria"],
+    "Físico-química": ["Soluções", "Termoquímica", "Cinética", "Equilíbrio", "Eletroquímica"],
+    "Orgânica": ["Hidrocarbonetos", "Funções orgânicas", "Isomeria", "Reações orgânicas"]
+  },
+  "Biologia": {
+    "Citologia": ["Célula", "Organelas", "Membrana", "Metabolismo energético"],
+    "Genética": ["DNA/RNA", "Leis de Mendel", "Heredogramas", "Biotecnologia"],
+    "Ecologia": ["Cadeias alimentares", "Ciclos biogeoquímicos", "Populações", "Sustentabilidade"],
+    "Fisiologia": ["Sistemas do corpo humano", "Saúde", "Reprodução", "Imunologia"]
+  },
+  "Ciências": {
+    "Terra e Universo": ["Sistema Solar", "Lua", "Movimentos da Terra", "Camadas da Terra", "Rochas e solo"],
+    "Matéria e Energia": ["Propriedades da matéria", "Misturas", "Transformações", "Energia", "Máquinas simples"],
+    "Vida e Ambiente": ["Seres vivos", "Ecossistemas", "Corpo humano", "Saúde pública"]
+  },
+  "Astronomia": {
+    "Astronomia básica": ["Sistema Solar", "Constelações", "Eclipses", "Estações do ano", "Escalas astronômicas"],
+    "Astronáutica": ["Foguetes", "Satélites", "Órbitas", "Missões espaciais"]
+  },
+  "Tecnologia / Robótica": {
+    "Programação": ["Lógica", "Algoritmos", "Python", "Scratch", "Estruturas de dados"],
+    "Robótica": ["Sensores", "Atuadores", "Controle", "Mecânica de robôs", "Projetos"],
+    "Computação": ["Internet", "Segurança", "IA", "Banco de dados", "Sistemas"]
+  },
+  "Linguagem": {
+    "Português": ["Interpretação", "Gramática", "Produção textual", "Figuras de linguagem", "Coesão e coerência"],
+    "Inglês": ["Leitura", "Vocabulário", "Gramática", "Interpretação"]
+  },
+  "Humanas": {
+    "História": ["História do Brasil", "História Geral", "Fontes históricas", "Cidadania"],
+    "Geografia": ["Cartografia", "Clima", "Geopolítica", "Urbanização", "População"],
+    "Atualidades": ["Conflitos", "Economia", "Sociedade", "Meio ambiente"]
+  },
+  "Multidisciplinar": {
+    "Resolução de problemas": ["Modelagem", "Interpretação", "Estratégias", "Leitura de gráficos", "Projetos integradores"]
+  }
+};
+
+function ehAdmOuStaff() { return ["ADM", "Staff"].includes(usuarioLogado?.nivel); }
+function ehEquipeConteudoAmpliada() { return ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel); }
+function valorNumero(id) { return Number(document.getElementById(id)?.value || 0); }
+function valoresMultiSelect(id) { return Array.from(document.getElementById(id)?.selectedOptions || []).map(o => o.value).filter(Boolean); }
+function duracaoSimuladoDoFormulario(prefixo = "sim") {
+    const h = valorNumero(`${prefixo}DuracaoHoras`);
+    const m = valorNumero(`${prefixo}DuracaoMinutos`);
+    if (h <= 0 && m <= 0) return "Sem limite definido";
+    return `${h}h ${m}min`;
+}
+function dificuldadeNormalizada(d) {
+    const n = normalizarTexto(d);
+    if (n.includes("muito")) return "Muito difícil";
+    if (n.includes("olimp")) return "Olímpica";
+    if (n.includes("vestib")) return "Vestibular";
+    if (n.includes("fac")) return "Fácil";
+    if (n.includes("med")) return "Médio";
+    if (n.includes("dif")) return "Difícil";
+    return d || "Médio";
+}
+function contemConteudoExplicito(texto) {
+    const t = normalizarTexto(texto).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const termos = ["sexo explicito", "pornografia", "pornografico", "nudez explicita", "ato sexual", "sexo oral", "sexo anal", "estupro", "pedofilia", "genital", "penis", "vagina", "porn", "nudes"];
+    return termos.some(term => t.includes(term));
+}
+function avisoTriagemConteudo(texto) {
+    if (!contemConteudoExplicito(texto)) return "";
+    return "Triagem automática: o texto parece conter conteúdo sexual explícito. Revise antes de publicar. Esta triagem é preventiva e não substitui revisão humana.";
+}
+
+function inicializarAjustesConsolidados() {
+    // Staff no select, quando existir.
+    const nivel = document.getElementById("addUserNivel");
+    if (nivel && !Array.from(nivel.options).some(o => o.value === "Staff")) {
+        const opt = document.createElement("option"); opt.value = "Staff"; opt.text = "Staff";
+        nivel.insertBefore(opt, Array.from(nivel.options).find(o => o.value === "Gestor") || null);
+    }
+    // Preencher temas/subtemas do Banco de Questões e do Gerador.
+    popularTemasQuestao();
+    popularTemasGeradorSimulado();
+    document.getElementById("questaoDisciplina")?.addEventListener("change", popularTemasQuestao);
+    document.getElementById("gerSimDisciplina")?.addEventListener("change", popularTemasGeradorSimulado);
+    document.getElementById("gerSimTemas")?.addEventListener("change", popularSubtemasGeradorSimulado);
+    document.getElementById("questaoEnunciado")?.addEventListener("input", () => {
+        const box = document.getElementById("triagemConteudoQuestao");
+        if (!box) return;
+        const msg = avisoTriagemConteudo(document.getElementById("questaoEnunciado").value || "");
+        box.textContent = msg;
+        box.classList.toggle("hidden", !msg);
+    });
+}
+window.addEventListener("DOMContentLoaded", () => setTimeout(inicializarAjustesConsolidados, 800));
+
+function popularTemasQuestao() {
+    const disc = document.getElementById("questaoDisciplina")?.value || "Matemática";
+    const select = document.getElementById("questaoTemaSelect");
+    if (!select) return;
+    const temas = Object.keys(TAXONOMIA_TEMAS_QUESTOES[disc] || TAXONOMIA_TEMAS_QUESTOES["Matemática"] || {}).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    select.innerHTML = `<option value="">Selecionar tema padronizado...</option>${temas.map(t=>`<option value="${textoSeguro(t)}">${textoSeguro(t)}</option>`).join("")}<option value="__manual__">Outro / manual</option>`;
+    atualizarSubtemasQuestao();
+}
+function atualizarSubtemasQuestao() {
+    const disc = document.getElementById("questaoDisciplina")?.value || "Matemática";
+    const tema = document.getElementById("questaoTemaSelect")?.value || "";
+    const select = document.getElementById("questaoSubtemaSelect");
+    if (!select) return;
+    const subs = ((TAXONOMIA_TEMAS_QUESTOES[disc] || {})[tema] || []).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    select.innerHTML = `<option value="">Selecionar subtema...</option>${subs.map(s=>`<option value="${textoSeguro(s)}">${textoSeguro(s)}</option>`).join("")}<option value="__manual__">Outro / manual</option>`;
+}
+function popularTemasGeradorSimulado() {
+    const disc = document.getElementById("gerSimDisciplina")?.value || "TODOS";
+    const temaSel = document.getElementById("gerSimTemas");
+    if (!temaSel) return;
+    let temas = [];
+    if (disc && disc !== "TODOS" && TAXONOMIA_TEMAS_QUESTOES[disc]) temas = Object.keys(TAXONOMIA_TEMAS_QUESTOES[disc]);
+    else Object.values(TAXONOMIA_TEMAS_QUESTOES).forEach(grupo => temas.push(...Object.keys(grupo)));
+    // Soma temas que já existem no banco.
+    getStorage("app_questoes", []).forEach(q => { if (q.tema) temas.push(q.tema); });
+    temas = [...new Set(temas.filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    temaSel.innerHTML = temas.map(t=>`<option value="${textoSeguro(t)}">${textoSeguro(t)}</option>`).join("");
+    popularSubtemasGeradorSimulado();
+}
+function popularSubtemasGeradorSimulado() {
+    const disc = document.getElementById("gerSimDisciplina")?.value || "TODOS";
+    const temas = valoresMultiSelect("gerSimTemas");
+    const subSel = document.getElementById("gerSimSubtemas");
+    if (!subSel) return;
+    let subs = [];
+    const disciplinas = disc === "TODOS" ? Object.keys(TAXONOMIA_TEMAS_QUESTOES) : [disc];
+    disciplinas.forEach(d => {
+        const mapa = TAXONOMIA_TEMAS_QUESTOES[d] || {};
+        Object.entries(mapa).forEach(([tema, arr]) => { if (!temas.length || temas.includes(tema)) subs.push(...arr); });
+    });
+    getStorage("app_questoes", []).forEach(q => { if (q.subtema && (!temas.length || temas.includes(q.tema))) subs.push(q.subtema); });
+    subs = [...new Set(subs.filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    subSel.innerHTML = subs.map(s=>`<option value="${textoSeguro(s)}">${textoSeguro(s)}</option>`).join("");
+}
+
+// Permissões ajustadas para Staff.
+const __usuarioPodeGerenciarUsuarioAlvo = usuarioPodeGerenciarUsuarioAlvo;
+usuarioPodeGerenciarUsuarioAlvo = function(usuarioAlvo) {
+    if (usuarioLogado?.nivel === "Staff") return usuarioAlvo?.nivel !== "ADM";
+    return __usuarioPodeGerenciarUsuarioAlvo(usuarioAlvo);
+};
+const __podeGerenciarQuestoes = podeGerenciarQuestoes;
+podeGerenciarQuestoes = function() { return ehEquipeConteudoAmpliada(); };
+const __podeGerenciarSimulados = podeGerenciarSimulados;
+podeGerenciarSimulados = function() { return ehEquipeConteudoAmpliada(); };
+const __podeGerenciarAulas = podeGerenciarAulas;
+podeGerenciarAulas = function() { return ehEquipeConteudoAmpliada(); };
+
+// Resultado manual com observação.
+initResultadoManual = function() {
+    const cidadeSelect = document.getElementById("addResCidadeSelect");
+    const escolaSelect = document.getElementById("addResEscolaSelect");
+    const alunoSelect = document.getElementById("addResAlunoSelect");
+    if (alunoSelect && !alunoSelect.dataset.obsInit) { alunoSelect.addEventListener("change", preencherResultadoPorAlunoSelecionado); alunoSelect.dataset.obsInit = "1"; }
+    if (cidadeSelect && !cidadeSelect.dataset.obsInit) { cidadeSelect.addEventListener("change", popularSeletoresResultadosManuais); cidadeSelect.dataset.obsInit = "1"; }
+    if (escolaSelect && !escolaSelect.dataset.obsInit) { escolaSelect.addEventListener("change", preencherCidadePelaEscolaManual); escolaSelect.dataset.obsInit = "1"; }
+    const formManual = document.getElementById("formResultadoManual");
+    if (formManual && !formManual.dataset.obsInit) {
+        formManual.dataset.obsInit = "1";
+        formManual.addEventListener("submit", (e) => {
+            e.preventDefault();
+            if (!permissao("resultados.podeEditar")) return alert("Sem permissão para adicionar resultados.");
+            const alunoIdSelecionado = document.getElementById("addResAlunoSelect")?.value || "";
+            const alunoObjSelecionado = alunoIdSelecionado ? getStorage("app_alunos").find(a => a.id === alunoIdSelecionado) : null;
+            const aluno = document.getElementById("addResAluno").value.trim();
+            const municipio = document.getElementById("addResCidadeSelect").value;
+            const escola = document.getElementById("addResEscolaSelect").value;
+            const olimpiada = document.getElementById("addResOlimpiadaSelect").value;
+            const serie = document.getElementById("addResSerieSelect").value;
+            const premio = document.getElementById("addResPremioSelect").value;
+            const observacao = document.getElementById("addResObservacao")?.value.trim() || "";
+            if (!aluno || !municipio || !escola || !olimpiada || !serie || !premio) return alert("Preencha todos os campos obrigatórios.");
+            const cidades = getStorage("app_cidades");
+            const escolas = getStorage("app_escolas");
+            const cidade = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(municipio));
+            const escolaObj = escolas.find(ex => normalizarTexto(ex.nome) === normalizarTexto(escola));
+            if (!cidade || !escolaObj) return alert("Cidade ou escola inválida.");
+            if (escolaObj.cidadeId !== cidade.id) return alert("A escola não pertence à cidade selecionada.");
+            gravarResultadoComSobrescrita({ aluno, alunoId: alunoObjSelecionado?.id || "", alunoCpf: alunoObjSelecionado?.cpf || "", escola, municipio, olimpiada, serie, premio, observacao });
+            salvarPremiados(); popularSeletores(); renderizarPlataformaDashboard(); renderizarResultadosImportacao(); renderizarDashboardAluno();
+            formManual.reset(); liberarResultadoManual(); popularSeletoresResultadosManuais();
+            alert("Resultado registrado com sucesso.");
+        });
+    }
+};
+
+editarResultado = function(chaveCodificada) {
+    if (!ehAdmOuStaff()) return alert("Apenas ADM/Staff podem editar resultados.");
+    const chaveOriginal = decodeURIComponent(chaveCodificada);
+    const idx = dadosTrabalho.findIndex(r => chaveResultado(r) === chaveOriginal);
+    if (idx === -1) return alert("Resultado não encontrado.");
+    const atual = dadosTrabalho[idx];
+    abrirModalEdicao({
+        titulo: "Editar resultado olímpico",
+        campos: [
+            { nome: "aluno", label: "Nome do aluno", valor: atual.aluno || "" },
+            { nome: "municipio", label: "Cidade", tipo: "select", valor: atual.municipio || "", options: opcoesCidadesNomeUf() },
+            { nome: "escola", label: "Escola", tipo: "select", valor: atual.escola || "", options: opcoesEscolasNome(atual.municipio || "") },
+            { nome: "olimpiada", label: "Olimpíada", tipo: "select", valor: atual.olimpiada || "", options: opcoesOlimpiadasNome() },
+            { nome: "serie", label: "Série", tipo: "select", valor: atual.serie || "", options: SERIES_PADRAO },
+            { nome: "premio", label: "Premiação", tipo: "select", valor: atual.premio || "", options: PREMIOS_PADRAO },
+            { nome: "observacao", label: "Observação", tipo: "textarea", rows: 4, valor: atual.observacao || "" },
+            { nome: "certificadoArquivo", label: "Certificado do resultado (PDF ou imagem)", tipo: "file", valor: "" }
+        ],
+        onDepoisMontar: () => {
+            const cidadeSelect = document.getElementById("modalCampo_municipio");
+            if (cidadeSelect) cidadeSelect.onchange = () => atualizarSelectEscolasModal(cidadeSelect.value);
+            const fileInput = document.getElementById("modalCampo_certificadoArquivo");
+            if (fileInput) fileInput.accept = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*";
+            const corpo = document.getElementById("modalEdicaoCampos");
+            if (corpo) {
+                const box = document.createElement("div");
+                box.className = "rounded-2xl border border-gray-700 bg-gray-900/60 p-4 space-y-2";
+                box.innerHTML = `<div class="flex items-center gap-2 text-xs font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-award text-amber-400"></i> Certificado anexado</div><div>${certificadoResultadoHtml(atual, "modal")}</div><p class="text-[11px] text-gray-500">Ao enviar novo arquivo, ele substituirá o certificado exibido ao aluno.</p>`;
+                corpo.appendChild(box);
+            }
+        },
+        onSalvar: async (d) => {
+            if (!d.aluno || !d.municipio || !d.escola || !d.olimpiada || !d.serie || !d.premio) return alert("Todos os campos do resultado são obrigatórios."), false;
+            const cidades = getStorage("app_cidades"); const escolas = getStorage("app_escolas");
+            const cidade = cidades.find(c => normalizarTexto(`${c.nome} - ${c.uf}`) === normalizarTexto(d.municipio));
+            const escola = escolas.find(e => normalizarTexto(e.nome) === normalizarTexto(d.escola));
+            if (!cidade || !escola) return alert("Cidade ou escola inválida."), false;
+            if (escola.cidadeId !== cidade.id) return alert("A escola selecionada não pertence à cidade escolhida."), false;
+            const atualizadoBase = { ...atual, aluno: d.aluno, municipio: d.municipio, escola: d.escola, olimpiada: d.olimpiada, serie: d.serie, premio: d.premio, observacao: d.observacao || "" };
+            const atualizado = await anexarCertificadoAoResultado(atualizadoBase, d.certificadoArquivo);
+            dadosTrabalho = dadosTrabalho.filter(r => chaveResultado(r) !== chaveOriginal);
+            gravarResultadoComSobrescrita(atualizado); salvarPremiados(); popularSeletores(); renderizarPlataformaDashboard(); renderizarResultadosImportacao(); renderizarDashboardAluno();
+            alert("Resultado atualizado com sucesso.");
+        },
+        onApagar: () => excluirResultado(chaveCodificada)
+    });
+};
+
+const __renderizarResultadosImportacao = renderizarResultadosImportacao;
+renderizarResultadosImportacao = function() {
+    __renderizarResultadosImportacao();
+    const tbody = document.getElementById("tableResultadosImportacaoCorpo");
+    if (!tbody || !document.querySelector('th:nth-child(8)')) return;
+    // Se a coluna observação foi adicionada no HTML e as linhas antigas não têm a célula, injeta antes de ações.
+    Array.from(tbody.querySelectorAll("tr")).forEach((tr, i) => {
+        if (tr.children.length >= 9) return;
+        const r = Array.from(dadosTrabalho).filter(x => resultadoDentroDoEscopoResultadosUsuario(x))[i];
+        const td = document.createElement("td"); td.className = "p-4 max-w-xs text-xs text-gray-400";
+        td.textContent = r?.observacao ? r.observacao : "—";
+        tr.insertBefore(td, tr.lastElementChild);
+    });
+};
+
+// Etapa 1: motor local de análise de dados + gráficos, sem IA externa.
+let relChartEvolucaoInst = null;
+let reuniaoChartEvolucaoInst = null;
+let reuniaoChartPremiosInst = null;
+function destruirChartSeExiste(ch) { try { if (ch) ch.destroy(); } catch (_) {} }
+function contagemPorAnoSimples(lista) {
+    const mapa = {};
+    lista.forEach(r => { const a = String(r.ano || anoDadosAtual || ""); if (a) mapa[a] = (mapa[a] || 0) + 1; });
+    return mapa;
+}
+function renderizarGraficoLinha(canvasId, labels, valores, label) {
+    const canvas = document.getElementById(canvasId); if (!canvas || typeof Chart === "undefined") return null;
+    return new Chart(canvas, { type: "line", data: { labels, datasets: [{ label, data: valores, tension: 0.35, fill: false }] }, options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+}
+function renderizarGraficoBarra(canvasId, labels, valores, label) {
+    const canvas = document.getElementById(canvasId); if (!canvas || typeof Chart === "undefined") return null;
+    return new Chart(canvas, { type: "bar", data: { labels, datasets: [{ label, data: valores }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+}
+function gerarInsightsLocais(premiados, alunos = []) {
+    const total = premiados.length;
+    const porAno = contagemPorAno(premiados, "ano");
+    const anos = Object.keys(porAno).sort();
+    const melhorAno = anos.length ? anos.reduce((a,b)=>porAno[a] >= porAno[b] ? a : b) : "—";
+    const cidades = contagemPorCampo(premiados, "municipio", 3);
+    const escolas = contagemPorCampo(premiados, "escola", 3);
+    const olimpiadas = contagemPorCampo(premiados, "olimpiada", 3);
+    const ouro = premiados.filter(r => normalizarTexto(r.premio).includes("ouro")).length;
+    const taxaOuro = total ? Math.round((ouro/total)*100) : 0;
+    const insights = [];
+    insights.push(total ? `Foram consolidados ${total} resultado(s) no escopo selecionado.` : "Ainda não há resultados no escopo selecionado.");
+    if (melhorAno !== "—") insights.push(`O melhor ano do período foi ${melhorAno}, com ${porAno[melhorAno]} resultado(s).`);
+    if (cidades[0]) insights.push(`Cidade destaque: ${cidades[0].nome}, concentrando ${cidades[0].total} resultado(s).`);
+    if (escolas[0]) insights.push(`Escola destaque: ${escolas[0].nome}, com ${escolas[0].total} resultado(s).`);
+    if (olimpiadas[0]) insights.push(`Olimpíada de maior impacto: ${olimpiadas[0].nome}, com ${olimpiadas[0].total} registro(s).`);
+    if (total) insights.push(`A proporção de ouros no período é de ${taxaOuro}%, indicador útil para medir profundidade de desempenho.`);
+    if (alunos.length && total) insights.push(`Há ${alunos.length} aluno(s) cadastrado(s) no escopo analisado; acompanhe conversão cadastro → resultado.`);
+    return insights;
+}
+function contagemPorAno(lista, campoAno) {
+    const mapa = {};
+    lista.forEach(r => { const a = String(r[campoAno] || r.ano || anoDadosAtual || ""); if (a) mapa[a] = (mapa[a] || 0) + 1; });
+    return mapa;
+}
+async function renderizarIAEtapa1Relatorios() {
+    const anos = anosSelecionadosRelatorio();
+    const dados = await carregarDadosMultianuaisRelatorio(anos);
+    const premiados = aplicarFiltrosRelatorio(dados.premiados || []);
+    const alunos = filtrarListaPorEscopoResultado(dados.alunos || []);
+    const porAno = {};
+    premiados.forEach(r => { porAno[String(r.ano || anoDadosAtual)] = (porAno[String(r.ano || anoDadosAtual)] || 0) + 1; });
+    const labels = anos.map(String);
+    const valores = labels.map(a => porAno[a] || 0);
+    destruirChartSeExiste(relChartEvolucaoInst);
+    relChartEvolucaoInst = renderizarGraficoLinha("relChartEvolucaoCanvas", labels, valores, "Resultados");
+    const box = document.getElementById("relInsightsIA");
+    if (box) box.innerHTML = gerarInsightsLocais(premiados, alunos).map(t => `<div class="rounded-xl bg-gray-900/70 border border-gray-700 p-3"><i class="fa-solid fa-lightbulb text-amber-300 mr-2"></i>${textoSeguro(t)}</div>`).join("");
+}
+const __gerarRelatoriosComparativos = gerarRelatoriosComparativos;
+gerarRelatoriosComparativos = async function() { const r = await __gerarRelatoriosComparativos(); await renderizarIAEtapa1Relatorios(); return r; };
+async function renderizarGraficosReuniao() {
+    const anos = anosSelecionadosReuniao();
+    const dados = await carregarDadosMultianuaisRelatorio(anos);
+    const premiados = filtrarListaPorEscopoResultado(dados.premiados || []);
+    const porAno = {}; premiados.forEach(r => { porAno[String(r.ano || anoDadosAtual)] = (porAno[String(r.ano || anoDadosAtual)] || 0) + 1; });
+    destruirChartSeExiste(reuniaoChartEvolucaoInst);
+    reuniaoChartEvolucaoInst = renderizarGraficoBarra("reuniaoChartCanvas", anos.map(String), anos.map(a => porAno[String(a)] || 0), "Resultados");
+    const premios = contagemPorCampo(premiados, "premio", 6);
+    destruirChartSeExiste(reuniaoChartPremiosInst);
+    reuniaoChartPremiosInst = renderizarGraficoBarra("reuniaoChartPremiosCanvas", premios.map(p=>p.nome), premios.map(p=>p.total), "Prêmios");
+    const insights = document.getElementById("reuniaoInsights");
+    if (insights) {
+        const extras = gerarInsightsLocais(premiados, dados.alunos || []).map(t => `<div class="rounded-xl bg-gray-900/70 border border-gray-700 p-3"><i class="fa-solid fa-brain text-purple-300 mr-2"></i>${textoSeguro(t)}</div>`).join("");
+        insights.innerHTML = extras + insights.innerHTML;
+    }
+}
+const __gerarPainelReuniao = gerarPainelReuniao;
+gerarPainelReuniao = async function() { const r = await __gerarPainelReuniao(); await renderizarGraficosReuniao(); return r; };
+
+// Simulados: tempo horas/minutos, link público, leads e gabaritos.
+salvarNovoSimulado = async function(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Apenas ADM, Staff, monitores e professores/orientadores podem publicar simulados.");
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
+        const file = document.getElementById("simArquivo")?.files?.[0] || null;
+        const img = document.getElementById("simImagem")?.files?.[0] || null;
+        const solArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+        const publico = !!document.getElementById("simPublico")?.checked;
+        const sim = {
+            id: novoId(), publico, publicoId: "pub_" + novoId(),
+            titulo: document.getElementById("simTitulo").value.trim(), disciplina: document.getElementById("simDisciplina").value, nivel: document.getElementById("simNivel").value,
+            formato: document.getElementById("simFormato").value, dataAbertura: document.getElementById("simDataAbertura").value || "", dataFim: document.getElementById("simDataFim").value || "",
+            duracao: duracaoSimuladoDoFormulario("sim"), duracaoHoras: valorNumero("simDuracaoHoras"), duracaoMinutos: valorNumero("simDuracaoMinutos"),
+            quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || 0), gabaritoObjetivo: lerGabaritoObjetivoSimulado(), gabarito: document.getElementById("simGabarito").value.trim(),
+            descricao: document.getElementById("simDescricao").value.trim(), destino: { tipo: document.getElementById("simDestinoTipo").value, valores: selectValores("simDestinoValores") },
+            criadoPor: usuarioLogado?.nome || "Sistema", criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoPorNivel: usuarioLogado?.nivel || "", criadoEm: Date.now(), atualizadoEm: Date.now()
+        };
+        if (file) { const up = await enviarArquivoParaFirebaseStorage(file, "simulados"); Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoNome: up.fileName, arquivoStoragePath: up.storagePath }); }
+        if (img) { const up = await enviarArquivoParaFirebaseStorage(img, "simulados"); Object.assign(sim, { imagemUrl: up.fileUrl, imagemNome: up.fileName, imagemStoragePath: up.storagePath }); }
+        if (solArquivo) { const up = await enviarArquivoParaFirebaseStorage(solArquivo, "simulados"); Object.assign(sim, { solucaoArquivoUrl: up.fileUrl, solucaoArquivoNome: up.fileName, solucaoStoragePath: up.storagePath }); }
+        sim.solucaoUrl = document.getElementById("simSolucaoUrl")?.value.trim() || "";
+        const lista = getStorage("app_simulados", []); lista.push(sim); await setStorage("app_simulados", lista);
+        event.target.reset(); gerarCamposGabaritoSimulado(); atualizarDestinoSimulado(); renderizarSimulados(); popularFiltrosSimulados(); atualizarSelectRankingSimulados();
+        if (publico) alert(`Simulado publicado. Link público:\n${linkPublicoSimulado(sim)}`); else alert("Simulado publicado com sucesso.");
+    } catch (erro) { console.error("Erro ao salvar simulado", erro); alert(`Erro ao salvar simulado.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
+};
+function linkPublicoSimulado(sim) { return `${location.origin}${location.pathname}#simulado-publico=${encodeURIComponent(sim.id)}&ano=${encodeURIComponent(anoDadosAtual || new Date().getFullYear())}`; }
+
+// Banco de Questões avançado.
+salvarNovaQuestao = async function(event) {
+    event.preventDefault();
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Staff, Monitor e Professor/Orientador podem cadastrar questões.");
+    const textoEnunciado = document.getElementById("questaoEnunciado")?.value || "";
+    const msgTriagem = avisoTriagemConteudo([textoEnunciado, document.getElementById("questaoSolucaoTexto")?.value || ""].join(" "));
+    if (msgTriagem && !confirm(`${msgTriagem}\n\nDeseja salvar mesmo assim?`)) return;
+    const btn = event.submitter || document.querySelector('#formCadQuestao button[type="submit"]');
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const temaSel = document.getElementById("questaoTemaSelect")?.value || "";
+        const subSel = document.getElementById("questaoSubtemaSelect")?.value || "";
+        const temaManual = document.getElementById("questaoTema")?.value.trim() || "";
+        const subManual = document.getElementById("questaoSubtema")?.value.trim() || "";
+        const questao = {
+            id: novoId(), titulo: document.getElementById("questaoTitulo")?.value.trim() || "Questão sem título", disciplina: document.getElementById("questaoDisciplina")?.value || "", nivel: document.getElementById("questaoNivel")?.value || "",
+            tema: temaManual || (temaSel === "__manual__" ? "" : temaSel), subtema: subManual || (subSel === "__manual__" ? "" : subSel), dificuldade: dificuldadeNormalizada(document.getElementById("questaoDificuldade")?.value || "Médio"), tipo: document.getElementById("questaoTipo")?.value || "",
+            fonte: document.getElementById("questaoFonte")?.value.trim() || "", ano: document.getElementById("questaoAno")?.value || "", alternativaCorreta: document.getElementById("questaoAlternativa")?.value || "",
+            tags: String(document.getElementById("questaoTags")?.value || "").split(",").map(t=>t.trim()).filter(Boolean), enunciado: textoEnunciado.trim(), conteudoTriagem: msgTriagem ? "revisar" : "ok", solucoes: [], arquivos: [], criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || ""
+        };
+        const arquivos = Array.from(document.getElementById("questaoArquivo")?.files || []);
+        for (const arq of arquivos.slice(0, 8)) { const up = await enviarArquivoParaFirebaseStorage(arq, "questoes"); questao.arquivos.push({ url: up.fileUrl, path: up.storagePath, nome: up.fileName, mimeType: up.mimeType }); }
+        const solTexto = document.getElementById("questaoSolucaoTexto")?.value.trim() || "";
+        const solArquivos = [];
+        for (const arq of Array.from(document.getElementById("questaoSolucaoArquivo")?.files || []).slice(0, 6)) { const up = await enviarArquivoParaFirebaseStorage(arq, "questoes_solucoes"); solArquivos.push({ url: up.fileUrl, path: up.storagePath, nome: up.fileName, mimeType: up.mimeType }); }
+        if (solTexto || solArquivos.length) questao.solucoes.push({ id: novoId(), texto: solTexto, arquivos: solArquivos, tipo: "Solução inicial", criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+        const lista = getStorage("app_questoes", []); lista.push(questao); await setStorage("app_questoes", lista);
+        document.getElementById("formCadQuestao")?.reset(); popularTemasQuestao(); popularFiltrosQuestoes(); popularFiltrosGeradorSimulado(); renderizarBancoQuestoes(); alert("Questão salva no banco com sucesso.");
+    } catch (erro) { console.error("Erro ao salvar questão", erro); alert(`Erro ao salvar questão.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar questão'; } }
+};
+
+renderizarBancoQuestoes = function() {
+    const grid = document.getElementById("gridQuestoes"); if (!grid) return;
+    if (!podeGerenciarQuestoes()) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Acesso exclusivo para ADM, Staff, Monitor e Professor/Orientador.</p></div>`; return; }
+    const questoes = getStorage("app_questoes", []).filter(questaoPassaFiltros).sort((a,b)=>String(a.disciplina||"").localeCompare(String(b.disciplina||""),"pt-BR") || String(a.tema||"").localeCompare(String(b.tema||""),"pt-BR") || String(a.titulo||"").localeCompare(String(b.titulo||""),"pt-BR"));
+    if (!questoes.length) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões ou ajuste os filtros.</p></div>`; return; }
+    grid.innerHTML = questoes.map(q => `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div><h4 class="text-base font-black text-white">${textoSeguro(q.titulo)}</h4><div class="flex flex-wrap gap-2 mt-2"><span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${textoSeguro(q.disciplina)}</span><span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${textoSeguro(q.nivel)}</span><span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${textoSeguro(q.dificuldade)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${textoSeguro(q.tipo)}</span>${q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-bold">Gabarito: ${textoSeguro(q.alternativaCorreta)}</span>` : ""}${q.conteudoTriagem === "revisar" ? `<span class="px-2 py-1 rounded-lg bg-red-950/50 text-red-300 text-[10px] font-bold">Revisar conteúdo</span>` : ""}</div></div><div class="flex flex-wrap gap-2"><button onclick="editarQuestao('${q.id}')" class="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button><button onclick="adicionarSolucaoQuestao('${q.id}')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-plus mr-1"></i>Nova solução</button><button onclick="excluirQuestao('${q.id}')" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4"><div class="lg:col-span-2"><p class="text-xs text-gray-500 uppercase font-bold">${textoSeguro([q.fonte, q.ano, q.tema, q.subtema].filter(Boolean).join(" · "))}</p><p class="text-sm text-gray-300 whitespace-pre-wrap mt-2">${textoSeguro(q.enunciado || "")}</p>${renderArquivoLinks(q.arquivos)}</div><div class="rounded-2xl bg-gray-900/60 border border-gray-700 p-3"><details><summary class="cursor-pointer text-xs font-black uppercase text-emerald-300">Ver soluções (${(q.solucoes || []).length})</summary>${renderizarSolucoesQuestao(q)}</details>${Array.isArray(q.tags) && q.tags.length ? `<div class="mt-3 flex flex-wrap gap-1">${q.tags.map(t => `<span class="text-[10px] px-2 py-1 rounded-full bg-gray-950 text-gray-400">#${textoSeguro(t)}</span>`).join("")}</div>` : ""}</div></div></div>`).join("");
+};
+
+async function editarQuestao(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão.");
+    const lista = getStorage("app_questoes", []); const idx = lista.findIndex(q => String(q.id) === String(questaoId));
+    if (idx < 0) return alert("Questão não encontrada.");
+    const q = lista[idx];
+    abrirModalEdicao({ titulo: "Editar questão", campos: [
+        { nome: "titulo", label: "Título", valor: q.titulo || "" }, { nome: "disciplina", label: "Disciplina", tipo: "select", valor: q.disciplina || "", options: Object.keys(TAXONOMIA_TEMAS_QUESTOES) },
+        { nome: "nivel", label: "Nível", tipo: "select", valor: q.nivel || "", options: ["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral"] },
+        { nome: "tema", label: "Tema", valor: q.tema || "" }, { nome: "subtema", label: "Subtema", valor: q.subtema || "" }, { nome: "dificuldade", label: "Dificuldade", tipo: "select", valor: q.dificuldade || "Médio", options: DIFICULDADES_QUESTOES_EXTENDIDAS },
+        { nome: "tipo", label: "Tipo", tipo: "select", valor: q.tipo || "", options: ["Múltipla escolha", "Dissertativa", "Verdadeiro/Falso", "Experimental", "Aberta curta"] },
+        { nome: "fonte", label: "Olimpíada / fonte", valor: q.fonte || "" }, { nome: "ano", label: "Ano", valor: q.ano || "" }, { nome: "alternativaCorreta", label: "Alternativa correta", tipo: "select", valor: q.alternativaCorreta || "", options: ["", "A", "B", "C", "D", "E"] },
+        { nome: "tags", label: "Tags", valor: (q.tags || []).join(", ") }, { nome: "enunciado", label: "Enunciado", tipo: "textarea", rows: 6, valor: q.enunciado || "" }
+    ], onSalvar: async (d) => {
+        const msg = avisoTriagemConteudo([d.enunciado, d.titulo].join(" "));
+        if (msg && !confirm(`${msg}\n\nDeseja salvar mesmo assim?`)) return false;
+        lista[idx] = { ...lista[idx], ...d, dificuldade: dificuldadeNormalizada(d.dificuldade), tags: String(d.tags || "").split(",").map(t=>t.trim()).filter(Boolean), conteudoTriagem: msg ? "revisar" : "ok", atualizadoEm: Date.now(), atualizadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", atualizadoPorNome: usuarioLogado?.nome || "" };
+        await setStorage("app_questoes", lista); renderizarBancoQuestoes(); popularFiltrosGeradorSimulado(); alert("Questão atualizada.");
+    }, onApagar: () => excluirQuestao(questaoId) });
+}
+async function excluirQuestao(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão.");
+    if (!confirm("Deseja apagar esta questão? As soluções associadas também serão removidas.")) return;
+    const lista = getStorage("app_questoes", []).filter(q => String(q.id) !== String(questaoId));
+    await setStorage("app_questoes", lista); renderizarBancoQuestoes(); popularFiltrosGeradorSimulado();
+}
+
+adicionarSolucaoQuestao = async function(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para adicionar solução.");
+    const lista = getStorage("app_questoes", []); const idx = lista.findIndex(q => String(q.id) === String(questaoId));
+    if (idx < 0) return alert("Questão não encontrada.");
+    abrirModalEdicao({ titulo: "Adicionar solução à questão", campos: [
+        { nome: "tipo", label: "Tipo de solução", tipo: "select", valor: "Comentário em texto", options: ["Comentário em texto", "Resolução completa", "Solução alternativa", "Dica", "Correção", "Vídeo curto"] },
+        { nome: "texto", label: "Texto / comentário", tipo: "textarea", rows: 5, valor: "" },
+        { nome: "arquivo", label: "Imagem/documento/vídeo curto da solução", tipo: "file", valor: "" }
+    ], onDepoisMontar: () => { const f = document.getElementById("modalCampo_arquivo"); if (f) f.accept = "image/*,.pdf,.doc,.docx,.mp4,.webm"; }, onSalvar: async (d) => {
+        const arquivos = [];
+        if (d.arquivo) {
+            const maxVideo = 80 * 1024 * 1024; const maxGeral = 25 * 1024 * 1024;
+            if (String(d.arquivo.type || "").startsWith("video/") && d.arquivo.size > maxVideo) return alert("Vídeo muito grande. Use vídeos curtos de até 80 MB ou cole link externo no texto."), false;
+            if (!String(d.arquivo.type || "").startsWith("video/") && d.arquivo.size > maxGeral) return alert("Arquivo muito grande. Limite recomendado: 25 MB."), false;
+            const up = await enviarArquivoParaFirebaseStorage(d.arquivo, "questoes_solucoes"); arquivos.push({ url: up.fileUrl, path: up.storagePath, nome: up.fileName, mimeType: up.mimeType, tamanho: d.arquivo.size });
+        }
+        lista[idx].solucoes = Array.isArray(lista[idx].solucoes) ? lista[idx].solucoes : [];
+        lista[idx].solucoes.push({ id: novoId(), texto: d.texto || "", arquivos, tipo: d.tipo || "Solução complementar", criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+        await setStorage("app_questoes", lista); renderizarBancoQuestoes(); alert("Solução adicionada.");
+    } });
+};
+
+popularFiltrosGeradorSimulado = function() {
+    const qs = getStorage("app_questoes", []);
+    popularSelectSimples("gerSimDisciplina", [...Object.keys(TAXONOMIA_TEMAS_QUESTOES), ...qs.map(q => q.disciplina)], "Todas");
+    popularSelectSimples("gerSimNivel", qs.map(q => q.nivel), "Todos");
+    popularSelectSimples("gerSimDificuldade", [...DIFICULDADES_QUESTOES_EXTENDIDAS, ...qs.map(q => q.dificuldade)], "Todas");
+    popularTemasGeradorSimulado();
+};
+function pegarQuestoesPorDificuldade(base, dificuldade, qtd, usadas) {
+    if (!qtd) return [];
+    const arr = base.filter(q => !usadas.has(q.id) && dificuldadeNormalizada(q.dificuldade) === dificuldade).sort(() => Math.random() - 0.5).slice(0, qtd);
+    arr.forEach(q => usadas.add(q.id));
+    return arr;
+}
+gerarSimuladoPeloBancoQuestoes = async function() {
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Staff, Monitor e Professor/Orientador podem gerar simulados pelo banco de questões.");
+    const disc = document.getElementById("gerSimDisciplina")?.value || "TODOS";
+    const nivel = document.getElementById("gerSimNivel")?.value || "TODOS";
+    const dif = document.getElementById("gerSimDificuldade")?.value || "TODOS";
+    const temas = valoresMultiSelect("gerSimTemas"); const subtemas = valoresMultiSelect("gerSimSubtemas");
+    const qtd = Math.max(1, Number(document.getElementById("gerSimQtd")?.value || 10));
+    let base = getStorage("app_questoes", []).filter(q => {
+        if (disc !== "TODOS" && q.disciplina !== disc) return false; if (nivel !== "TODOS" && q.nivel !== nivel) return false; if (dif !== "TODOS" && dificuldadeNormalizada(q.dificuldade) !== dificuldadeNormalizada(dif)) return false;
+        if (temas.length && !temas.includes(q.tema)) return false; if (subtemas.length && !subtemas.includes(q.subtema)) return false; return true;
+    });
+    const usadas = new Set(); let selecionadas = [];
+    const dist = { "Fácil": valorNumero("gerSimQtdFacil"), "Médio": valorNumero("gerSimQtdMedio"), "Difícil": valorNumero("gerSimQtdDificil"), "Muito difícil": valorNumero("gerSimQtdMuitoDificil"), "Olímpica": valorNumero("gerSimQtdOlimpica"), "Vestibular": valorNumero("gerSimQtdVestibular") };
+    const somaDist = Object.values(dist).reduce((a,b)=>a+b,0);
+    if (somaDist > 0) Object.entries(dist).forEach(([d, n]) => selecionadas.push(...pegarQuestoesPorDificuldade(base, d, n, usadas)));
+    else selecionadas = base.sort(() => Math.random() - 0.5).slice(0, qtd);
+    if (somaDist > selecionadas.length) selecionadas.push(...base.filter(q=>!usadas.has(q.id)).sort(()=>Math.random()-0.5).slice(0, Math.max(0, somaDist-selecionadas.length)));
+    if (!selecionadas.length) return alert("Nenhuma questão encontrada com esses filtros.");
+    const sim = { id: novoId(), titulo: document.getElementById("gerSimTitulo")?.value.trim() || `Simulado gerado — ${new Date().toLocaleDateString("pt-BR")}`, disciplina: disc === "TODOS" ? "Geral" : disc, nivel: nivel === "TODOS" ? "Geral" : nivel, formato: document.getElementById("gerSimFormato")?.value || "objetivo", dataAbertura: "", dataFim: document.getElementById("gerSimPrazo")?.value || "", duracao: document.getElementById("gerSimDuracao")?.value || "Sem limite definido", quantidadeQuestoes: selecionadas.length, geradoDoBanco: true, criteriosSelecao: { disc, nivel, dif, temas, subtemas, dist }, questoesBanco: selecionadas.map((q, i) => ({ numero: i + 1, questaoId: q.id, titulo: q.titulo, disciplina: q.disciplina, nivel: q.nivel, tema: q.tema, subtema: q.subtema, dificuldade: dificuldadeNormalizada(q.dificuldade), tipo: q.tipo, fonte: q.fonte, ano: q.ano, enunciado: q.enunciado, arquivos: q.arquivos || [], alternativaCorreta: q.alternativaCorreta || "" })), gabaritoObjetivo: selecionadas.map((q, i) => ({ numero: i + 1, resposta: String(q.alternativaCorreta || "").toUpperCase() })).filter(g => g.resposta), gabarito: "Simulado gerado a partir do Banco de Questões.", descricao: "Leia cada questão no ambiente cronometrado e preencha o cartão-resposta. O gabarito/resolução só será liberado após o prazo final.", destino: { tipo: "todos", valores: [] }, criadoEm: Date.now(), criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || "" };
+    const lista = getStorage("app_simulados", []); lista.push(sim); await setStorage("app_simulados", lista);
+    document.getElementById("gerSimResumo").innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${selecionadas.length} questões.</span>`; renderizarSimulados(); atualizarSelectRankingSimulados(); alert("Simulado criado a partir do Banco de Questões.");
+};
+
+// Link público de simulado para visitantes.
+function detectarSimuladoPublicoHash() {
+    const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    const id = h.get("simulado-publico"); const ano = h.get("ano") || String(new Date().getFullYear());
+    if (id) abrirPortalPublicoSimulado(id, ano);
+}
+window.addEventListener("DOMContentLoaded", () => setTimeout(detectarSimuladoPublicoHash, 700));
+async function abrirPortalPublicoSimulado(id, ano) {
+    try {
+        initFirebase();
+        const col = firebaseFirestore.collection(`anos/${ano}/${getFirebaseCollectionName("app_simulados")}`);
+        const snap = await col.doc(String(id)).get();
+        if (!snap.exists || !snap.data()?.publico) return alert("Link público de simulado inválido ou indisponível.");
+        const sim = { id: snap.id, ...snap.data() };
+        const overlay = document.createElement("div"); overlay.id = "portalPublicoSimulado"; overlay.className = "fixed inset-0 z-[9999] bg-gray-950 text-gray-100 overflow-y-auto p-4";
+        overlay.innerHTML = `<div class="max-w-5xl mx-auto space-y-4"><div class="bg-gray-900 border border-gray-700 rounded-3xl p-6"><h1 class="text-2xl font-black">${textoSeguro(sim.titulo)}</h1><p class="text-sm text-gray-400 mt-2">Você pode entrar como visitante. Seus dados serão enviados à equipe organizadora.</p><div id="publicForm" class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4"><input id="pubNome" class="p-3 rounded-xl bg-gray-950 border border-gray-700" placeholder="Nome completo" required><input id="pubEmail" type="email" class="p-3 rounded-xl bg-gray-950 border border-gray-700" placeholder="E-mail" required><input id="pubCidade" class="p-3 rounded-xl bg-gray-950 border border-gray-700" placeholder="Cidade"><input id="pubWhats" class="p-3 rounded-xl bg-gray-950 border border-gray-700" placeholder="WhatsApp"><button onclick="iniciarSimuladoPublico('${textoSeguro(sim.id)}','${textoSeguro(ano)}')" class="md:col-span-4 p-3 rounded-xl bg-emerald-600 text-white font-black uppercase">Iniciar como visitante</button><button onclick="location.hash=''; location.reload();" class="md:col-span-4 p-3 rounded-xl bg-blue-600 text-white font-bold uppercase">Prefiro fazer login</button></div></div><div id="publicSimBody"></div></div>`;
+        document.body.appendChild(overlay);
+        window.__simuladoPublicoAtual = { sim, ano };
+    } catch (e) { console.error(e); alert("Erro ao abrir link público do simulado. Verifique as regras do Firestore."); }
+}
+async function iniciarSimuladoPublico(id, ano) {
+    const nome = document.getElementById("pubNome")?.value.trim(); const email = document.getElementById("pubEmail")?.value.trim();
+    if (!nome || !email) return alert("Informe nome completo e e-mail.");
+    const { sim } = window.__simuladoPublicoAtual || {}; if (!sim) return;
+    const body = document.getElementById("publicSimBody");
+    body.innerHTML = `<div class="bg-gray-900 border border-gray-700 rounded-3xl p-5"><h2 class="font-black text-xl mb-4">Cartão-resposta</h2>${renderGradeRespostaObjetivaPublica(sim)}<button onclick="enviarSimuladoPublico('${textoSeguro(id)}','${textoSeguro(ano)}')" class="mt-4 w-full p-3 rounded-xl bg-emerald-600 text-white font-black uppercase">Enviar simulado</button></div>`;
+}
+function renderGradeRespostaObjetivaPublica(sim) {
+    const gab = Array.isArray(sim.gabaritoObjetivo) ? sim.gabaritoObjetivo : [];
+    if (!gab.length) return `<p class="text-gray-400">Este simulado não tem cartão objetivo público configurado.</p>`;
+    return `<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 gap-2">${gab.map(q=>`<div class="rounded-xl bg-gray-950 border border-gray-700 p-2"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Q${q.numero}</label><select data-q="${q.numero}" class="pubResp w-full p-2 rounded-lg bg-gray-900 border border-gray-700 text-xs"><option value="">—</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></div>`).join("")}</div>`;
+}
+async function enviarSimuladoPublico(id, ano) {
+    const { sim } = window.__simuladoPublicoAtual || {}; if (!sim) return;
+    const respostasObjetivas = Array.from(document.querySelectorAll(".pubResp[data-q]")).map(sel=>({ numero: Number(sel.dataset.q), resposta: String(sel.value||"").toUpperCase() })).filter(x=>x.resposta);
+    const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostasObjetivas);
+    const leadId = `visitante_${id}_${Date.now()}`;
+    const envio = { id: leadId, simuladoId: id, visitante: true, simuladoPublico: true, usuarioId: leadId, usuarioNome: document.getElementById("pubNome")?.value.trim(), email: document.getElementById("pubEmail")?.value.trim(), cidade: document.getElementById("pubCidade")?.value.trim(), whatsapp: document.getElementById("pubWhats")?.value.trim(), respostasObjetivas, acertos: correcao.acertos, totalObjetivas: correcao.total, percentual: correcao.percentual, enviadoEm: Date.now(), status: "encerrado" };
+    await firebaseFirestore.collection(`anos/${ano}/${getFirebaseCollectionName("app_simulados_envios")}`).doc(leadId).set(envio);
+    await firebaseFirestore.collection(`anos/${ano}/${getFirebaseCollectionName("app_simulados_leads")}`).doc(leadId).set({ ...envio, tipo: "lead_simulado_publico" });
+    alert("Simulado enviado. Obrigado!"); location.hash = ""; location.reload();
+}
+
+// Melhora leitura de simulado: mais alto no PDF e apenas movimentação/rolagem.
+const __renderizarQuestoesDoSimuladoSeguro = renderizarQuestoesDoSimuladoSeguro;
+renderizarQuestoesDoSimuladoSeguro = function(sim) { return __renderizarQuestoesDoSimuladoSeguro(sim).replaceAll('class="rounded-2xl bg-gray-950/60', 'class="rounded-2xl bg-gray-950/60 select-none'); };
+
+const __minutosDuracaoSimuladoOriginal = minutosDuracaoSimulado;
+minutosDuracaoSimulado = function(sim) {
+    const raw = String(sim?.duracao || "").toLowerCase().trim();
+    if (!raw || raw.includes("sem limite")) return 0;
+    const hm = raw.match(/(\d+)\s*h/);
+    const mm = raw.match(/(\d+)\s*min/);
+    if (hm || mm) return (hm ? Number(hm[1]) * 60 : 0) + (mm ? Number(mm[1]) : 0);
+    return __minutosDuracaoSimuladoOriginal(sim);
+};
