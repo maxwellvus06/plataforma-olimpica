@@ -3988,7 +3988,9 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
     const emailInstitucional = lerLinhaPlanilha(linha, ["Email institucional", "E-mail institucional"], "");
     const emailPessoal = lerLinhaPlanilha(linha, ["Email pessoal", "E-mail pessoal"], "");
     const cpf = formatarCpf(lerLinhaPlanilha(linha, ["CPF do aluno", "CPF"], ""));
-    const dataNascimentoRaw = lerLinhaPlanilha(linha, ["Data de nascimento", "Nascimento"], "");
+    const dataNascimentoRaw = pegarValorLinhaPlanilha(linha, [
+        "Data de nascimento", "Data nascimento", "Nascimento", "Data Nasc.", "Dt nascimento", "Dt. nascimento", "Data de nasc"
+    ], "");
     const dataNascimento = normalizarDataPlanilha(dataNascimentoRaw);
     const sexo = validarOpcaoLista(lerLinhaPlanilha(linha, ["Sexo"], ""), SEXOS_ALUNO_PADRAO, "Sexo", erros, nl, true);
     const etnia = validarOpcaoLista(lerLinhaPlanilha(linha, ["Etnia", "Etnia / cor-raça", "Cor/raça", "Cor-raca"], "Não informado"), ETNIAS_ALUNO_PADRAO, "Etnia", erros, nl, false) || "Não informado";
@@ -4013,7 +4015,7 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
     if (!nome) erros.push(`Linha ${nl}: Nome completo é obrigatório.`);
     // E-mail é opcional também na importação em lote. A conta pode ser criada depois pelo botão “Inscreva-se”.
     if (!cpf || !validarCpf(cpf)) erros.push(`Linha ${nl}: CPF inválido ou vazio.`);
-    if (!dataNascimento) erros.push(`Linha ${nl}: Data de nascimento inválida ou vazia.`);
+    if (!dataNascimento) erros.push(`Linha ${nl}: Data de nascimento inválida ou vazia. Valor lido: "${String(dataNascimentoRaw || "").trim() || "vazio"}".`);
     if (!escola) erros.push(`Linha ${nl}: escola não cadastrada ou fora do seu escopo (${escolaNome}).`);
     if (!turnoTurma) erros.push(`Linha ${nl}: Turno/Turma é obrigatório.`);
     if (!aluno.mae && !aluno.pai && !aluno.responsavelAcademico) erros.push(`Linha ${nl}: preencha mãe, pai ou responsável acadêmico.`);
@@ -4038,20 +4040,52 @@ function normalizarDataPlanilha(valor) {
     }
 
     // Quando o Excel entrega a célula como número serial.
-    if (typeof valor === "number") {
+    if (typeof valor === "number" && Number.isFinite(valor)) {
         const parsed = XLSX.SSF.parse_date_code(valor);
         if (parsed) return montarDataIsoValida(parsed.y, parsed.m, parsed.d);
     }
 
-    const s = String(valor).trim();
+    let s = String(valor)
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .replace(/ /g, " ")
+        .trim();
+
+    // Remove apóstrofo comum quando o Excel força texto: '20/05/2010
+    if (s.startsWith("'")) s = s.slice(1).trim();
+
+    // Date.toString(), caso alguma biblioteca entregue a data já convertida em texto inglês.
+    const dataTexto = new Date(s);
+    if (/^[A-Za-z]{3,}/.test(s) && !Number.isNaN(dataTexto.getTime())) {
+        return montarDataIsoValida(dataTexto.getFullYear(), dataTexto.getMonth() + 1, dataTexto.getDate());
+    }
+
+    // Aceita serial do Excel vindo como texto: 40318, 40318.0 etc.
+    if (/^\d{4,6}(\.0+)?$/.test(s)) {
+        const n = Number(s);
+        if (n > 20000 && n < 80000) {
+            const parsed = XLSX.SSF.parse_date_code(n);
+            if (parsed) return montarDataIsoValida(parsed.y, parsed.m, parsed.d);
+        }
+    }
+
+    // Aceita 20/05/2010 00:00:00, 20/05/2010 00:00, etc.
+    s = s.split(/\s+/)[0];
 
     // Aceita o formato técnico antigo, para não quebrar planilhas já prontas.
     const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if (iso) return montarDataIsoValida(iso[1], iso[2], iso[3]);
 
     // Formato preferencial no Brasil: DD/MM/AAAA. Também aceita DD-MM-AAAA e DD.MM.AAAA.
-    const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-    if (br) return montarDataIsoValida(br[3], br[2], br[1]);
+    const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+    if (br) {
+        let ano = br[3];
+        if (ano.length === 2) ano = Number(ano) <= 30 ? `20${ano}` : `19${ano}`;
+        return montarDataIsoValida(ano, br[2], br[1]);
+    }
+
+    // Aceita 20052010 como DDMMAAAA quando alguém cola tudo sem barra.
+    const compacto = s.match(/^(\d{2})(\d{2})(\d{4})$/);
+    if (compacto) return montarDataIsoValida(compacto[3], compacto[2], compacto[1]);
 
     return "";
 }
@@ -5273,11 +5307,33 @@ function initDragAndDropOlimpiadas() {
     fileInput.addEventListener("change", (e) => { if (e.target.files.length) processarPlanilhaOlimpiadas(e.target.files[0]); });
 }
 
-function lerLinhaPlanilha(linha, nomes, padrao = "") {
+function normalizarCabecalhoPlanilha(valor) {
+    return String(valor || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toLowerCase();
+}
+
+function pegarValorLinhaPlanilha(linha, nomes, padrao = "") {
+    if (!linha) return padrao;
     for (const nome of nomes) {
-        if (linha[nome] !== undefined && linha[nome] !== null && String(linha[nome]).trim() !== "") return String(linha[nome]).trim();
+        if (linha[nome] !== undefined && linha[nome] !== null && String(linha[nome]).trim() !== "") return linha[nome];
+    }
+    const mapa = {};
+    Object.keys(linha).forEach(k => { mapa[normalizarCabecalhoPlanilha(k)] = linha[k]; });
+    for (const nome of nomes) {
+        const chave = normalizarCabecalhoPlanilha(nome);
+        const valor = mapa[chave];
+        if (valor !== undefined && valor !== null && String(valor).trim() !== "") return valor;
     }
     return padrao;
+}
+
+function lerLinhaPlanilha(linha, nomes, padrao = "") {
+    const valor = pegarValorLinhaPlanilha(linha, nomes, padrao);
+    if (valor === padrao) return padrao;
+    return String(valor).trim();
 }
 
 function lerMultiplosSlots(linha, prefixo, max = 3) {
