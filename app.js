@@ -10636,3 +10636,183 @@ function prepararEdicaoSimulado(id) {
 
 // Ajusta tela ao carregar o módulo, sem depender de recarregar página.
 setTimeout(() => { try { ajustarCamposSimulado(); } catch(e) { console.warn(e); } }, 800);
+
+// ============================================================================
+// PATCH SIMULADOS — correção manual por questão + presença/tempo/respostas
+// ============================================================================
+function simuladoPrecisaCorrecaoManual(sim) {
+    const formato = String(sim?.formato || "").toLowerCase();
+    return formato === "dissertativo" || formato === "misto" || numeroQuestoesDissertativasSimulado(sim) > 0;
+}
+
+function questoesDissertativasDoSimulado(sim) {
+    if (simuladoEhManual(sim)) {
+        return (Array.isArray(sim?.questoesBanco) ? sim.questoesBanco : [])
+            .filter(q => {
+                const t = String(q.tipo || "").toLowerCase();
+                return t.includes("dissertativa") || t.includes("mista");
+            })
+            .map((q, idx) => ({
+                numero: Number(q.numero || idx + 1),
+                titulo: `Questão ${q.numero || idx + 1}`,
+                enunciado: q.enunciado || q.titulo || "",
+                arquivos: Array.isArray(q.arquivos) ? q.arquivos : []
+            }));
+    }
+    const qtd = numeroQuestoesDissertativasSimulado(sim);
+    return Array.from({ length: qtd }, (_, i) => ({
+        numero: i + 1,
+        titulo: `Questão dissertativa ${i + 1}`,
+        enunciado: "",
+        arquivos: []
+    }));
+}
+
+function mapaCorrecaoQuestoes(envio) {
+    return new Map((Array.isArray(envio?.correcaoQuestoes) ? envio.correcaoQuestoes : []).map(c => [Number(c.numero), c]));
+}
+
+function resumoCorrecaoManual(envio, sim) {
+    const precisa = simuladoPrecisaCorrecaoManual(sim);
+    if (!precisa) return { precisa: false, status: "Correção automática", classe: "text-emerald-300", nota: null };
+    const qs = questoesDissertativasDoSimulado(sim);
+    const corr = Array.isArray(envio?.correcaoQuestoes) ? envio.correcaoQuestoes : [];
+    const corrigidas = corr.filter(c => c.nota !== "" && c.nota !== null && c.nota !== undefined).length;
+    const soma = corr.reduce((acc, c) => acc + Number(c.nota || 0), 0);
+    const max = Math.max(0, qs.length * 10);
+    const percentual = max ? Math.round((soma / max) * 1000) / 10 : null;
+    if (!qs.length) return { precisa: true, status: "Sem questões dissertativas", classe: "text-gray-400", nota: percentual };
+    if (corrigidas >= qs.length) return { precisa: true, status: `Corrigido · ${soma}/${max}`, classe: "text-emerald-300", nota: percentual };
+    if (corrigidas > 0) return { precisa: true, status: `Parcial · ${corrigidas}/${qs.length}`, classe: "text-amber-300", nota: percentual };
+    return { precisa: true, status: "Pendente de correção", classe: "text-red-300", nota: percentual };
+}
+
+function notaFinalSimulado(envio, sim) {
+    const manual = resumoCorrecaoManual(envio, sim);
+    if (manual.precisa && manual.nota !== null && manual.nota !== undefined) return manual.nota;
+    if (envio?.percentual !== null && envio?.percentual !== undefined) return Number(envio.percentual);
+    return null;
+}
+
+function textoPresencaSimulado(envio) {
+    if (!envio) return "Ausente";
+    if (envio.status === "encerrado") return "Presente / enviado";
+    if (envio.iniciadoEm) return "Iniciado";
+    return "Registrado";
+}
+
+function criarOverlayCorrecaoSimulado() {
+    let ov = document.getElementById("simuladoCorrecaoOverlay");
+    if (ov) return ov;
+    ov = document.createElement("div");
+    ov.id = "simuladoCorrecaoOverlay";
+    ov.className = "hidden fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm p-3 md:p-6 overflow-y-auto";
+    ov.innerHTML = `<div class="max-w-7xl mx-auto bg-gray-900 border border-gray-700 rounded-3xl shadow-2xl overflow-hidden"><div class="sticky top-0 z-10 bg-gray-900/95 border-b border-gray-700 px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><p class="text-[10px] text-blue-300 uppercase font-black tracking-wider">Correção de simulado</p><h2 id="simuladoCorrecaoTitulo" class="text-xl font-black text-white">Correção</h2></div><div class="flex flex-wrap gap-2"><button id="btnSalvarCorrecaoSimulado" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-floppy-disk mr-1"></i>Salvar correção</button><button onclick="fecharPainelCorrecaoSimulado()" class="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold uppercase">Fechar</button></div></div><div id="simuladoCorrecaoConteudo" class="p-5"></div></div>`;
+    document.body.appendChild(ov);
+    return ov;
+}
+
+function fecharPainelCorrecaoSimulado() {
+    document.getElementById("simuladoCorrecaoOverlay")?.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+}
+
+function renderRespostaDissertativaCorrecao(resp) {
+    if (!resp) return `<div class="rounded-xl border border-gray-700 bg-gray-950 p-4 text-sm text-gray-500">Sem resposta enviada para esta questão.</div>`;
+    const anexo = resp.arquivoUrl ? `<div class="mt-3 rounded-xl border border-gray-700 bg-gray-950 p-3"><p class="text-[10px] text-gray-500 uppercase font-bold mb-2">Anexo do aluno: ${textoSeguro(resp.arquivoNome || "arquivo")}</p>${renderMidiaInternaSimulado(resp.arquivoUrl, resp.arquivoMimeType, resp.arquivoNome)}</div>` : "";
+    return `<div class="rounded-xl border border-gray-700 bg-gray-950 p-4"><p class="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">${textoSeguro(resp.texto || "Sem texto digitado.")}</p>${anexo}</div>`;
+}
+
+function renderObjetivasCorrecao(sim, envio) {
+    const gab = Array.isArray(sim?.gabaritoObjetivo) ? sim.gabaritoObjetivo : [];
+    if (!gab.length) return "";
+    const resp = new Map((Array.isArray(envio?.respostasObjetivas) ? envio.respostasObjetivas : []).map(r => [Number(r.numero), String(r.resposta || "").toUpperCase()]));
+    return `<section class="rounded-2xl border border-emerald-900/40 bg-emerald-950/10 p-4"><div class="flex items-center justify-between gap-2 mb-3"><h3 class="text-sm font-black text-emerald-200 uppercase">Objetivas — correção automática</h3><span class="text-xs ${classeDesempenhoSimulado(envio?.percentual)} font-bold">${envio?.totalObjetivas ? `${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%` : "—"}</span></div><div class="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-8 gap-2">${gab.map(q => { const r = resp.get(Number(q.numero)) || ""; const ok = r && r === String(q.resposta || "").toUpperCase(); return `<div class="rounded-xl border ${ok ? "border-emerald-700 bg-emerald-950/30" : "border-gray-700 bg-gray-950"} p-3"><p class="text-[10px] text-gray-500 uppercase font-bold">Q${q.numero}</p><p class="text-sm text-gray-200 mt-1">Aluno: <b>${textoSeguro(r || "—")}</b></p><p class="text-xs text-gray-400">Gab.: <b class="text-emerald-300">${textoSeguro(q.resposta || "—")}</b></p></div>`; }).join("")}</div></section>`;
+}
+
+function abrirPainelCorrecaoSimulado(simuladoId, envioId) {
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para corrigir simulados.");
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+    if (!sim) return alert("Simulado não encontrado.");
+    const envio = enviosDoSimulado(sim).find(e => String(e.id) === String(envioId));
+    if (!envio) return alert("Envio não encontrado.");
+    const ov = criarOverlayCorrecaoSimulado();
+    const titulo = document.getElementById("simuladoCorrecaoTitulo");
+    const box = document.getElementById("simuladoCorrecaoConteudo");
+    const btn = document.getElementById("btnSalvarCorrecaoSimulado");
+    if (titulo) titulo.textContent = `${sim.titulo || "Simulado"} — ${envio.alunoNome || envio.usuarioNome || envio.nome || "Aluno"}`;
+    const respostasDisc = new Map((Array.isArray(envio.respostasDissertativas) ? envio.respostasDissertativas : []).map(r => [Number(r.numero), r]));
+    const correcoes = mapaCorrecaoQuestoes(envio);
+    const questoesDisc = questoesDissertativasDoSimulado(sim);
+    const resumo = resumoCorrecaoManual(envio, sim);
+    const dadosAluno = `<section class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-5"><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Aluno/visitante</p><p class="text-sm text-white font-black mt-1">${textoSeguro(envio.alunoNome || envio.usuarioNome || envio.nome || "—")}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Escola</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(envio.escolaNome || envio.escolaOrigem || "—")}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Presença</p><p class="text-sm text-emerald-300 font-bold mt-1">${textoPresencaSimulado(envio)}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo de prova</p><p class="text-sm text-amber-200 font-bold mt-1">${envio.tempoGastoSegundos ? formatarTempoMs(envio.tempoGastoSegundos * 1000) : "—"}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Status correção</p><p class="text-sm ${resumo.classe} font-bold mt-1">${textoSeguro(resumo.status)}</p></div></section>`;
+    const geral = envio.texto ? `<section class="rounded-2xl border border-gray-700 bg-gray-800 p-4 mb-5"><h3 class="text-xs font-black text-gray-300 uppercase mb-2">Observações gerais / rascunho do aluno</h3><p class="text-sm text-gray-200 whitespace-pre-wrap">${textoSeguro(envio.texto)}</p></section>` : "";
+    const discHTML = questoesDisc.length ? `<section class="space-y-4"><h3 class="text-sm font-black text-purple-200 uppercase">Correção manual por questão</h3>${questoesDisc.map(q => { const r = respostasDisc.get(Number(q.numero)); const c = correcoes.get(Number(q.numero)) || {}; return `<article class="rounded-2xl border border-purple-900/40 bg-purple-950/10 p-4 space-y-3"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div class="flex-1"><h4 class="text-base font-black text-white">${textoSeguro(q.titulo)}</h4>${q.enunciado ? `<p class="text-sm text-gray-400 whitespace-pre-wrap mt-2">${textoSeguro(q.enunciado)}</p>` : ""}${renderArquivosQuestaoInline(q.arquivos)}</div><div class="w-full lg:w-56 rounded-xl bg-gray-950 border border-gray-700 p-3"><label class="block text-[10px] text-gray-500 uppercase font-bold mb-1">Nota da questão (0 a 10)</label><input data-q="${q.numero}" class="simCorrNota w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-white" type="number" min="0" max="10" step="0.1" value="${c.nota ?? ""}" placeholder="Ex: 8.5"></div></div><div><h5 class="text-xs font-bold text-gray-400 uppercase mb-2">Resposta do aluno</h5>${renderRespostaDissertativaCorrecao(r)}</div><div><label class="block text-xs font-bold text-gray-400 uppercase mb-2">Comentário do corretor para esta questão</label><textarea data-q="${q.numero}" class="simCorrComentario w-full min-h-[120px] p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100 resize-y" placeholder="Escreva observações, apontamentos de correção, erros e acertos...">${textoSeguro(c.comentario || "")}</textarea></div></article>`; }).join("")}</section>` : `<section class="rounded-2xl border border-gray-700 bg-gray-800 p-6 text-gray-500 text-sm">Este simulado não possui questões dissertativas configuradas para correção manual.</section>`;
+    if (box) box.innerHTML = `${dadosAluno}${renderObjetivasCorrecao(sim, envio)}<div class="h-5"></div>${geral}${discHTML}`;
+    if (btn) btn.onclick = () => salvarCorrecaoManualSimulado(sim.id, envio.id);
+    ov.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+
+async function salvarCorrecaoManualSimulado(simuladoId, envioId) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+    if (!sim) return alert("Simulado não encontrado.");
+    const envio = enviosDoSimulado(sim).find(e => String(e.id) === String(envioId));
+    if (!envio) return alert("Envio não encontrado.");
+    const comentarios = new Map(Array.from(document.querySelectorAll("#simuladoCorrecaoOverlay .simCorrComentario[data-q]")).map(el => [Number(el.dataset.q), el.value.trim()]));
+    const correcaoQuestoes = Array.from(document.querySelectorAll("#simuladoCorrecaoOverlay .simCorrNota[data-q]")).map(el => {
+        const numero = Number(el.dataset.q);
+        const bruto = String(el.value || "").replace(",", ".").trim();
+        const nota = bruto === "" ? "" : Math.max(0, Math.min(10, Number(bruto)));
+        return { numero, nota, comentario: comentarios.get(numero) || "", corrigidoPor: usuarioLogado?.nome || "", corrigidoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", corrigidoEm: Date.now() };
+    });
+    const validas = correcaoQuestoes.filter(c => c.nota !== "" && !Number.isNaN(Number(c.nota)));
+    const soma = validas.reduce((acc, c) => acc + Number(c.nota || 0), 0);
+    const max = Math.max(0, correcaoQuestoes.length * 10);
+    const percentualManual = max ? Math.round((soma / max) * 1000) / 10 : null;
+    const statusCorrecao = validas.length >= correcaoQuestoes.length && correcaoQuestoes.length ? "corrigido" : (validas.length ? "parcial" : "pendente");
+    const atualizado = { ...envio, correcaoQuestoes, notaManual: soma, notaManualMaxima: max, percentualManual, statusCorrecao, corrigidoEm: Date.now(), corrigidoPor: usuarioLogado?.nome || "" };
+    await salvarEnvioSimuladoFirestore(atualizado);
+    alert("Correção salva com sucesso.");
+    abrirPainelCorrecaoSimulado(simuladoId, envioId);
+    renderizarRankingSimulado(false);
+    renderizarSimulados();
+}
+
+function renderizarRankingSimulado(mostrarVazio = true) {
+    const box = document.getElementById("rankingSimuladoResumo");
+    const sel = document.getElementById("selectRankingSimulado");
+    if (!box || !sel || !podeGerenciarSimulados()) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(sel.value));
+    if (!sim) {
+        box.innerHTML = mostrarVazio ? `<p class="text-xs text-gray-500">Selecione um simulado para ver respostas, presença, tempo de prova e correção.</p>` : "";
+        return;
+    }
+    const envios = enviosDoSimulado(sim).sort((a, b) => Number(a.enviadoEm || 0) - Number(b.enviadoEm || 0));
+    const presentes = envios.filter(e => e.status === "encerrado" || e.iniciadoEm || e.enviadoEm).length;
+    const precisaManual = simuladoPrecisaCorrecaoManual(sim);
+    const corrigidos = envios.filter(e => resumoCorrecaoManual(e, sim).status.startsWith("Corrigido")).length;
+    const tempos = envios.map(e => Number(e.tempoGastoSegundos || 0)).filter(Boolean);
+    const tempoMedio = tempos.length ? Math.round(tempos.reduce((a,b)=>a+b,0)/tempos.length) : 0;
+    box.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4"><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Envios</p><h4 class="text-2xl font-black text-white">${envios.length}</h4></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Presenças</p><h4 class="text-2xl font-black text-emerald-300">${presentes}</h4></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo médio</p><h4 class="text-2xl font-black text-amber-200">${tempoMedio ? formatarTempoMs(tempoMedio * 1000) : "—"}</h4></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Correção manual</p><h4 class="text-lg font-black ${precisaManual ? "text-purple-200" : "text-gray-400"}">${precisaManual ? `${corrigidos}/${envios.length}` : "Não exige"}</h4></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Questões</p><h4 class="text-lg font-black text-white">${numeroQuestoesObjetivasSimulado(sim)} obj. · ${numeroQuestoesDissertativasSimulado(sim)} disc.</h4></div></div><div class="mb-3 flex flex-wrap gap-2"><button onclick="exportarRankingSimuladoCSV()" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-file-csv mr-1"></i>Exportar presença/respostas</button></div><div class="overflow-x-auto rounded-2xl border border-gray-700"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-3 text-left">Aluno/visitante</th><th class="p-3 text-left">Escola</th><th class="p-3 text-left">Cidade</th><th class="p-3 text-left">Presença</th><th class="p-3 text-left">Tempo</th><th class="p-3 text-left">Objetivas</th><th class="p-3 text-left">Correção manual</th><th class="p-3 text-left">Nota final</th><th class="p-3 text-left">Ações</th></tr></thead><tbody>${envios.map(e => { const manual = resumoCorrecaoManual(e, sim); const nf = notaFinalSimulado(e, sim); return `<tr class="border-t border-gray-800 align-top"><td class="p-3 text-gray-200 font-bold">${textoSeguro(e.alunoNome || e.usuarioNome || e.nome || "—")}<div class="text-[10px] text-gray-500 font-normal mt-1">${textoSeguro([e.email, e.whatsapp].filter(Boolean).join(" · "))}</div></td><td class="p-3 text-gray-400">${textoSeguro(e.escolaNome || e.escolaOrigem || "—")}</td><td class="p-3 text-gray-400">${textoSeguro(e.cidade || "—")}</td><td class="p-3 text-emerald-300 font-bold">${textoPresencaSimulado(e)}<div class="text-[10px] text-gray-500 font-normal mt-1">${e.encerradoEm ? new Date(e.encerradoEm).toLocaleString("pt-BR") : "—"}</div></td><td class="p-3 text-amber-200 font-bold">${e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "—"}</td><td class="p-3 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "—"}</td><td class="p-3 ${manual.classe} font-bold">${textoSeguro(manual.status)}</td><td class="p-3 ${classeDesempenhoSimulado(nf)} font-black">${nf === null || nf === undefined ? "—" : `${nf}%`}</td><td class="p-3"><button onclick="abrirPainelCorrecaoSimulado('${sim.id}','${e.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold"><i class="fa-solid fa-pen-to-square mr-1"></i>Ver / corrigir</button></td></tr>`; }).join("") || `<tr><td colspan="9" class="p-6 text-center text-gray-500">Nenhum envio ainda.</td></tr>`}</tbody></table></div>`;
+}
+
+function exportarRankingSimuladoCSV() {
+    const sel = document.getElementById("selectRankingSimulado");
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(sel?.value));
+    if (!sim) return alert("Selecione um simulado para exportar.");
+    const envios = enviosDoSimulado(sim);
+    const linhas = [["Aluno/Visitante", "Escola", "Cidade", "Email", "WhatsApp", "Presença", "Início", "Envio", "Tempo de prova", "Acertos objetivas", "Total objetivas", "Percentual objetivas", "Status correção", "Nota manual", "Nota manual máxima", "Percentual manual", "Observações gerais", "Respostas dissertativas"]];
+    envios.forEach(e => {
+        const manual = resumoCorrecaoManual(e, sim);
+        const respostas = (Array.isArray(e.respostasDissertativas) ? e.respostasDissertativas : []).map(r => `Q${r.numero}: ${r.texto || ""} ${r.arquivoUrl ? "[anexo] " + r.arquivoUrl : ""}`).join(" | ");
+        linhas.push([e.alunoNome || e.usuarioNome || e.nome || "", e.escolaNome || e.escolaOrigem || "", e.cidade || "", e.email || "", e.whatsapp || "", textoPresencaSimulado(e), e.iniciadoEm ? new Date(e.iniciadoEm).toLocaleString("pt-BR") : "", e.encerradoEm ? new Date(e.encerradoEm).toLocaleString("pt-BR") : "", e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "", e.acertos ?? "", e.totalObjetivas ?? "", e.percentual ?? "", manual.status, e.notaManual ?? "", e.notaManualMaxima ?? "", e.percentualManual ?? "", e.texto || "", respostas]);
+    });
+    const csv = linhas.map(l => l.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `presenca_respostas_${(sim.titulo || "simulado").replace(/[^a-z0-9]+/gi,"_")}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
