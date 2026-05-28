@@ -9114,3 +9114,133 @@ async function enviarSimuladoPublico(simuladoId, ano) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => { popularTaxonomiaQuestoes(); atualizarDistribuicaoGeradorSimulado(); abrirSimuladoPublico(); }, 1200);
 });
+
+// ==================== EXPORTAÇÕES EXCEL OPERACIONAIS (RESULTADOS / CALENDÁRIO / OLIMPÍADAS) ====================
+function nivelPodeExportarExcelOperacional() {
+    return ["ADM", "Staff", "Gestor", "Escola"].includes(usuarioLogado?.nivel);
+}
+
+function bloquearExportacaoExcelSeNecessario() {
+    if (nivelPodeExportarExcelOperacional()) return false;
+    alert("Exportação em Excel disponível apenas para ADM, Staff, Gestor e Escola.");
+    return true;
+}
+
+function nomeArquivoSeguro(nome) {
+    return String(nome || "relatorio")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase();
+}
+
+function exportarLinhasParaExcel(nomeArquivo, nomeAba, colunas, linhas) {
+    if (bloquearExportacaoExcelSeNecessario()) return;
+    if (typeof XLSX === "undefined") {
+        alert("Biblioteca XLSX não carregada. Atualize a página e tente novamente.");
+        return;
+    }
+    const dados = [colunas.map(c => c.titulo)];
+    linhas.forEach(item => dados.push(colunas.map(c => {
+        const valor = typeof c.valor === "function" ? c.valor(item) : item[c.valor];
+        if (Array.isArray(valor)) return valor.join(", ");
+        return valor ?? "";
+    })));
+
+    const ws = XLSX.utils.aoa_to_sheet(dados);
+    ws["!cols"] = colunas.map(c => ({ wch: c.largura || Math.max(12, String(c.titulo).length + 4) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, nomeAba.substring(0, 31));
+
+    const data = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `${nomeArquivoSeguro(nomeArquivo)}_${anoDadosAtivo || "ano"}_${data}.xlsx`);
+}
+
+function resultadosFiltradosAtuaisParaExportacao() {
+    const nFiltro = document.getElementById("filterResultadoNome")?.value?.trim().toLowerCase() || "";
+    const cFiltro = document.getElementById("filterResultadoCidade")?.value || "TODOS";
+    const eFiltro = document.getElementById("filterResultadoEscola")?.value || "TODOS";
+    const pFiltro = document.getElementById("filterResultadoPremio")?.value || "TODOS";
+    return (dadosTrabalho || []).filter(r => {
+        const porMuni = resultadoDentroDoEscopoResultadosUsuario(r);
+        const porNome = !nFiltro || normalizarTexto(r.aluno).includes(nFiltro);
+        const porCidade = cFiltro === "TODOS" || normalizarTexto(r.municipio) === normalizarTexto(cFiltro);
+        const porEscola = eFiltro === "TODOS" || normalizarTexto(r.escola) === normalizarTexto(eFiltro);
+        const porPremio = pFiltro === "TODOS" || normalizarTexto(r.premio) === normalizarTexto(pFiltro);
+        return porMuni && porNome && porCidade && porEscola && porPremio;
+    });
+}
+
+function exportarResultadosFiltradosExcel() {
+    const linhas = resultadosFiltradosAtuaisParaExportacao();
+    if (!linhas.length) return alert("Não há resultados exibidos para exportar.");
+    exportarLinhasParaExcel("resultados_filtrados", "Resultados", [
+        { titulo: "Aluno", valor: r => r.aluno, largura: 28 },
+        { titulo: "CPF", valor: r => r.alunoCpf || "", largura: 16 },
+        { titulo: "Escola", valor: r => r.escola, largura: 28 },
+        { titulo: "Cidade", valor: r => r.municipio, largura: 22 },
+        { titulo: "Série", valor: r => r.serie || "", largura: 15 },
+        { titulo: "Olimpíada", valor: r => r.olimpiada, largura: 34 },
+        { titulo: "Prêmio", valor: r => r.premio, largura: 16 },
+        { titulo: "Observação", valor: r => r.observacao || "", largura: 45 },
+        { titulo: "Certificado", valor: r => r.certificadoUrl || "", largura: 45 }
+    ], linhas);
+}
+
+function cronogramaFiltradoAtualParaExportacao() {
+    const cronograma = getStorage("app_cronograma");
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
+    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
+    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
+    return ordenarCronogramaPorModo(cronograma.filter(c => {
+        const info = normalizarEtapaCronograma(c.etapa);
+        const porGrupo = filtroGrupo === "TODOS" ||
+            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
+        const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
+        const porMes = cronogramaEventoNoMes(c, filtroMes);
+        return porGrupo && porEtapa && porOlimpiada && porMes;
+    }));
+}
+
+function exportarCalendarioFiltradoExcel() {
+    const olimpiadas = getStorage("app_olimpiadas");
+    const linhas = cronogramaFiltradoAtualParaExportacao().map(c => {
+        const oli = olimpiadas.find(o => String(o.id) === String(c.olimpiadaId));
+        const etapaInfo = normalizarEtapaCronograma(c.etapa);
+        const temporal = classificarTemporalCronograma(c);
+        return { ...c, olimpiadaNome: oli?.nome || "Desconhecida", etapaNome: etapaInfo.etapa, etapaGrupoNome: etapaInfo.etapaGrupoNome || "", periodo: formatarPeriodoCronograma(c), statusTemporal: temporal.label };
+    });
+    if (!linhas.length) return alert("Não há eventos exibidos para exportar.");
+    exportarLinhasParaExcel("calendario_olimpico_filtrado", "Calendário", [
+        { titulo: "Olimpíada", valor: r => r.olimpiadaNome, largura: 36 },
+        { titulo: "Etapa", valor: r => r.etapaNome, largura: 30 },
+        { titulo: "Grupo da etapa", valor: r => r.etapaGrupoNome, largura: 34 },
+        { titulo: "Período", valor: r => r.periodo, largura: 22 },
+        { titulo: "Status temporal", valor: r => r.statusTemporal, largura: 25 },
+        { titulo: "Séries/Público", valor: r => r.segmento || "", largura: 24 },
+        { titulo: "Diretriz operacional", valor: r => r.acao || "", largura: 55 }
+    ], linhas);
+}
+
+function exportarOlimpiadasExibidasExcel() {
+    const linhas = getStorage("app_olimpiadas");
+    if (!linhas.length) return alert("Não há olimpíadas exibidas para exportar.");
+    exportarLinhasParaExcel("olimpiadas_exibidas", "Olimpíadas", [
+        { titulo: "ID", valor: r => r.id, largura: 12 },
+        { titulo: "Nome", valor: r => r.nome, largura: 42 },
+        { titulo: "Sigla / Frente", valor: r => r.categoria || r.sigla || "", largura: 18 },
+        { titulo: "Séries", valor: r => r.series || r.seriesAtendidas || "", largura: 34 },
+        { titulo: "Ano referência", valor: r => r.anoReferencia || "", largura: 18 },
+        { titulo: "Área(s)", valor: r => r.areas || r.area || "", largura: 30 },
+        { titulo: "Abrangência", valor: r => r.abrangencia || "", largura: 22 },
+        { titulo: "Status", valor: r => r.status || "", largura: 18 },
+        { titulo: "Site", valor: r => r.siteOficial || "", largura: 38 },
+        { titulo: "Instagram", valor: r => r.instagramOficial || "", largura: 28 }
+    ], linhas);
+}
+
+window.exportarResultadosFiltradosExcel = exportarResultadosFiltradosExcel;
+window.exportarCalendarioFiltradoExcel = exportarCalendarioFiltradoExcel;
+window.exportarOlimpiadasExibidasExcel = exportarOlimpiadasExibidasExcel;
