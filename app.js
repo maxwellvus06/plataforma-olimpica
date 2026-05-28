@@ -11898,3 +11898,333 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         }
     };
 })();
+
+// ============================================================================
+// FIX SIMULADOS — HARDCORE REAL, DISSERTATIVAS NO LINK PÚBLICO E FILTROS
+// ============================================================================
+(function(){
+  const TAG = "simulados-hardcore-publico-filtros-fix-v1";
+
+  function simAviso(titulo, msg, tipo = "aviso") {
+    if (typeof avisarSimuladoInterno === "function") return avisarSimuladoInterno(titulo, msg, tipo);
+    if (typeof mostrarModalAvisoPlataforma === "function") return mostrarModalAvisoPlataforma(titulo, msg, tipo);
+    alert(`${titulo}\n\n${msg}`);
+    return Promise.resolve(true);
+  }
+
+  function simConfirmar(titulo, msg, detalhes = "") {
+    if (typeof modalInternoSimulado === "function") {
+      return modalInternoSimulado({
+        titulo,
+        texto: msg,
+        tipo: "pergunta",
+        detalhes,
+        botoes: [
+          { texto: "Voltar", valor: false, classe: "bg-gray-700 hover:bg-gray-600 text-gray-100" },
+          { texto: "Concluir mesmo assim", valor: true, classe: "bg-emerald-600 hover:bg-emerald-500 text-white" }
+        ]
+      });
+    }
+    return Promise.resolve(confirm(`${titulo}\n\n${msg}`));
+  }
+
+  function simPorId(id) {
+    return (getStorage("app_simulados", []) || []).find(s => String(s.id) === String(id));
+  }
+
+  function hardcoreAtivoNoFormulario() {
+    const chk = document.getElementById("simHardcore");
+    return !!chk?.checked;
+  }
+
+  function aplicarHardcoreNoObjeto(sim, valor) {
+    sim.hardcore = !!valor;
+    sim.modoHardcore = !!valor;
+    sim.telaCheiaObrigatoria = !!valor;
+    return sim;
+  }
+
+  // Corrige a gravação do Hardcore. A versão anterior lia o checkbox depois do reset do form.
+  const __salvarNovoSimulado_preHardcoreReal = typeof salvarNovoSimulado === "function" ? salvarNovoSimulado : null;
+  if (__salvarNovoSimulado_preHardcoreReal) {
+    salvarNovoSimulado = async function(event) {
+      const valorHardcore = hardcoreAtivoNoFormulario();
+      const editId = document.getElementById("simEditId")?.value || "";
+      const antes = (getStorage("app_simulados", []) || []).map(s => String(s.id));
+      const retorno = await __salvarNovoSimulado_preHardcoreReal(event);
+      try {
+        const lista = getStorage("app_simulados", []) || [];
+        let alvo = editId ? lista.find(s => String(s.id) === String(editId)) : null;
+        if (!alvo) alvo = [...lista].reverse().find(s => !antes.includes(String(s.id)));
+        if (!alvo) alvo = [...lista].sort((a,b)=>(Number(b.atualizadoEm||b.criadoEm||0)-Number(a.atualizadoEm||a.criadoEm||0)))[0];
+        if (alvo) {
+          aplicarHardcoreNoObjeto(alvo, valorHardcore);
+          await setStorage("app_simulados", lista);
+          if (typeof renderizarSimulados === "function") renderizarSimulados();
+          if (typeof atualizarSelectRankingSimulados === "function") atualizarSelectRankingSimulados();
+        }
+      } catch(e) { console.warn(TAG, "falha ao salvar hardcore", e); }
+      return retorno;
+    };
+  }
+
+  // Garante checkbox marcado ao editar.
+  const __prepararEdicaoSimulado_preHardcoreReal = typeof prepararEdicaoSimulado === "function" ? prepararEdicaoSimulado : null;
+  if (__prepararEdicaoSimulado_preHardcoreReal) {
+    prepararEdicaoSimulado = function(id) {
+      const r = __prepararEdicaoSimulado_preHardcoreReal(id);
+      try {
+        if (typeof garantirCampoHardcoreSimulado === "function") garantirCampoHardcoreSimulado();
+        const sim = simPorId(id);
+        const chk = document.getElementById("simHardcore");
+        if (chk && sim) chk.checked = !!(sim.hardcore || sim.modoHardcore || sim.telaCheiaObrigatoria);
+      } catch(e) { console.warn(TAG, e); }
+      return r;
+    };
+  }
+
+  // -------------------------- Filtros avançados ---------------------------
+  function garantirFiltrosSimuladosAvancados() {
+    const busca = document.getElementById("filtroSimBusca");
+    if (!busca || document.getElementById("filtroSimJanela")) return;
+    const container = busca.closest(".grid") || busca.parentElement?.parentElement;
+    if (!container) return;
+    const bloco = document.createElement("div");
+    bloco.className = "md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3";
+    bloco.innerHTML = `
+      <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Janela</label><select id="filtroSimJanela" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="ABERTO">Abertos agora</option><option value="FUTURO">Ainda não abriu</option><option value="ENCERRADO">Encerrados</option></select></div>
+      <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Envios</label><select id="filtroSimEnvios" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="COM_ENVIOS">Com envios</option><option value="SEM_ENVIOS">Sem envios</option></select></div>
+      <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Acesso</label><select id="filtroSimPublico" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="PUBLICO">Link público</option><option value="INTERNO">Interno</option></select></div>
+      <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Hardcore</label><select id="filtroSimHardcore" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="HARDCORE">Hardcore</option><option value="NORMAL">Normal</option></select></div>
+      <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Correção</label><select id="filtroSimCorrecao" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="AUTOMATICA">Automática</option><option value="MANUAL">Manual</option><option value="PENDENTE">Manual pendente</option><option value="CORRIGIDO">Manual corrigido</option></select></div>
+      <div class="md:col-span-3 xl:col-span-5 flex justify-end"><button type="button" onclick="limparFiltrosSimuladosAvancados()" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-eraser mr-1"></i>Limpar filtros</button></div>`;
+    container.appendChild(bloco);
+  }
+
+  window.limparFiltrosSimuladosAvancados = function limparFiltrosSimuladosAvancados() {
+    ["filtroSimDisciplina","filtroSimNivel","filtroSimFormato","filtroSimStatus","filtroSimJanela","filtroSimEnvios","filtroSimPublico","filtroSimHardcore","filtroSimCorrecao"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "TODOS";
+    });
+    const busca = document.getElementById("filtroSimBusca");
+    if (busca) busca.value = "";
+    renderizarSimulados();
+  };
+
+  function passaFiltrosAvancadosSimulado(sim) {
+    const janela = document.getElementById("filtroSimJanela")?.value || "TODOS";
+    const envios = document.getElementById("filtroSimEnvios")?.value || "TODOS";
+    const publico = document.getElementById("filtroSimPublico")?.value || "TODOS";
+    const hardcore = document.getElementById("filtroSimHardcore")?.value || "TODOS";
+    const correcao = document.getElementById("filtroSimCorrecao")?.value || "TODOS";
+
+    if (janela !== "TODOS") {
+      const aberto = !simuladoAindaNaoAbriu(sim) && !simuladoPrazoEncerrado(sim);
+      if (janela === "ABERTO" && !aberto) return false;
+      if (janela === "FUTURO" && !simuladoAindaNaoAbriu(sim)) return false;
+      if (janela === "ENCERRADO" && !simuladoPrazoEncerrado(sim)) return false;
+    }
+    const totalEnvios = typeof enviosDoSimulado === "function" ? enviosDoSimulado(sim).length : 0;
+    if (envios === "COM_ENVIOS" && totalEnvios <= 0) return false;
+    if (envios === "SEM_ENVIOS" && totalEnvios > 0) return false;
+    if (publico === "PUBLICO" && !sim.publico) return false;
+    if (publico === "INTERNO" && sim.publico) return false;
+    const h = !!(sim.hardcore || sim.modoHardcore || sim.telaCheiaObrigatoria);
+    if (hardcore === "HARDCORE" && !h) return false;
+    if (hardcore === "NORMAL" && h) return false;
+    const manual = typeof simuladoPrecisaCorrecaoManual === "function" && simuladoPrecisaCorrecaoManual(sim);
+    if (correcao === "AUTOMATICA" && manual) return false;
+    if (correcao === "MANUAL" && !manual) return false;
+    if (correcao === "PENDENTE") {
+      if (!manual) return false;
+      const algumPendente = (typeof enviosDoSimulado === "function" ? enviosDoSimulado(sim) : []).some(e => String(e.statusCorrecao || "").toLowerCase() !== "corrigido");
+      if (!algumPendente) return false;
+    }
+    if (correcao === "CORRIGIDO") {
+      if (!manual) return false;
+      const lista = typeof enviosDoSimulado === "function" ? enviosDoSimulado(sim) : [];
+      if (!lista.length || !lista.every(e => String(e.statusCorrecao || "").toLowerCase() === "corrigido")) return false;
+    }
+    return true;
+  }
+
+  const __simuladoDestinadoAoUsuario_preFiltros = typeof simuladoDestinadoAoUsuario === "function" ? simuladoDestinadoAoUsuario : null;
+  if (__simuladoDestinadoAoUsuario_preFiltros) {
+    simuladoDestinadoAoUsuario = function(sim) {
+      return __simuladoDestinadoAoUsuario_preFiltros(sim) && passaFiltrosAvancadosSimulado(sim);
+    };
+  }
+
+  const __popularFiltrosSimulados_preFiltros = typeof popularFiltrosSimulados === "function" ? popularFiltrosSimulados : null;
+  if (__popularFiltrosSimulados_preFiltros) {
+    popularFiltrosSimulados = function() {
+      const r = __popularFiltrosSimulados_preFiltros();
+      garantirFiltrosSimuladosAvancados();
+      if (typeof garantirCampoHardcoreSimulado === "function") garantirCampoHardcoreSimulado();
+      return r;
+    };
+  }
+
+  // -------------------- Público: objetiva só para objetivas ----------------
+  window.renderGradeRespostaPublica = function renderGradeRespostaPublicaFix(sim) {
+    const total = typeof numeroQuestoesObjetivasSimulado === "function" ? Number(numeroQuestoesObjetivasSimulado(sim) || 0) : Number(sim?.gabaritoObjetivo?.length || 0);
+    if (!total) return `<p class="text-xs text-gray-500">Este simulado não possui cartão objetivo.</p>`;
+    return `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${Array.from({length: total},(_,i)=>`<div class="rounded-xl bg-gray-950 border border-gray-700 p-3"><p class="text-[10px] text-gray-500 font-bold uppercase mb-2">Questão ${i+1}</p><div class="flex gap-1">${["A","B","C","D","E"].map(a=>`<label class="flex-1 text-center text-xs bg-gray-900 rounded-lg py-2 cursor-pointer border border-gray-800"><input type="radio" name="pub_q_${i+1}" value="${a}" class="hidden peer"><span class="peer-checked:text-emerald-300 peer-checked:font-black">${a}</span></label>`).join("")}</div></div>`).join("")}</div>`;
+  };
+
+  function renderCamposDissertativosPublico(sim) {
+    const qtd = typeof numeroQuestoesDissertativasSimulado === "function" ? Number(numeroQuestoesDissertativasSimulado(sim) || 0) : 0;
+    if (!qtd) return "";
+    let itens = [];
+    if (typeof simuladoEhManual === "function" && simuladoEhManual(sim)) {
+      itens = (Array.isArray(sim.questoesBanco) ? sim.questoesBanco : [])
+        .filter(q => /dissertativa|mista/i.test(String(q.tipo || "")))
+        .map((q, idx) => ({ numero: Number(q.numero || idx + 1), titulo: `Questão ${q.numero || idx + 1}` }));
+    } else {
+      itens = Array.from({length:qtd}, (_,i)=>({ numero: i+1, titulo: `Questão dissertativa ${i+1}` }));
+    }
+    return `<section class="mt-4 rounded-2xl border border-purple-900/40 bg-purple-950/20 p-4"><h3 class="text-sm font-black text-purple-100 uppercase mb-3">Respostas dissertativas</h3><div class="space-y-3">${itens.map(item=>`<div class="rounded-xl border border-gray-700 bg-gray-950 p-3"><label class="block text-xs font-black text-gray-300 uppercase mb-2">${textoSeguro(item.titulo)}</label><textarea data-q="${item.numero}" class="pubDiscTexto w-full min-h-[150px] p-3 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-100 focus:outline-none resize-y" placeholder="Digite a resposta desta questão..."></textarea></div>`).join("")}</div></section>`;
+  }
+
+  function lerRespostasDissertativasPublico() {
+    return Array.from(document.querySelectorAll("#simuladoPublicoConteudo .pubDiscTexto[data-q]")).map(t => ({
+      numero: Number(t.dataset.q),
+      texto: t.value.trim()
+    }));
+  }
+
+  function pendenciasPublicas(sim) {
+    const faltas = [];
+    const totalObj = typeof numeroQuestoesObjetivasSimulado === "function" ? Number(numeroQuestoesObjetivasSimulado(sim) || 0) : 0;
+    const totalDisc = typeof numeroQuestoesDissertativasSimulado === "function" ? Number(numeroQuestoesDissertativasSimulado(sim) || 0) : 0;
+    const respostasObj = [];
+    document.querySelectorAll('[name^="pub_q_"]:checked').forEach(inp => respostasObj.push({ numero: Number(inp.name.replace("pub_q_", "")), resposta: inp.value }));
+    const respostasDisc = lerRespostasDissertativasPublico();
+    const discRespondidas = respostasDisc.filter(r => r.texto).length;
+    if (totalObj && respostasObj.length < totalObj) faltas.push(`${totalObj - respostasObj.length} objetiva(s)`);
+    if (totalDisc && discRespondidas < totalDisc) faltas.push(`${totalDisc - discRespondidas} dissertativa(s)`);
+    return { faltas, respostasObj, respostasDisc };
+  }
+
+  function renderizarTelaEntradaPublica(sim, ano) {
+    const box = document.getElementById("simuladoPublicoConteudo");
+    if (!box) return;
+    const hardcore = !!(typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim));
+    const tituloModo = hardcore ? "Modo Hardcore ativado" : "Modo normal";
+    const textoModo = hardcore
+      ? "A prova tentará entrar em tela cheia. Se sair da tela cheia, trocar de aba ou minimizar, ela será encerrada e as respostas já marcadas serão salvas."
+      : "A prova terá cronômetro e ambiente próprio, mas não encerra automaticamente por troca de aba ou saída da tela cheia.";
+    const botao = hardcore ? "Iniciar simulado em tela cheia" : "Iniciar simulado";
+    box.innerHTML = `<div class="min-h-[90vh] flex items-center justify-center p-4"><div class="max-w-5xl w-full bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl space-y-5"><div><p class="text-xs text-purple-300 font-black uppercase tracking-wider">Simulado público</p><h1 class="text-2xl font-black text-white mt-1">${textoSeguro(sim.titulo)}</h1><p class="text-sm text-gray-400 mt-2">Preencha seus dados. A prova só abrirá depois de clicar em <b>${textoSeguro(botao)}</b>.</p></div><div class="rounded-2xl border ${hardcore ? 'border-red-800/50 bg-red-950/20 text-red-100' : 'border-blue-800/50 bg-blue-950/20 text-blue-100'} p-4 text-sm"><i class="fa-solid ${hardcore ? 'fa-lock' : 'fa-face-smile'} mr-2"></i><b>${tituloModo}:</b> ${textoModo}</div><div id="pubDados" class="grid grid-cols-1 md:grid-cols-5 gap-3"><input id="pubNome" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Nome completo" required><input id="pubEscola" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Escola de origem" required><input id="pubCidade" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Cidade" required><input id="pubEmail" type="email" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="E-mail" required><input id="pubWhatsapp" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="WhatsApp" required></div><button onclick="iniciarSimuladoPublicoTelaCheia('${textoSeguro(sim.id)}','${textoSeguro(ano)}')" class="w-full py-3 rounded-2xl ${hardcore ? 'bg-red-700 hover:bg-red-600' : 'bg-emerald-600 hover:bg-emerald-500'} text-white font-black uppercase"><i class="fa-solid ${hardcore ? 'fa-expand' : 'fa-play'} mr-2"></i>${botao}</button></div></div>`;
+  }
+
+  window.abrirSimuladoPublico = async function abrirSimuladoPublicoFixFinal() {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("simuladoPublico");
+    if (!id) return;
+    try {
+      const ano = params.get("ano") || String(new Date().getFullYear());
+      const sim = await carregarSimuladoPublicoPorId(id, ano);
+      document.getElementById("loginScreen")?.classList.add("hidden");
+      const ov = document.getElementById("simuladoPublicoOverlay");
+      if (!ov) return;
+      ov.classList.remove("hidden");
+      if (typeof simuladoPublicoJaFeitoNesteDispositivo === "function" && simuladoPublicoJaFeitoNesteDispositivo(id, ano)) {
+        renderizarBloqueioSimuladoPublico(sim);
+        return;
+      }
+      renderizarTelaEntradaPublica(sim, ano);
+    } catch(e) { await simAviso("Erro ao abrir simulado público", String(e.message || e), "erro"); }
+  };
+
+  window.renderizarProvaPublicaSimuladoSeguro = function renderizarProvaPublicaSimuladoSeguroFixFinal(sim, ano, dados) {
+    const box = document.getElementById("simuladoPublicoConteudo");
+    if (!box) return;
+    const embed = (typeof renderizarQuestoesDoSimuladoSeguro === "function" && renderizarQuestoesDoSimuladoSeguro(sim))
+      || (sim.arquivoUrl ? `<iframe src="${textoSeguro(sim.arquivoUrl)}#toolbar=0&navpanes=0" class="w-full h-[78vh] rounded-xl bg-black border border-gray-700"></iframe>` : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo anexado.</div>`);
+    const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual || { inicio: Date.now(), sim };
+    const hardcore = !!(typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim));
+    const textoModo = hardcore ? "Modo Hardcore ativo: sair da tela cheia, trocar de aba ou minimizar encerra a prova e salva o que estiver respondido." : "Modo normal: o cronômetro registra o tempo de prova. Finalize pelo botão quando terminar.";
+    box.innerHTML = `<div class="min-h-screen bg-gray-950 text-gray-100 p-4 space-y-4">
+      <input type="hidden" id="pubNome" value="${textoSeguro(dados.nome)}"><input type="hidden" id="pubEscola" value="${textoSeguro(dados.escolaOrigem)}"><input type="hidden" id="pubCidade" value="${textoSeguro(dados.cidade)}"><input type="hidden" id="pubEmail" value="${textoSeguro(dados.email)}"><input type="hidden" id="pubWhatsapp" value="${textoSeguro(dados.whatsapp)}">
+      <div class="sticky top-0 z-20 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 shadow-xl"><div><p class="text-[10px] text-purple-300 uppercase font-black tracking-wider">Simulado público em andamento</p><h1 class="text-xl font-black text-white">${textoSeguro(sim.titulo)}</h1><p class="text-xs text-gray-500 mt-1">Participante: ${textoSeguro(dados.nome)} · ${textoSeguro(dados.escolaOrigem)} · ${textoSeguro(dados.cidade)}</p></div><div class="flex flex-col sm:flex-row sm:items-center gap-2"><div class="px-4 py-2 rounded-xl bg-gray-950 border border-amber-800/50 text-sm font-black min-w-[260px] text-center"><div id="simPubTimer" class="text-amber-200">Carregando cronômetro...</div><div id="simPubTimerDetalhe" class="text-[10px] font-bold mt-1"></div></div><button id="btnEnviarSimuladoPublico" onclick="enviarSimuladoPublico('${textoSeguro(sim.id)}','${textoSeguro(ano)}',false,'finalizado_pelo_visitante')" class="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Finalizar e enviar</button></div></div>
+      <div class="rounded-2xl border ${hardcore ? 'border-red-800/50 bg-red-950/20 text-red-100' : 'border-blue-800/50 bg-blue-950/20 text-blue-100'} p-4 text-sm"><i class="fa-solid fa-stopwatch mr-2"></i><b>Cronômetro ativo:</b> ${textoSeguro(textoModo)}</div>
+      <div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2fr)_minmax(460px,0.9fr)] gap-5"><section class="bg-gray-900 border border-gray-700 rounded-2xl p-4">${embed}</section><aside class="space-y-4"><section class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><h3 class="text-sm font-bold text-white uppercase mb-3">Área de respostas</h3>${renderGradeRespostaPublica(sim)}${renderCamposDissertativosPublico(sim)}<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Observações gerais</label><textarea id="pubTexto" rows="8" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-gray-200" placeholder="Digite observações gerais, se necessário..."></textarea></section></aside></div></div>`;
+    if (typeof atualizarTimerSimuladoPublico === "function") atualizarTimerSimuladoPublico();
+  };
+
+  window.enviarSimuladoPublico = async function enviarSimuladoPublicoFixFinal(simuladoId, ano, automatico = false, motivo = "finalizado") {
+    if (simuladoPublicoEnvioEmAndamento) return;
+    if (typeof simuladoPublicoJaFeitoNesteDispositivo === "function" && simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+      const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+      renderizarBloqueioSimuladoPublico(sim);
+      return;
+    }
+    const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual;
+    const dados = sessao?.dados || (typeof lerDadosPublicosSimulado === "function" ? lerDadosPublicosSimulado() : {});
+    if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+      await simAviso("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.", "aviso");
+      return;
+    }
+    const sim = sessao?.sim || await carregarSimuladoPublicoPorId(simuladoId, ano);
+    const pend = pendenciasPublicas(sim);
+    if (!automatico && pend.faltas.length) {
+      const ok = await simConfirmar("Respostas pendentes", "Ainda existem questões sem resposta. Deseja concluir mesmo assim?", `<div class="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4"><p class="font-bold text-amber-200 mb-2">Pendências:</p><ul class="list-disc pl-5 space-y-1">${pend.faltas.map(f=>`<li>${textoSeguro(f)}</li>`).join("")}</ul></div>`);
+      if (!ok) return;
+    }
+    const btn = document.getElementById("btnEnviarSimuladoPublico");
+    try {
+      simuladoPublicoEnvioEmAndamento = true;
+      simuladoPublicoSaidaPermitida = true;
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+      if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([dados.nome, dados.escolaOrigem, dados.cidade, dados.email, dados.whatsapp, document.getElementById("pubTexto")?.value, ...pend.respostasDisc.map(r=>r.texto)], "envio público")) {
+        simuladoPublicoEnvioEmAndamento = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+        return;
+      }
+      const correcao = typeof corrigirRespostaObjetiva === "function" ? corrigirRespostaObjetiva(sim.gabaritoObjetivo, pend.respostasObj) : { acertos: 0, total: 0, respondidas: pend.respostasObj.length, percentual: 0 };
+      const dispositivoId = typeof obterDispositivoPublicoSimulado === "function" ? obterDispositivoPublicoSimulado() : `disp_${Date.now()}`;
+      const agora = Date.now();
+      const inicio = Number(sessao?.inicio || sessao?.iniciadoEm || agora);
+      const tempoGastoSegundos = Math.max(0, Math.round((agora - inicio) / 1000));
+      const doc = { id: `${simuladoId}_visitante_${agora}_${dispositivoId}`, simuladoId, simuladoTitulo: sim.titulo || "", publico: true, visitante: true, dispositivoId, alunoNome: dados.nome, nome: dados.nome, escolaOrigem: dados.escolaOrigem, escolaNome: dados.escolaOrigem, cidade: dados.cidade, email: dados.email, whatsapp: dados.whatsapp, respostasObjetivas: pend.respostasObj, respostasDissertativas: pend.respostasDisc.filter(r=>r.texto), texto: document.getElementById("pubTexto")?.value.trim() || "", acertos: correcao.acertos, totalObjetivas: correcao.total, respondidasObjetivas: correcao.respondidas, percentual: correcao.percentual, iniciadoEm: inicio, enviadoEm: agora, encerradoEm: agora, tempoGastoSegundos, tempoGastoTexto: (typeof formatarTempoMs === "function" ? formatarTempoMs(tempoGastoSegundos * 1000) : `${tempoGastoSegundos}s`), status: "encerrado", motivoEncerramento: motivo, automatico: !!automatico, statusCorrecao: typeof simuladoPrecisaCorrecaoManual === "function" && simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica" };
+      await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(doc.id).set(doc);
+      await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(doc.id).set(doc);
+      if (typeof marcarSimuladoPublicoFeitoNesteDispositivo === "function") marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano);
+      if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+      simuladoPublicoTimerInterval = null;
+      simuladoPublicoSessaoAtual = null;
+      window.simuladoPublicoSessaoAtual = null;
+      simuladoPublicoTelaCheiaAtiva = false;
+      if (typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim) && typeof sairTelaCheiaSimuladoSeguro === "function") await sairTelaCheiaSimuladoSeguro();
+      if (typeof renderizarPaginaAgradecimentoSimuladoPublico === "function") renderizarPaginaAgradecimentoSimuladoPublico(sim, automatico ? `O simulado foi encerrado automaticamente. Tempo registrado: ${doc.tempoGastoTexto}. As respostas marcadas foram salvas.` : `Suas respostas foram registradas. Tempo de prova registrado: ${doc.tempoGastoTexto}.`);
+      else await simAviso("Simulado enviado", `Obrigado pela participação. Tempo registrado: ${doc.tempoGastoTexto}.`, "sucesso");
+    } catch(e) {
+      console.error(e);
+      await simAviso("Erro ao enviar simulado público", String(e.message || e), "erro");
+      if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+    } finally {
+      simuladoPublicoEnvioEmAndamento = false;
+    }
+  };
+
+  // Acrescenta indicação visual de Hardcore após renderização.
+  const __renderizarSimulados_preBadges = typeof renderizarSimulados === "function" ? renderizarSimulados : null;
+  if (__renderizarSimulados_preBadges) {
+    renderizarSimulados = function() {
+      garantirFiltrosSimuladosAvancados();
+      const r = __renderizarSimulados_preBadges();
+      setTimeout(() => {
+        garantirFiltrosSimuladosAvancados();
+        try {
+          // Não mexe no layout dos cards; apenas garante que o campo Hardcore apareça no formulário.
+          if (typeof garantirCampoHardcoreSimulado === "function") garantirCampoHardcoreSimulado();
+        } catch(e) { console.warn(TAG, e); }
+      }, 50);
+      return r;
+    };
+  }
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { garantirFiltrosSimuladosAvancados(); if (typeof abrirSimuladoPublico === "function") abrirSimuladoPublico(); }, 900));
+  setTimeout(() => { garantirFiltrosSimuladosAvancados(); }, 1200);
+})();
