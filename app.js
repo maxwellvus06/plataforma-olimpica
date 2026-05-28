@@ -1069,36 +1069,6 @@ function initSeletorAnoDados() {
     atualizarRotuloAnoDados();
 }
 
-
-// ==================== FIRESTORE AUTH GUARD / DIAGNÓSTICO ====================
-function esperarAuthFirebase(timeoutMs = 8000) {
-    initFirebase();
-    return new Promise((resolve, reject) => {
-        if (!firebaseAuth) return reject(new Error('Firebase Auth não inicializado.'));
-        if (firebaseAuth.currentUser) return resolve(firebaseAuth.currentUser);
-        const timer = setTimeout(() => {
-            try { unsub && unsub(); } catch (_) {}
-            reject(new Error('Usuário ainda não autenticado no Firebase Auth. Saia e entre novamente.'));
-        }, timeoutMs);
-        const unsub = firebaseAuth.onAuthStateChanged((user) => {
-            if (!user) return;
-            clearTimeout(timer);
-            try { unsub && unsub(); } catch (_) {}
-            resolve(user);
-        }, (erro) => {
-            clearTimeout(timer);
-            try { unsub && unsub(); } catch (_) {}
-            reject(erro);
-        });
-    });
-}
-
-function mensagemFirestoreDetalhada(acao, chave, colecao, erro) {
-    const uid = firebaseAuth?.currentUser?.uid || 'SEM_AUTH_CURRENT_USER';
-    const email = firebaseAuth?.currentUser?.email || 'SEM_EMAIL_AUTH';
-    return `${acao} falhou no Firestore.\n\nChave: ${chave}\nColeção/caminho: ${colecao}\nUID Auth atual: ${uid}\nE-mail Auth atual: ${email}\nAno ativo: ${anoDadosAtivo}\n\nErro: ${erro?.message || erro}`;
-}
-
 function prepararListaParaFirestore(lista) {
     return normalizarListaFirebase(lista).map(item => {
         const copia = { ...(item || {}) };
@@ -1165,25 +1135,24 @@ async function apagarUsuarioFirestore(usuario) {
     if (ids.size) await batch.commit();
 }
 
-async function salvarChaveFirebase(chave, valor) {
+function salvarChaveFirebase(chave, valor) {
     initFirebase();
     if (!firebaseFirestore) {
         console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`);
         alert(`Firebase/Firestore não inicializou. ${chave} não foi salvo no banco.`);
-        throw new Error("Cloud Firestore não inicializado");
+        return Promise.reject(new Error("Cloud Firestore não inicializado"));
     }
     const colecao = getFirebaseCollectionName(chave);
-    try {
-        if (chave !== "app_usuarios") await esperarAuthFirebase();
-        const dados = await substituirColecaoFirestore(colecao, valor);
+    return substituirColecaoFirestore(colecao, valor).then((dados) => {
         setStorageLocal(chave, dados);
         console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}`);
-        return dados;
-    } catch (erro) {
+    }).catch(erro => {
         console.error(`${chave} NÃO foi salvo no Firestore na coleção ${colecao}.`, erro);
-        alert(mensagemFirestoreDetalhada(`${chave} não foi salvo`, chave, colecao, erro));
+        alert(`${chave} não foi salvo no Firestore. Verifique as Rules do Cloud Firestore.
+
+${erro.message || erro}`);
         throw erro;
-    }
+    });
 }
 
 async function carregarChaveFirebase(chave, fallback = []) {
@@ -1204,9 +1173,6 @@ async function carregarChaveFirebase(chave, fallback = []) {
     const colecao = getFirebaseCollectionName(chave);
 
     try {
-        // Garante que leituras de coleções protegidas só ocorram depois do Auth estar pronto.
-        // Isso evita "Missing or insufficient permissions" por leitura antes do Firebase Auth restaurar sessão.
-        if (chave !== "app_usuarios") await esperarAuthFirebase();
         const snap = await firebaseFirestore.collection(colecao).get();
         let remotos = [];
         snap.forEach(doc => {
@@ -1237,7 +1203,9 @@ async function carregarChaveFirebase(chave, fallback = []) {
         return getStorage(chave, []);
     } catch (erro) {
         console.error(`Erro de Firebase ao carregar ${chave} na coleção ${colecao}.`, erro);
-        alert(mensagemFirestoreDetalhada(`Erro ao carregar ${chave}`, chave, colecao, erro));
+        alert(`Erro de Firebase ao carregar ${chave}. Verifique as Rules do Cloud Firestore.
+
+${erro.message || erro}`);
         throw erro;
     }
 }
@@ -9122,205 +9090,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 1500);
   });
 })();
-
-// ==================== UX COMPACTA: PASTAS + VISUALIZADOR INTERNO ====================
-function htmlBadgePasta(texto, icon = "fa-folder", cor = "text-blue-300") {
-    return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-900 border border-gray-700 ${cor} text-[10px] font-black uppercase tracking-wider"><i class="fa-solid ${icon}"></i>${textoSeguro(texto || "Geral")}</span>`;
-}
-
-function criarAgrupamentoHierarquico(lista, campos) {
-    const raiz = new Map();
-    (lista || []).forEach(item => {
-        let no = raiz;
-        campos.forEach((campo, idx) => {
-            const valor = String(item[campo] || "Geral");
-            if (!no.has(valor)) no.set(valor, idx === campos.length - 1 ? [] : new Map());
-            no = no.get(valor);
-        });
-        if (Array.isArray(no)) no.push(item);
-    });
-    return raiz;
-}
-
-function abrirVisualizadorInterno(titulo, url, tipo = "arquivo") {
-    const modal = document.getElementById("modalVisualizadorInterno");
-    const corpo = document.getElementById("modalVisualizadorInternoCorpo");
-    const tituloEl = document.getElementById("modalVisualizadorInternoTitulo");
-    if (!modal || !corpo) {
-        window.open(url, "_blank");
-        return;
-    }
-    tituloEl.innerText = titulo || "Visualizador";
-    const seguro = textoSeguro(url || "");
-    const tipoNorm = String(tipo || "").toLowerCase();
-    let html = "";
-    const yt = converterUrlYoutube(url) || youtubeEmbedUrl(url);
-    if (yt) {
-        html = `<iframe src="${textoSeguro(yt)}" class="w-full h-[76vh] rounded-2xl bg-black border border-gray-700" allowfullscreen></iframe>`;
-    } else if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url) || tipoNorm.includes("image")) {
-        html = `<div class="w-full h-[76vh] flex items-center justify-center overflow-auto bg-gray-950 rounded-2xl border border-gray-700"><img src="${seguro}" class="max-w-full max-h-full object-contain" alt="${textoSeguro(titulo || "Imagem")}"></div>`;
-    } else if (/\.(mp4|webm|ogg)(\?|$)/i.test(url) || tipoNorm.includes("video")) {
-        html = `<video src="${seguro}" controls class="w-full max-h-[76vh] rounded-2xl bg-black border border-gray-700"></video>`;
-    } else if (/\.(mp3|wav|m4a|ogg)(\?|$)/i.test(url) || tipoNorm.includes("audio")) {
-        html = `<div class="p-6 rounded-2xl bg-gray-900 border border-gray-700"><audio src="${seguro}" controls class="w-full"></audio></div>`;
-    } else {
-        html = `<iframe src="${seguro}" class="w-full h-[76vh] rounded-2xl bg-white border border-gray-700"></iframe>
-        <p class="text-[11px] text-gray-500 mt-2">Se o arquivo não carregar dentro da plataforma, o serviço de origem pode bloquear incorporação. Use o botão abaixo.</p>
-        <button onclick="window.open('${seguro}', '_blank')" class="mt-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir em emergência</button>`;
-    }
-    corpo.innerHTML = html;
-    modal.classList.remove("hidden");
-    modal.classList.add("flex");
-}
-
-function fecharVisualizadorInterno() {
-    const modal = document.getElementById("modalVisualizadorInterno");
-    const corpo = document.getElementById("modalVisualizadorInternoCorpo");
-    if (corpo) corpo.innerHTML = "";
-    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
-}
-
-function renderizarConteudoMaterial(m) {
-    const url = m.tipo === "arquivo" ? (m.arquivoUrl || m.dados) : m.url;
-    if (!url) return "";
-    const label = m.tipo === "video" ? "Assistir dentro da plataforma" : m.tipo === "arquivo" ? "Abrir arquivo na plataforma" : "Abrir recurso na plataforma";
-    const icon = m.tipo === "video" ? "fa-circle-play" : m.tipo === "arquivo" ? "fa-file-lines" : "fa-link";
-    return `<button onclick="abrirVisualizadorInterno('${textoSeguro(m.titulo || "Material")}', '${textoSeguro(url)}', '${textoSeguro(m.mimeType || m.tipo || "arquivo")}')" class="w-full text-center py-2.5 bg-gray-900 rounded-xl text-blue-300 text-xs hover:bg-gray-700 transition my-2 font-bold"><i class="fa-solid ${icon} mr-2"></i>${label}</button>`;
-}
-
-function renderizarSolucaoMaterial(m) {
-    if (!m.solucaoUrl && !m.solucaoArquivoUrl) return "";
-    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? `<button onclick="abrirVisualizadorInterno('${textoSeguro((m.titulo || "Material") + " — Solução")}', '${textoSeguro(m.solucaoUrl)}', 'link')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Ver link</button>` : ""}${m.solucaoArquivoUrl ? `<button onclick="abrirVisualizadorInterno('${textoSeguro((m.titulo || "Material") + " — Arquivo de solução")}', '${textoSeguro(m.solucaoArquivoUrl)}', '${textoSeguro(m.solucaoMimeType || "arquivo")}')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-file-circle-check mr-1"></i>Ver arquivo</button>` : ""}</div></details>`;
-}
-
-async function renderizarPlataformaEnsino() {
-    const container = document.getElementById("gridMateriais");
-    if (!container) return;
-    container.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-4"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
-    let materiais = (await carregarMateriaisPlataforma()).map(normalizarMaterialPlataforma);
-    atualizarFiltrosPlataforma(materiais);
-    const filtroDisciplina = document.getElementById("filtroMatDisciplina")?.value || "TODOS";
-    const filtroNivel = document.getElementById("filtroMatNivel")?.value || "TODOS";
-    const filtroTipo = document.getElementById("filtroMatTipo")?.value || "TODOS";
-    const filtroStatus = document.getElementById("filtroMatStatus")?.value || "TODOS";
-    const busca = normalizarTexto(document.getElementById("filtroMatBusca")?.value || "");
-    materiais = materiais.filter(m => {
-        if (filtroDisciplina !== "TODOS" && m.disciplina !== filtroDisciplina) return false;
-        if (filtroNivel !== "TODOS" && m.nivel !== filtroNivel) return false;
-        if (filtroTipo !== "TODOS" && m.tipoMaterial !== filtroTipo) return false;
-        const feito = materialFeitoPorUsuario(m);
-        if (filtroStatus === "FEITOS" && !feito) return false;
-        if (filtroStatus === "NAO_FEITOS" && feito) return false;
-        if (busca && !normalizarTexto(`${m.titulo || ""} ${m.descricao || ""} ${m.disciplina || ""} ${m.nivel || ""} ${m.tipoMaterial || ""}`).includes(busca)) return false;
-        return true;
-    });
-    if (!materiais.length) {
-        container.innerHTML = `<div class="flex flex-col items-center justify-center py-12 text-center bg-gray-800 border border-gray-700 rounded-2xl"><i class="fa-solid fa-folder-open text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material encontrado.</p></div>`;
-        return;
-    }
-    const arvore = criarAgrupamentoHierarquico(materiais, ["nivel", "disciplina", "tipoMaterial"]);
-    container.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([nivel, mapaDisc]) => `
-        <details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden">
-            <summary class="cursor-pointer px-4 py-3 bg-gray-900/50 flex items-center justify-between"><span class="font-black text-white text-sm"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(nivel)}</span><span class="text-[10px] text-gray-500 uppercase font-bold">Nível</span></summary>
-            <div class="p-3 space-y-3">${Array.from(mapaDisc.entries()).map(([disciplina, mapaTipo]) => `
-                <details open class="rounded-xl bg-gray-900/35 border border-gray-700">
-                    <summary class="cursor-pointer px-3 py-2 flex items-center gap-2 text-sm font-bold text-gray-200"><i class="fa-solid fa-folder text-amber-400"></i>${textoSeguro(disciplina)}</summary>
-                    <div class="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${Array.from(mapaTipo.entries()).map(([tipo, itens]) => `
-                        <div class="rounded-2xl border border-gray-700 bg-gray-950/35 p-3">
-                            <div class="flex items-center justify-between gap-2 mb-2">${htmlBadgePasta(tipo, 'fa-folder', 'text-emerald-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} item(ns)</span></div>
-                            <div class="space-y-2">${itens.map(m => {
-                                const icon = iconeMaterialPlataforma(m);
-                                const edit = permissao("plataforma.podeGerenciar") ? `<button onclick="editarMaterialPlataforma && editarMaterialPlataforma('${m.id}')" class="text-blue-300 hover:text-blue-200" title="Editar"><i class="fa-solid fa-pen"></i></button>` : "";
-                                const del = permissao("plataforma.podeGerenciar") ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-300 hover:text-red-200" title="Apagar"><i class="fa-solid fa-trash"></i></button>` : "";
-                                return `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3 text-sm">
-                                    <div class="flex items-start justify-between gap-2"><div class="min-w-0"><p class="font-black text-white truncate"><i class="fa-solid ${icon.icone} ${icon.cor} mr-1"></i>${textoSeguro(m.titulo)}</p><p class="text-[10px] text-gray-500 mt-1">${textoSeguro(m.criadoPor || 'Sistema')} · ${formatarDataHora(m.criadoEm)}</p></div><div class="flex gap-2 text-xs">${edit}${del}</div></div>
-                                    ${m.descricao ? `<p class="text-xs text-gray-400 mt-2 line-clamp-2">${textoSeguro(m.descricao)}</p>` : ""}
-                                    <div class="mt-2 flex flex-wrap gap-2 items-center">
-                                        <label class="inline-flex items-center gap-1 px-2 py-1 rounded-lg ${materialFeitoPorUsuario(m) ? 'bg-emerald-500/10 text-emerald-300' : 'bg-gray-800 text-gray-400'} text-[10px] font-bold cursor-pointer"><input type="checkbox" ${materialFeitoPorUsuario(m) ? 'checked' : ''} onchange="alternarMaterialFeito('${m.id}', this.checked)" class="accent-emerald-500">${materialFeitoPorUsuario(m) ? 'Feito' : 'Fazer'}</label>
-                                    </div>
-                                    ${renderizarConteudoMaterial(m)}${renderizarSolucaoMaterial(m)}${renderizarInteracoesMaterial(m)}
-                                </div>`;
-                            }).join("")}</div>
-                        </div>`).join("")}</div>
-                </details>`).join("")}</div>
-        </details>`).join("")}</div>`;
-}
-
-function abrirAulaAmbiente(aulaId) {
-    const aula = (getStorage("app_aulas", []) || []).find(a => String(a.id) === String(aulaId));
-    if (!aula) return alert("Aula não encontrada.");
-    const modal = document.getElementById("modalAulaAmbiente");
-    const corpo = document.getElementById("modalAulaAmbienteCorpo");
-    if (!modal || !corpo) return;
-    const embed = aula.origem === "youtube" ? youtubeEmbedUrl(aula.url) : "";
-    const mediaUrl = embed || aula.videoUrl || aula.arquivoUrl || aula.url || "";
-    const media = mediaUrl ? (embed
-        ? `<iframe src="${textoSeguro(embed)}" class="w-full h-[58vh] rounded-2xl bg-black border border-gray-700" allowfullscreen></iframe>`
-        : `<iframe src="${textoSeguro(mediaUrl)}" class="w-full h-[58vh] rounded-2xl bg-white border border-gray-700"></iframe>`) : `<div class="rounded-2xl bg-gray-900 border border-gray-700 p-8 text-center text-gray-500">Nenhuma mídia vinculada.</div>`;
-    const comentarios = Array.isArray(aula.comentarios) ? [...aula.comentarios].sort((a,b)=>Number(b.criadoEm||0)-Number(a.criadoEm||0)) : [];
-    corpo.innerHTML = `<div class="space-y-4">
-        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><p class="text-[10px] uppercase tracking-widest text-blue-300 font-black">${textoSeguro(aula.nivel)} · ${textoSeguro(aula.disciplina)} · ${textoSeguro(aula.playlist)}</p><h2 class="text-2xl font-black text-white mt-1">${textoSeguro(aula.tema)}</h2><p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(aula.criadoPor || 'Sistema')} · ${formatarDataHora(aula.criadoEm)}</p></div><button onclick="fecharAulaAmbiente()" class="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button></div>
-        ${aula.descricao ? `<p class="rounded-2xl bg-gray-900/60 border border-gray-700 p-4 text-sm text-gray-300 leading-relaxed">${textoSeguro(aula.descricao)}</p>` : ""}
-        ${media}
-        <div class="rounded-2xl bg-gray-800 border border-gray-700 p-4">
-            <h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-comments text-blue-400 mr-2"></i>Comentários da aula (${comentarios.length})</h3>
-            <form onsubmit="publicarComentarioAula('${aula.id}', event)" class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2"><textarea id="comentarioAula_${aula.id}" required rows="2" class="p-3 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-200 resize-none" placeholder="Comente, pergunte ou registre uma observação da aula..."></textarea><button class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase">Enviar</button></form>
-            <div class="mt-4 space-y-2">${comentarios.length ? comentarios.map(c => `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><b class="text-xs text-gray-200">${textoSeguro(c.criadoPor || 'Usuário')}</b><span class="text-[10px] text-gray-500">${formatarDataHora(c.criadoEm)}</span></div><p class="text-sm text-gray-300 mt-1 whitespace-pre-wrap">${textoSeguro(c.texto || '')}</p></div>`).join('') : `<p class="text-xs text-gray-500 italic">Nenhum comentário ainda.</p>`}</div>
-        </div>
-    </div>`;
-    modal.classList.remove("hidden"); modal.classList.add("flex");
-}
-
-function fecharAulaAmbiente() {
-    const modal = document.getElementById("modalAulaAmbiente");
-    const corpo = document.getElementById("modalAulaAmbienteCorpo");
-    if (corpo) corpo.innerHTML = "";
-    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
-}
-
-async function publicarComentarioAula(aulaId, event) {
-    event.preventDefault();
-    const input = document.getElementById(`comentarioAula_${aulaId}`);
-    const texto = input?.value.trim();
-    if (!texto) return;
-    if (typeof moderarTextoEducacional === "function") {
-        const mod = moderarTextoEducacional(texto);
-        if (!mod.ok) return alert(mod.mensagem || "Comentário bloqueado pela moderação preventiva.");
-    }
-    const aulas = getStorage("app_aulas", []);
-    const idx = aulas.findIndex(a => String(a.id) === String(aulaId));
-    if (idx < 0) return alert("Aula não encontrada.");
-    aulas[idx].comentarios = Array.isArray(aulas[idx].comentarios) ? aulas[idx].comentarios : [];
-    aulas[idx].comentarios.push({ id: novoId(), texto, criadoEm: Date.now(), criadoPor: usuarioLogado?.nome || "Usuário", criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoPorNivel: usuarioLogado?.nivel || "" });
-    await setStorage("app_aulas", aulas);
-    abrirAulaAmbiente(aulaId);
-    renderizarAulas();
-}
-
-function renderizarAulas() {
-    popularFiltrosAulas();
-    const grid = document.getElementById("gridAulas");
-    if (!grid) return;
-    const fn = document.getElementById("filtroAulaNivel")?.value || "TODOS";
-    const fd = document.getElementById("filtroAulaDisciplina")?.value || "TODOS";
-    const fp = document.getElementById("filtroAulaPlaylist")?.value || "TODOS";
-    const busca = normalizarTexto(document.getElementById("filtroAulaBusca")?.value || "");
-    let aulas = getStorage("app_aulas", []);
-    aulas = aulas.filter(a => (fn === "TODOS" || a.nivel === fn) && (fd === "TODOS" || a.disciplina === fd) && (fp === "TODOS" || a.playlist === fp));
-    if (busca) aulas = aulas.filter(a => normalizarTexto(`${a.tema} ${a.playlist} ${a.descricao} ${a.disciplina}`).includes(busca));
-    aulas.sort((a,b) => String(a.nivel).localeCompare(String(b.nivel), "pt-BR") || String(a.disciplina).localeCompare(String(b.disciplina), "pt-BR") || String(a.playlist).localeCompare(String(b.playlist), "pt-BR") || (a.criadoEm||0)-(b.criadoEm||0));
-    if (!aulas.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-video text-3xl mb-3 opacity-40"></i><p>Nenhuma aula encontrada.</p></div>`; return; }
-    const arvore = criarAgrupamentoHierarquico(aulas, ["nivel", "disciplina", "playlist"]);
-    grid.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([nivel, mapaDisc]) => `<details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden"><summary class="cursor-pointer px-4 py-3 bg-gray-900/50 flex justify-between"><span class="text-sm text-white font-black"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(nivel)}</span></summary><div class="p-3 space-y-3">${Array.from(mapaDisc.entries()).map(([disciplina, mapaPlaylist]) => `<details open class="rounded-xl bg-gray-900/35 border border-gray-700"><summary class="cursor-pointer px-3 py-2 text-sm text-gray-200 font-bold"><i class="fa-solid fa-folder text-amber-400 mr-2"></i>${textoSeguro(disciplina)}</summary><div class="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${Array.from(mapaPlaylist.entries()).map(([playlist, itens]) => `<div class="rounded-2xl bg-gray-950/35 border border-gray-700 p-3"><div class="mb-2 flex justify-between items-center">${htmlBadgePasta(playlist, 'fa-list', 'text-purple-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} aula(s)</span></div><div class="space-y-2">${itens.map(a => { const del = podeGerenciarAulas() ? `<button onclick="excluirAula('${a.id}')" class="text-red-300 hover:text-red-200" title="Apagar"><i class="fa-solid fa-trash"></i></button>` : ""; return `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="font-black text-white truncate"><i class="fa-solid fa-circle-play text-red-400 mr-1"></i>${textoSeguro(a.tema)}</p><p class="text-[10px] text-gray-500 mt-1">${textoSeguro(a.criadoPor || 'Sistema')} · ${formatarDataHora(a.criadoEm)}</p></div><div class="flex gap-2 text-xs"><button onclick="abrirAulaAmbiente('${a.id}')" class="text-blue-300 hover:text-blue-200" title="Abrir aula"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>${del}</div></div>${a.descricao ? `<p class="text-xs text-gray-400 mt-2 line-clamp-2">${textoSeguro(a.descricao)}</p>` : ''}<button onclick="abrirAulaAmbiente('${a.id}')" class="mt-2 w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black"><i class="fa-solid fa-play mr-1"></i>Entrar na aula</button></div>`; }).join('')}</div></div>`).join('')}</div></details>`).join('')}</div></details>`).join('')}</div>`;
-}
-
-function renderizarBancoQuestoes() {
-    const grid = document.getElementById("gridQuestoes");
-    if (!grid) return;
-    if (!podeGerenciarQuestoes()) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p></div>`; return; }
-    const questoes = getStorage("app_questoes", []).filter(questaoPassaFiltros).sort((a,b) => String(a.disciplina || "").localeCompare(String(b.disciplina || ""), "pt-BR") || String(a.nivel || "").localeCompare(String(b.nivel || ""), "pt-BR") || String(a.tema || "").localeCompare(String(b.tema || ""), "pt-BR"));
-    if (!questoes.length) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p></div>`; return; }
-    const arvore = criarAgrupamentoHierarquico(questoes, ["disciplina", "nivel", "tema"]);
-    grid.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([disciplina, mapaNivel]) => `<details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden"><summary class="cursor-pointer px-4 py-3 bg-gray-900/50"><span class="text-sm font-black text-white"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(disciplina)}</span></summary><div class="p-3 space-y-3">${Array.from(mapaNivel.entries()).map(([nivel, mapaTema]) => `<details open class="rounded-xl bg-gray-900/35 border border-gray-700"><summary class="cursor-pointer px-3 py-2 text-sm font-bold text-gray-200"><i class="fa-solid fa-folder text-amber-400 mr-2"></i>${textoSeguro(nivel)}</summary><div class="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3">${Array.from(mapaTema.entries()).map(([tema, itens]) => `<div class="rounded-2xl bg-gray-950/35 border border-gray-700 p-3"><div class="flex justify-between items-center mb-2">${htmlBadgePasta(tema || 'Sem tema', 'fa-folder-open', 'text-emerald-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} questão(ões)</span></div><div class="space-y-2">${itens.map(q => `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><div><h4 class="text-sm font-black text-white">${textoSeguro(q.titulo || 'Questão')}</h4><p class="text-[10px] text-gray-500 mt-1">${textoSeguro([q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano].filter(Boolean).join(' · '))}</p></div><button onclick="adicionarSolucaoQuestao('${q.id}')" class="text-emerald-300 hover:text-emerald-200 text-xs" title="Nova solução"><i class="fa-solid fa-plus"></i></button></div><p class="text-xs text-gray-300 whitespace-pre-wrap mt-2 line-clamp-4">${textoSeguro(q.enunciado || '')}</p>${renderArquivoLinks(q.arquivos)}<details class="mt-2"><summary class="cursor-pointer text-[11px] font-black text-emerald-300 uppercase">Soluções (${(q.solucoes || []).length})</summary>${renderizarSolucoesQuestao(q)}</details></div>`).join('')}</div></div>`).join('')}</div></details>`).join('')}</div></details>`).join('')}</div>`;
-}
-

@@ -2,36 +2,56 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function logado() {
-      return request.auth != null;
-    }
+    function estaLogado() { return request.auth != null; }
+    function perfilExiste() { return estaLogado() && exists(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)); }
+    function perfil() { return get(/databases/$(database)/documents/sistema_usuarios/$(request.auth.uid)).data; }
+    function nivel() { return perfil().nivel; }
+    function ehAdm() { return perfilExiste() && nivel() == "ADM"; }
+    function ehStaff() { return perfilExiste() && nivel() == "Staff"; }
+    function ehEquipe() { return perfilExiste() && nivel() in ["ADM", "Staff", "Monitor", "Professor/Orientador"]; }
+    function ehAluno() { return perfilExiste() && nivel() == "Aluno"; }
+    function ehUsuarioValido() { return perfilExiste(); }
 
-    // Regra temporária de estabilização: não é pública, exige Firebase Auth.
-    // Serve para eliminar erro de permissão enquanto o front-end estabiliza os módulos novos.
     match /sistema_usuarios/{userId} {
-      allow read: if logado();
-      allow create, update: if logado();
-      allow delete: if logado() && request.auth.uid != userId;
+      allow read: if ehUsuarioValido();
+      allow create, update: if ehAdm() || ehStaff() || request.auth.uid == userId;
+      allow delete: if (ehAdm() || ehStaff()) && request.auth.uid != userId;
     }
 
     match /sistema_layout/{docId} {
       allow read: if true;
-      allow write: if logado();
+      allow write: if ehAdm() || ehStaff();
     }
 
-    match /sistema_debug/{docId} {
-      allow read, write: if logado();
+    match /anos/{ano}/sistema_simulados/{docId} {
+      allow read: if ehUsuarioValido() || resource.data.publico == true;
+      allow create, update, delete: if ehEquipe();
     }
 
-    // Todos os dados anuais: cidades, escolas, alunos, resultados, plataforma,
-    // aulas, questões, simulados, envios, leads etc.
-    match /anos/{ano}/{document=**} {
-      allow read, write: if logado();
+    match /anos/{ano}/sistema_simulados_envios/{docId} {
+      allow read: if ehEquipe() || (perfilExiste() && resource.data.usuarioId == request.auth.uid);
+      allow create: if (ehAluno() && request.resource.data.usuarioId == request.auth.uid) || request.resource.data.visitante == true;
+      allow update: if (ehAluno() && resource.data.usuarioId == request.auth.uid && request.resource.data.usuarioId == request.auth.uid) || ehEquipe();
+      allow delete: if ehEquipe();
     }
 
-    // Bloqueia visitantes não autenticados em qualquer outro lugar.
-    match /{document=**} {
-      allow read, write: if false;
+    match /anos/{ano}/sistema_simulados_leads/{docId} {
+      allow read, update, delete: if ehAdm() || ehStaff();
+      allow create: if request.resource.data.visitante == true;
     }
+
+    match /anos/{ano}/sistema_questoes/{docId} {
+      allow read, create, update, delete: if ehEquipe();
+    }
+
+    match /anos/{ano}/{colecao}/{docId} {
+      allow read: if ehUsuarioValido();
+      allow create, update, delete: if (ehAdm() || ehStaff() || ehEquipe()) && colecao in [
+        "sistema_cidades", "sistema_escolas", "sistema_olimpiadas", "sistema_cronograma", "sistema_premiados", "sistema_plataforma", "sistema_alunos", "sistema_aulas", "sistema_banco_questoes"
+      ];
+    }
+
+    match /sistema_debug/{docId} { allow read, write: if ehAdm() || ehStaff(); }
+    match /{document=**} { allow read, write: if false; }
   }
 }
