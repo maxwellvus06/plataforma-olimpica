@@ -53,7 +53,15 @@ const PERMISSOES = {
         dashboard: { filtroTravado: false },
         calendario: { podeEditar: true },
         resultados: { podeEditar: true },
-        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"] },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["ADM", "Staff", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"] },
+        plataforma: { podeGerenciar: true }
+    },
+    Staff: {
+        abas: ["dashboard", "calendario", "importar", "relatorios", "reuniao", "plataforma", "simulados", "aulas", "questoes", "monitoria", "alunos", "usuarios", "olimpiadas", "cidades", "escolas", "layout"],
+        dashboard: { filtroTravado: false },
+        calendario: { podeEditar: true },
+        resultados: { podeEditar: true },
+        usuarios: { podeGerenciar: true, niveisPermitidos: ["Staff", "Gestor", "Escola", "Aluno", "Monitor", "Professor/Orientador", "Visualizador"] },
         plataforma: { podeGerenciar: true }
     },
     Gestor: {

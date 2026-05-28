@@ -5408,7 +5408,7 @@ function normalizarMaterialPlataforma(m) {
         else if (tipoLegado === "arquivo") tipoMaterial = "Apostila";
         else tipoMaterial = "Link útil";
     }
-    return { ...m, disciplina, area: disciplina, nivel, tipoMaterial, tipo: tipoLegado, interacoes: Array.isArray(m.interacoes) ? m.interacoes : [], concluidos: normalizarConclusoesMaterial(m) };
+    return { ...m, disciplina, area: disciplina, nivel, tipoMaterial, tipo: tipoLegado, interacoes: Array.isArray(m.interacoes) ? m.interacoes : [], concluidos: normalizarConclusoesMaterial(m), avaliacoes: normalizarAvaliacoesMaterial(m) };
 }
 
 function preencherFiltroPlataforma(id, opcoes, valorAtual) {
@@ -5447,22 +5447,149 @@ function iconeMaterialPlataforma(m) {
     return { icone: "fa-link", cor: "text-blue-400" };
 }
 
+
+function normalizarAvaliacoesMaterial(m) {
+    if (!m) return [];
+    if (Array.isArray(m.avaliacoes)) {
+        return m.avaliacoes
+            .filter(a => a && a.nota !== undefined && a.nota !== null)
+            .map(a => ({ ...a, nota: Math.max(0, Math.min(5, Number(a.nota) || 0)) }));
+    }
+    if (m.notas && typeof m.notas === "object") {
+        return Object.values(m.notas)
+            .filter(Boolean)
+            .map(a => ({ ...a, nota: Math.max(0, Math.min(5, Number(a.nota) || 0)) }));
+    }
+    return [];
+}
+
+function mediaAvaliacoesMaterial(m) {
+    const avaliacoes = normalizarAvaliacoesMaterial(m);
+    if (!avaliacoes.length) return { media: null, total: 0 };
+    const soma = avaliacoes.reduce((acc, a) => acc + (Number(a.nota) || 0), 0);
+    return { media: soma / avaliacoes.length, total: avaliacoes.length };
+}
+
+function minhaAvaliacaoMaterial(m) {
+    if (!usuarioLogado) return null;
+    const uid = String(usuarioLogado.id || usuarioLogado.authUid || usuarioLogado.login || "");
+    return normalizarAvaliacoesMaterial(m).find(a => String(a.usuarioId || a.id || a.login || "") === uid) || null;
+}
+
+function estrelasTexto(media) {
+    if (media === null || media === undefined || Number.isNaN(Number(media))) return "Sem notas";
+    const n = Math.round(Number(media));
+    return `${"★".repeat(n)}${"☆".repeat(5 - n)}`;
+}
+
+function renderizarResumoAvaliacaoMaterial(m) {
+    const { media, total } = mediaAvaliacoesMaterial(m);
+    if (!total) {
+        return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-900 border border-gray-700 text-[10px] font-bold text-gray-400 uppercase"><i class="fa-regular fa-star"></i> Sem notas</span>`;
+    }
+    return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-300 uppercase" title="Média ${media.toFixed(2)} em ${total} avaliação(ões)"><i class="fa-solid fa-star"></i> ${media.toFixed(1)} / 5 <span class="text-amber-200/70">(${total})</span></span>`;
+}
+
+function renderizarWidgetAvaliacaoMaterial(m) {
+    const minha = minhaAvaliacaoMaterial(m);
+    const notaAtual = minha ? Number(minha.nota) : null;
+    const botoes = [0,1,2,3,4,5].map(n => {
+        const ativo = notaAtual === n;
+        const label = n === 0 ? "0" : "★".repeat(n);
+        return `<button type="button" onclick="avaliarMaterialPlataforma('${m.id}', ${n})" class="px-3 py-2 rounded-xl border ${ativo ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-gray-950 border-gray-700 text-gray-400 hover:text-amber-300 hover:border-amber-500/50'} text-xs font-black transition" title="Dar nota ${n}">${label}</button>`;
+    }).join("");
+    return `
+        <div class="bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                    <h4 class="text-xs font-black text-white uppercase tracking-wider"><i class="fa-solid fa-star text-amber-400 mr-2"></i>Avalie esta atividade</h4>
+                    <p class="text-[11px] text-gray-500 mt-1">Sua nota ajuda outros alunos a identificarem os materiais mais úteis.</p>
+                </div>
+                ${renderizarResumoAvaliacaoMaterial(m)}
+            </div>
+            <div class="flex flex-wrap gap-2">${botoes}</div>
+            ${minha ? `<p class="text-[10px] text-gray-500 mt-2">Sua avaliação atual: <b class="text-amber-300">${notaAtual}/5</b> · ${formatarDataHora(minha.avaliadoEm)}</p>` : `<p class="text-[10px] text-gray-500 mt-2">Você ainda não avaliou esta atividade.</p>`}
+        </div>
+    `;
+}
+
+function usuarioPodeVerNotasDetalhadas() {
+    return ["ADM", "Staff"].includes(usuarioLogado?.nivel);
+}
+
+function renderizarPainelNotasAdmMaterial(m) {
+    if (!usuarioPodeVerNotasDetalhadas()) return "";
+    const avaliacoes = normalizarAvaliacoesMaterial(m).sort((a,b)=>Number(b.avaliadoEm||0)-Number(a.avaliadoEm||0));
+    const linhas = avaliacoes.length ? avaliacoes.map(a => `
+        <tr class="border-t border-gray-800">
+            <td class="p-2 text-xs text-gray-200">${textoSeguro(a.usuarioNome || 'Usuário')}</td>
+            <td class="p-2 text-xs text-gray-400">${textoSeguro(a.usuarioNivel || '')}</td>
+            <td class="p-2 text-xs text-amber-300 font-black">${Number(a.nota || 0).toFixed(0)} / 5</td>
+            <td class="p-2 text-xs text-gray-500">${formatarDataHora(a.avaliadoEm)}</td>
+        </tr>
+    `).join("") : `<tr><td colspan="4" class="p-3 text-xs text-gray-500 italic">Nenhuma avaliação registrada.</td></tr>`;
+    return `
+        <details class="bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+            <summary class="cursor-pointer text-xs font-black text-gray-200 uppercase tracking-wider"><i class="fa-solid fa-chart-simple text-amber-400 mr-2"></i>Notas dos usuários — ADM/Staff (${avaliacoes.length})</summary>
+            <div class="overflow-x-auto mt-3">
+                <table class="w-full min-w-[520px]">
+                    <thead><tr class="text-left text-[10px] uppercase text-gray-500"><th class="p-2">Usuário</th><th class="p-2">Nível</th><th class="p-2">Nota</th><th class="p-2">Quando</th></tr></thead>
+                    <tbody>${linhas}</tbody>
+                </table>
+            </div>
+        </details>
+    `;
+}
+
+function obterUrlMaterial(m) {
+    return m?.arquivoUrl || m?.dados || m?.url || "";
+}
+
+function tipoVisualizacaoMaterial(m) {
+    const url = obterUrlMaterial(m);
+    const mime = String(m?.mimeType || m?.tipoMime || "").toLowerCase();
+    const nome = String(m?.nomeArquivo || url || "").toLowerCase();
+    if (m?.tipo === "video" || converterUrlYoutube(url)) return "video";
+    if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|$)/i.test(nome)) return "imagem";
+    if (mime.startsWith("video/") || /\.(mp4|webm|ogg|mov)(\?|$)/i.test(nome)) return "video-arquivo";
+    if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a)(\?|$)/i.test(nome)) return "audio";
+    if (mime.includes("pdf") || /\.pdf(\?|$)/i.test(nome)) return "pdf";
+    if (/\.(docx?|pptx?|xlsx?)(\?|$)/i.test(nome) || mime.includes("word") || mime.includes("presentation") || mime.includes("spreadsheet")) return "office";
+    if (m?.tipo === "link") return "link";
+    return "arquivo";
+}
+
+function renderizarMidiaInternaMaterial(m) {
+    const url = obterUrlMaterial(m);
+    if (!url) return `<div class="p-8 rounded-2xl bg-gray-950 border border-gray-800 text-center text-sm text-gray-500">Nenhuma mídia vinculada.</div>`;
+    const tipo = tipoVisualizacaoMaterial(m);
+    const safeUrl = textoSeguro(url);
+    const embedYoutube = converterUrlYoutube(url);
+    if (embedYoutube) return `<div class="aspect-video rounded-2xl overflow-hidden bg-gray-950 border border-gray-800"><iframe src="${textoSeguro(embedYoutube)}" class="w-full h-full" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div>`;
+    if (tipo === "imagem") return `<div class="rounded-2xl bg-gray-950 border border-gray-800 p-3 flex justify-center"><img src="${safeUrl}" class="max-h-[72vh] max-w-full object-contain rounded-xl" alt="Mídia da atividade"></div>`;
+    if (tipo === "video-arquivo" || tipo === "video") return `<video src="${safeUrl}" controls class="w-full max-h-[72vh] rounded-2xl bg-black border border-gray-800"></video>`;
+    if (tipo === "audio") return `<div class="rounded-2xl bg-gray-950 border border-gray-800 p-6"><audio src="${safeUrl}" controls class="w-full"></audio></div>`;
+    if (tipo === "pdf") return `<iframe src="${safeUrl}" class="w-full h-[76vh] rounded-2xl bg-gray-950 border border-gray-800"></iframe>`;
+    if (tipo === "office") {
+        const officeUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+        return `<iframe src="${textoSeguro(officeUrl)}" class="w-full h-[76vh] rounded-2xl bg-gray-950 border border-gray-800"></iframe>`;
+    }
+    if (tipo === "link") {
+        return `<div class="rounded-2xl bg-gray-950 border border-gray-800 p-8 text-center"><i class="fa-solid fa-arrow-up-right-from-square text-3xl text-blue-400 mb-3"></i><h4 class="font-black text-white mb-2">Link externo</h4><p class="text-xs text-gray-500 mb-4">Links externos podem bloquear exibição interna. Use o botão abaixo para abrir em uma nova aba.</p><a href="${safeUrl}" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wider"><i class="fa-solid fa-up-right-from-square"></i>Abrir link externo</a></div>`;
+    }
+    return `<div class="rounded-2xl bg-gray-950 border border-gray-800 p-8 text-center"><i class="fa-solid fa-file text-3xl text-orange-400 mb-3"></i><h4 class="font-black text-white mb-2">Arquivo anexado</h4><p class="text-xs text-gray-500 mb-4">Este tipo de arquivo pode não ter pré-visualização nativa no navegador.</p><a href="${safeUrl}" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-black uppercase tracking-wider"><i class="fa-solid fa-download"></i>Abrir / baixar arquivo</a></div>`;
+}
+
 function renderizarConteudoMaterial(m) {
-    const isVideo = m.tipo === "video";
-    const isLink = m.tipo === "link";
-    const isArquivo = m.tipo === "arquivo";
-    if (isVideo && m.url) {
-        const embedUrl = converterUrlYoutube(m.url);
-        return embedUrl
-            ? `<div class="aspect-video w-full rounded-xl overflow-hidden my-3 bg-gray-950"><iframe src="${embedUrl}" frameborder="0" allowfullscreen class="w-full h-full"></iframe></div>`
-            : `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-play mr-2"></i>Abrir vídeo</a>`;
-    }
-    if (isLink && m.url) return `<a href="${textoSeguro(m.url)}" target="_blank" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-external-link mr-2"></i>Acessar recurso</a>`;
-    if (isArquivo && (m.arquivoUrl || m.dados)) {
-        const href = m.arquivoUrl || m.dados;
-        return `<a href="${textoSeguro(href)}" target="_blank" rel="noopener" class="block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition my-3"><i class="fa-solid fa-file-arrow-down mr-2"></i>Abrir / baixar arquivo</a>`;
-    }
-    return "";
+    const tipo = tipoVisualizacaoMaterial(m);
+    const isLinkExterno = tipo === "link";
+    const label = isLinkExterno ? "Abrir contexto / link" : "Abrir atividade";
+    const cor = isLinkExterno ? "bg-blue-600 hover:bg-blue-500" : "bg-indigo-600 hover:bg-indigo-500";
+    return `
+        <button onclick="abrirAtividadePlataforma('${m.id}')" class="w-full text-center py-3 ${cor} rounded-xl text-white text-xs font-black uppercase tracking-wider transition my-3">
+            <i class="fa-solid ${isLinkExterno ? 'fa-arrow-up-right-from-square' : 'fa-up-right-and-down-left-from-center'} mr-2"></i>${label}
+        </button>
+    `;
 }
 
 function renderizarInteracoesMaterial(m) {
@@ -5475,7 +5602,7 @@ function renderizarInteracoesMaterial(m) {
                     <span class="text-[10px] text-gray-500">${textoSeguro(i.criadoPor || "Usuário")} · ${formatarDataHora(i.criadoEm)}</span>
                 </div>
                 <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">${textoSeguro(i.texto || "")}</p>
-                ${i.imagemUrl ? `<a href="${textoSeguro(i.imagemUrl)}" target="_blank" class="inline-block mt-2"><img src="${textoSeguro(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></a>` : ""}
+                ${i.imagemUrl ? `<button type="button" onclick="abrirVisualizadorGenerico('${textoSeguro(i.imagemUrl)}','Imagem enviada')" class="inline-block mt-2 text-left"><img src="${textoSeguro(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></button>` : ""}
             </div>
         `).join("")
         : `<p class="text-xs text-gray-600 italic">Nenhuma interação ainda. Seja o primeiro a comentar, perguntar ou enviar uma resolução.</p>`;
@@ -5564,6 +5691,7 @@ async function renderizarPlataformaEnsino() {
                                         <i class="fa-solid ${icon.icone} ${icon.cor} text-xl"></i>
                                         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-900 text-gray-300">${textoSeguro(m.tipoMaterial)}</span>
                                         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-900 text-gray-400">${m.tipo === "arquivo" ? "Arquivo" : m.tipo === "video" ? "Vídeo" : "Link"}</span>
+                                        ${renderizarResumoAvaliacaoMaterial(m)}
                                     </div>
                                     ${acoesAdm}
                                 </div>
@@ -5583,7 +5711,7 @@ async function renderizarPlataformaEnsino() {
                                 </div>
                                 ${renderizarConteudoMaterial(m)}
                                 ${renderizarSolucaoMaterial(m)}
-                                ${renderizarInteracoesMaterial(m)}
+                                <div class="text-[10px] text-gray-500 border-t border-gray-800 pt-2"><i class="fa-solid fa-comments text-blue-400 mr-1"></i>${Array.isArray(m.interacoes) ? m.interacoes.length : 0} comentário(s) · <i class="fa-solid fa-star text-amber-400 ml-2 mr-1"></i>${mediaAvaliacoesMaterial(m).total} avaliação(ões)</div>
                             </div>
                         `;
                     }).join("")}
@@ -5675,6 +5803,117 @@ async function excluirArquivoGoogleDrive(storagePath) {
     return excluirArquivoFirebaseStorage(storagePath);
 }
 
+
+let atividadePlataformaAbertaId = null;
+
+function buscarMaterialMemoria(materialId) {
+    return getStorage("app_plataforma", []).map(normalizarMaterialPlataforma).find(m => String(m.id) === String(materialId));
+}
+
+async function abrirAtividadePlataforma(materialId) {
+    atividadePlataformaAbertaId = String(materialId);
+    let material = buscarMaterialMemoria(materialId);
+    if (!material) {
+        try { await carregarMateriaisPlataforma(); material = buscarMaterialMemoria(materialId); } catch (_) {}
+    }
+    if (!material) return alert("Atividade não encontrada.");
+    const modal = document.getElementById("modalAtividadePlataforma");
+    const conteudo = document.getElementById("modalAtividadePlataformaConteudo");
+    if (!modal || !conteudo) return alert("Visualizador interno não encontrado no HTML.");
+    const icon = iconeMaterialPlataforma(material);
+    conteudo.innerHTML = `
+        <div class="p-5 border-b border-gray-700 flex flex-wrap items-start justify-between gap-4">
+            <div class="min-w-0">
+                <div class="flex flex-wrap gap-2 mb-2">
+                    <span class="px-2 py-1 rounded-full bg-gray-900 border border-gray-700 text-[10px] font-black uppercase text-gray-300"><i class="fa-solid ${icon.icone} ${icon.cor} mr-1"></i>${textoSeguro(material.tipoMaterial || 'Material')}</span>
+                    <span class="px-2 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-black uppercase text-blue-300">${textoSeguro(material.disciplina || 'Geral')}</span>
+                    <span class="px-2 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-[10px] font-black uppercase text-purple-300">${textoSeguro(material.nivel || 'Geral')}</span>
+                    ${renderizarResumoAvaliacaoMaterial(material)}
+                </div>
+                <h3 class="text-xl font-black text-white leading-tight">${textoSeguro(material.titulo || 'Atividade')}</h3>
+                <p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(material.criadoPor || 'Sistema')} · ${formatarDataHora(material.criadoEm)}</p>
+            </div>
+            <button onclick="fecharAtividadePlataforma()" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button>
+        </div>
+        <div class="p-5 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5">
+            <div class="space-y-4 min-w-0">
+                ${material.descricao ? `<div class="bg-gray-900/60 border border-gray-700 rounded-2xl p-4"><h4 class="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Descrição / orientação</h4><p class="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">${textoSeguro(material.descricao)}</p></div>` : ""}
+                ${renderizarMidiaInternaMaterial(material)}
+                ${renderizarSolucaoMaterial(material)}
+            </div>
+            <aside class="space-y-4">
+                ${renderizarWidgetAvaliacaoMaterial(material)}
+                <div class="bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+                    <h4 class="text-xs font-black text-white uppercase tracking-wider mb-2"><i class="fa-solid fa-circle-check text-emerald-400 mr-2"></i>Progresso</h4>
+                    <label class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border ${materialFeitoPorUsuario(material) ? 'border-emerald-700 bg-emerald-500/10 text-emerald-300' : 'border-gray-700 bg-gray-950 text-gray-400'} text-[10px] font-bold uppercase tracking-wider cursor-pointer select-none">
+                        <input type="checkbox" ${materialFeitoPorUsuario(material) ? 'checked' : ''} onchange="alternarMaterialFeito('${material.id}', this.checked)" class="accent-emerald-500">
+                        ${materialFeitoPorUsuario(material) ? 'Marcado como feito' : 'Marcar como feito'}
+                    </label>
+                </div>
+                ${renderizarPainelNotasAdmMaterial(material)}
+                ${renderizarInteracoesMaterial(material)}
+            </aside>
+        </div>
+    `;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+function fecharAtividadePlataforma() {
+    const modal = document.getElementById("modalAtividadePlataforma");
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+    atividadePlataformaAbertaId = null;
+}
+
+function abrirVisualizadorGenerico(url, titulo = "Mídia") {
+    const modal = document.getElementById("modalVisualizadorGenerico");
+    const conteudo = document.getElementById("modalVisualizadorGenericoConteudo");
+    if (!modal || !conteudo) return window.open(url, "_blank", "noopener");
+    const fake = { url, tipo: "arquivo", titulo, nomeArquivo: url };
+    conteudo.innerHTML = `
+        <div class="p-4 border-b border-gray-700 flex items-center justify-between gap-3">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider">${textoSeguro(titulo)}</h3>
+            <button onclick="fecharVisualizadorGenerico()" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button>
+        </div>
+        <div class="p-4">${renderizarMidiaInternaMaterial(fake)}</div>
+    `;
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+}
+function fecharVisualizadorGenerico() {
+    const modal = document.getElementById("modalVisualizadorGenerico");
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+}
+
+async function avaliarMaterialPlataforma(materialId, nota) {
+    if (!usuarioLogado) return alert("Você precisa estar logado para avaliar.");
+    nota = Math.max(0, Math.min(5, Number(nota) || 0));
+    initFirebase();
+    if (!firebaseFirestore) return alert("Cloud Firestore não inicializado.");
+    try {
+        const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+        const snap = await ref.get();
+        if (!snap.exists) throw new Error("Atividade não encontrada.");
+        const material = snap.data() || {};
+        const uid = String(usuarioLogado.id || usuarioLogado.authUid || usuarioLogado.login || "");
+        let avaliacoes = normalizarAvaliacoesMaterial(material).filter(a => String(a.usuarioId || a.id || a.login || "") !== uid);
+        avaliacoes.push({
+            usuarioId: uid,
+            usuarioNome: usuarioLogado.nome || "Usuário",
+            usuarioNivel: usuarioLogado.nivel || "",
+            nota,
+            avaliadoEm: Date.now()
+        });
+        await ref.update({ avaliacoes, atualizadoEm: Date.now() });
+        await carregarChaveFirebase("app_plataforma", []);
+        await renderizarPlataformaEnsino();
+        if (atividadePlataformaAbertaId === String(materialId)) await abrirAtividadePlataforma(materialId);
+        if (atividadePlataformaAbertaId === String(materialId)) await abrirAtividadePlataforma(materialId);
+    } catch (erro) {
+        console.error("Erro ao avaliar material:", erro);
+        alert(`Erro ao avaliar atividade.\n\n${erro.message || erro}`);
+    }
+}
+
 async function salvarNovoMaterial(event) {
     event.preventDefault();
     if (!permissao("plataforma.podeGerenciar")) return alert("Apenas administradores e monitores podem publicar materiais.");
@@ -5718,6 +5957,7 @@ async function salvarNovoMaterial(event) {
             criadoEm: Date.now(),
             atualizadoEm: Date.now(),
             interacoes: [],
+            avaliacoes: [],
             hospedagem: tipo === "arquivo" ? "firebase_storage" : "link_externo"
         };
 
@@ -5784,6 +6024,7 @@ async function alternarMaterialFeito(materialId, marcado) {
         await ref.update({ concluidos, atualizadoEm: Date.now() });
         await carregarChaveFirebase("app_plataforma", []);
         await renderizarPlataformaEnsino();
+        if (atividadePlataformaAbertaId === String(materialId)) await abrirAtividadePlataforma(materialId);
     } catch (erro) {
         console.error("Erro ao atualizar status do material:", erro);
         alert(`Erro ao atualizar status do material.
@@ -7284,6 +7525,11 @@ window.ajustarCamposFormMaterial = ajustarCamposFormMaterial;
 window.publicarInteracaoMaterial = publicarInteracaoMaterial;
 window.alternarMaterialFeito = alternarMaterialFeito;
 window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
+window.abrirAtividadePlataforma = abrirAtividadePlataforma;
+window.fecharAtividadePlataforma = fecharAtividadePlataforma;
+window.avaliarMaterialPlataforma = avaliarMaterialPlataforma;
+window.abrirVisualizadorGenerico = abrirVisualizadorGenerico;
+window.fecharVisualizadorGenerico = fecharVisualizadorGenerico;
 window.entrarSalaMonitoria = entrarSalaMonitoria;
 window.enviarMensagemMonitoria = enviarMensagemMonitoria;
 window.abrirSeletorArquivoMonitoria = abrirSeletorArquivoMonitoria;
