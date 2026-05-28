@@ -857,10 +857,10 @@
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Status</label><select id="filtroSimStatus" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option><option value="RESPONDIDOS">Respondidos</option><option value="PENDENTES">Pendentes</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Busca</label><input id="filtroSimBusca" oninput="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Título, descrição..."></div>
                         </div>
-                        <div id="painelRankingSimulados" class="hidden mt-4 rounded-2xl border border-blue-900/40 bg-blue-950/20 p-4">
+                        <div id="painelRankingSimulados" class="mt-4 rounded-2xl border border-purple-900/40 bg-purple-950/20 p-4">
                             <div class="flex flex-col lg:flex-row lg:items-end gap-3">
-                                <div class="flex-1"><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Ranking / relatório por simulado</label><select id="selectRankingSimulado" onchange="renderizarRankingSimulado()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="">Selecione um simulado</option></select></div>
-                                <button onclick="exportarRankingSimuladoCSV()" class="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold uppercase"><i class="fa-solid fa-file-csv mr-1"></i>Exportar CSV</button>
+                                <div class="flex-1"><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Respostas, presença e correção por simulado</label><select id="selectRankingSimulado" onchange="renderizarRankingSimulado()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="">Selecione um simulado</option></select></div>
+                                <button onclick="exportarRankingSimuladoCSV()" class="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold uppercase"><i class="fa-solid fa-file-csv mr-1"></i>Exportar presença/respostas</button>
                             </div>
                             <div id="rankingSimuladoResumo" class="mt-4"></div>
                         </div>

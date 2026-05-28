@@ -8782,7 +8782,7 @@ function renderizarSimulados() {
         const envio = envioSimuladoUsuario(s);
         const encerrado = simuladoPrazoEncerrado(s);
         const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
-        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const notaTexto = envio && envio.totalObjetivas && (podeGerenciarSimulados() || podeVerGabaritoSimulado(s)) ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
         const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
         const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
         const ger = podeGerenciarSimulados() ? `<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
@@ -10183,7 +10183,7 @@ function renderizarSimulados() {
         const envio = envioSimuladoUsuario(s);
         const encerrado = simuladoPrazoEncerrado(s);
         const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
-        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const notaTexto = envio && envio.totalObjetivas && (podeGerenciarSimulados() || podeVerGabaritoSimulado(s)) ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
         const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
         const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
         const publicoBtns = podeGerenciarSimulados() && s.publico ? `<button onclick="copiarLinkSimuladoPublico('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-900/40 text-purple-200 border border-purple-800/40 text-xs font-bold"><i class="fa-solid fa-link mr-1"></i>Copiar link</button><button onclick="abrirLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold">Abrir link</button>` : "";
@@ -10850,3 +10850,136 @@ atualizarSelectRankingSimulados = function() {
     const painel = document.getElementById("painelRankingSimulados");
     if (painel && podeGerenciarSimulados()) painel.classList.remove("hidden");
 };
+
+
+// ==================== PATCH SIMULADO PÚBLICO — UMA TENTATIVA POR DISPOSITIVO + NOTA SÓ NO FIM ====================
+function chaveTentativaPublicaSimulado(simuladoId, ano) {
+    return `avance_simulado_publico_finalizado_${String(ano || anoDadosAtivo || "")}_${String(simuladoId || "")}`;
+}
+
+function obterDispositivoPublicoSimulado() {
+    try {
+        let id = localStorage.getItem("avance_dispositivo_publico_id");
+        if (!id) {
+            id = `disp_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+            localStorage.setItem("avance_dispositivo_publico_id", id);
+        }
+        return id;
+    } catch (e) {
+        return `disp_sem_storage_${Date.now()}`;
+    }
+}
+
+function simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano) {
+    try {
+        return localStorage.getItem(chaveTentativaPublicaSimulado(simuladoId, ano)) === "1";
+    } catch (e) {
+        return false;
+    }
+}
+
+function marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano) {
+    try {
+        localStorage.setItem(chaveTentativaPublicaSimulado(simuladoId, ano), "1");
+        localStorage.setItem(`${chaveTentativaPublicaSimulado(simuladoId, ano)}_quando`, String(Date.now()));
+    } catch (e) {
+        console.warn("Não foi possível gravar bloqueio local do simulado público.", e);
+    }
+}
+
+function renderizarPaginaAgradecimentoSimuladoPublico(sim, mensagem = "Simulado enviado com sucesso.") {
+    const ov = document.getElementById("simuladoPublicoOverlay");
+    const box = document.getElementById("simuladoPublicoConteudo");
+    document.getElementById("loginScreen")?.classList.add("hidden");
+    if (ov) ov.classList.remove("hidden");
+    if (!box) return;
+    box.innerHTML = `<div class="min-h-[80vh] flex items-center justify-center"><div class="max-w-2xl w-full bg-gray-800 border border-emerald-800/50 rounded-3xl p-8 shadow-2xl text-center"><div class="mx-auto w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-300 flex items-center justify-center text-3xl mb-5"><i class="fa-solid fa-circle-check"></i></div><p class="text-xs text-emerald-300 font-black uppercase tracking-wider">Participação registrada</p><h1 class="text-3xl font-black text-white mt-2">Obrigado pela participação!</h1><p class="text-sm text-gray-300 mt-4 leading-relaxed">${textoSeguro(mensagem)}</p><div class="mt-6 rounded-2xl border border-gray-700 bg-gray-950 p-4 text-left"><p class="text-[10px] text-gray-500 uppercase font-bold">Simulado</p><p class="text-base text-white font-black mt-1">${textoSeguro(sim?.titulo || "Simulado")}</p></div><p class="text-xs text-gray-500 mt-5">Este dispositivo já concluiu este simulado público. Feche esta aba ou janela.</p></div></div>`;
+}
+
+function renderizarBloqueioSimuladoPublico(sim) {
+    renderizarPaginaAgradecimentoSimuladoPublico(sim, "Este simulado já foi realizado neste dispositivo. Para preservar a validade da participação, não é possível responder novamente por este mesmo aparelho/navegador.");
+}
+
+async function abrirSimuladoPublico() {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("simuladoPublico");
+    if (!id) return;
+    try {
+        const ano = params.get("ano") || String(new Date().getFullYear());
+        const sim = await carregarSimuladoPublicoPorId(id, ano);
+        document.getElementById("loginScreen")?.classList.add("hidden");
+        const ov = document.getElementById("simuladoPublicoOverlay");
+        const box = document.getElementById("simuladoPublicoConteudo");
+        if (!ov || !box) return;
+        ov.classList.remove("hidden");
+
+        if (simuladoPublicoJaFeitoNesteDispositivo(id, ano)) {
+            renderizarBloqueioSimuladoPublico(sim);
+            return;
+        }
+
+        box.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl space-y-5"><div><p class="text-xs text-purple-300 font-black uppercase tracking-wider">Simulado público</p><h1 class="text-2xl font-black text-white mt-1">${textoSeguro(sim.titulo)}</h1><p class="text-sm text-gray-400 mt-2">Preencha seus dados para iniciar como visitante. Este dispositivo poderá enviar este simulado apenas uma vez.</p></div><div class="rounded-2xl border border-amber-800/50 bg-amber-950/20 p-4 text-sm text-amber-100"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Após enviar as respostas, a página ficará travada na tela de agradecimento. Ao abrir este mesmo link novamente neste dispositivo, o simulado não poderá ser feito outra vez.</div><div id="pubDados" class="grid grid-cols-1 md:grid-cols-5 gap-3"><input id="pubNome" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Nome completo" required><input id="pubEscola" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Escola de origem" required><input id="pubCidade" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Cidade" required><input id="pubEmail" type="email" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="E-mail" required><input id="pubWhatsapp" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="WhatsApp" required></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4">${renderizarQuestoesDoSimuladoSeguro(sim) || (sim.arquivoUrl ? `<iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0" class="w-full h-[75vh] rounded-xl bg-black"></iframe>` : "")}</div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><h3 class="text-sm font-bold text-white uppercase mb-3">Cartão-resposta</h3>${renderGradeRespostaPublica(sim)}<textarea id="pubTexto" rows="5" class="w-full mt-4 p-3 rounded-xl bg-gray-950 border border-gray-700 text-gray-200" placeholder="Resposta textual / observações"></textarea></div><button id="btnEnviarSimuladoPublico" onclick="enviarSimuladoPublico('${sim.id}','${ano}')" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase">Enviar simulado</button></div>`;
+    } catch(e) {
+        alert(e.message || e);
+    }
+}
+
+async function enviarSimuladoPublico(simuladoId, ano) {
+    if (simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+        const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+        renderizarBloqueioSimuladoPublico(sim);
+        return;
+    }
+    const nome = document.getElementById("pubNome")?.value.trim();
+    const escolaOrigem = document.getElementById("pubEscola")?.value.trim();
+    const cidade = document.getElementById("pubCidade")?.value.trim();
+    const email = document.getElementById("pubEmail")?.value.trim();
+    const whatsapp = document.getElementById("pubWhatsapp")?.value.trim();
+    if (!nome || !escolaOrigem || !cidade || !email || !whatsapp) return alert("Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.");
+    if (!validarConteudoEducacionalIA([nome, escolaOrigem, cidade, email, whatsapp, document.getElementById("pubTexto")?.value], "envio público")) return;
+    const btn = document.getElementById("btnEnviarSimuladoPublico");
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+        const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+        const respostas = [];
+        document.querySelectorAll('[name^="pub_q_"]:checked').forEach(inp => { respostas.push({ numero: Number(inp.name.replace("pub_q_", "")), resposta: inp.value }); });
+        const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostas);
+        const dispositivoId = obterDispositivoPublicoSimulado();
+        const agora = Date.now();
+        const doc = {
+            id: `${simuladoId}_visitante_${agora}_${dispositivoId}`,
+            simuladoId,
+            simuladoTitulo: sim.titulo || "",
+            publico: true,
+            visitante: true,
+            dispositivoId,
+            alunoNome: nome,
+            nome,
+            escolaOrigem,
+            escolaNome: escolaOrigem,
+            cidade,
+            email,
+            whatsapp,
+            respostasObjetivas: respostas,
+            texto: document.getElementById("pubTexto")?.value.trim() || "",
+            acertos: correcao.acertos,
+            totalObjetivas: correcao.total,
+            respondidasObjetivas: correcao.respondidas,
+            percentual: correcao.percentual,
+            iniciadoEm: agora,
+            enviadoEm: agora,
+            encerradoEm: agora,
+            tempoGastoSegundos: 0,
+            status: "encerrado",
+            statusCorrecao: simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica"
+        };
+        await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(doc.id).set(doc);
+        await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(doc.id).set(doc);
+        marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano);
+        renderizarPaginaAgradecimentoSimuladoPublico(sim, "Suas respostas foram registradas. A equipe responsável terá acesso aos seus dados, respostas, presença e correção quando aplicável.");
+    } catch(e) {
+        console.error(e);
+        alert(`Erro ao enviar simulado público.\n\n${e.message || e}`);
+        if (btn) { btn.disabled = false; btn.innerHTML = "Enviar simulado"; }
+    }
+}
