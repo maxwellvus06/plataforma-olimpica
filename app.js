@@ -5303,53 +5303,20 @@ async function enviarArquivoParaFirebaseStorage(arquivo, pasta = "materiais") {
 }
 
 async function excluirArquivoFirebaseStorage(storagePath) {
-    if (!storagePath) return { success: true, skipped: true };
+    if (!storagePath) return { success: true };
     initFirebase();
-    if (!firebaseStorage) return { success: false, skipped: true, reason: "Firebase Storage não inicializado" };
-
-    const path = String(storagePath || "").trim();
-
-    // Links públicos antigos, URLs do Google Drive ou URLs completas do Storage não são paths válidos para child().
-    // Nestes casos, não travamos a exclusão do registro no Firestore: apenas ignoramos a remoção física do arquivo legado.
-    if (!path || /^https?:\/\//i.test(path) || path.includes("drive.google.com") || path.includes("googleusercontent.com")) {
-        console.warn("Arquivo legado/URL externa ignorado na exclusão física:", path);
-        return { success: true, skipped: true, legacy: true };
-    }
-
-    try {
-        await firebaseStorage.ref().child(path).delete();
-        return { success: true };
-    } catch (erro) {
-        // Se o arquivo já não existe, não impedimos apagar o material do Firestore.
-        if (erro?.code === "storage/object-not-found") {
-            console.warn("Arquivo já não existia no Storage:", path);
-            return { success: true, skipped: true, missing: true };
-        }
-        throw erro;
-    }
+    if (!firebaseStorage) return { success: false };
+    await firebaseStorage.ref().child(storagePath).delete();
+    return { success: true };
 }
 
-// Nomes legados mantidos só como alias para compatibilidade.
-// A plataforma agora usa Firebase Storage; não usa mais Google Drive.
+// Mantém os nomes antigos para não quebrar outras chamadas do app.
 async function enviarArquivoParaGoogleDrive(arquivo) {
     return enviarArquivoParaFirebaseStorage(arquivo, "materiais");
 }
 
 async function excluirArquivoGoogleDrive(storagePath) {
     return excluirArquivoFirebaseStorage(storagePath);
-}
-
-async function excluirArquivoMaterialSeExistir(material) {
-    const possiveisPaths = [
-        material?.storagePath,
-        material?.arquivoStoragePath,
-        material?.solucaoStoragePath,
-        material?.driveFileId // legado: em versões antigas esse campo pode guardar o path do Storage
-    ].filter(Boolean);
-
-    for (const path of possiveisPaths) {
-        await excluirArquivoFirebaseStorage(path);
-    }
 }
 
 async function salvarNovoMaterial(event) {
@@ -5543,7 +5510,9 @@ async function excluirMaterial(id) {
         const snap = await docRef.get();
         const material = snap.exists ? snap.data() : null;
 
-        await excluirArquivoMaterialSeExistir(material);
+        if (material?.storagePath || material?.driveFileId) {
+            await excluirArquivoGoogleDrive(material.storagePath || material.driveFileId);
+        }
 
         await docRef.delete();
 
@@ -8787,3 +8756,451 @@ async function enviarSimuladoPublico(simuladoId, ano) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => { popularTaxonomiaQuestoes(); atualizarDistribuicaoGeradorSimulado(); abrirSimuladoPublico(); }, 1200);
 });
+
+
+
+// ==================== AJUSTES V2 — MÍDIA INTERNA, PAINÉIS RETRÁTEIS E CALENDÁRIO INÍCIO/FIM ====================
+function urlAbsolutaSegura(url) {
+    try { return new URL(String(url || ""), window.location.href).href; } catch (_) { return String(url || ""); }
+}
+function youtubeEmbedUrlSeguro(url) {
+    try {
+        const u = new URL(String(url || ""));
+        let id = "";
+        if (u.hostname.includes("youtu.be")) id = u.pathname.split("/").filter(Boolean)[0] || "";
+        else if (u.hostname.includes("youtube.com")) {
+            id = u.searchParams.get("v") || "";
+            if (!id && u.pathname.includes("/embed/")) id = u.pathname.split("/embed/")[1]?.split(/[/?#]/)[0] || "";
+            if (!id && u.pathname.includes("/shorts/")) id = u.pathname.split("/shorts/")[1]?.split(/[/?#]/)[0] || "";
+        }
+        return id ? `https://www.youtube.com/embed/${id}` : "";
+    } catch (_) { return ""; }
+}
+function converterUrlYoutube(url) { return youtubeEmbedUrlSeguro(url) || null; }
+function youtubeEmbedUrl(url) { return youtubeEmbedUrlSeguro(url) || ""; }
+
+function tipoMidiaPorUrl(url, mimeType = "") {
+    const u = String(url || "").toLowerCase().split("?")[0];
+    const m = String(mimeType || "").toLowerCase();
+    if (youtubeEmbedUrlSeguro(url)) return "youtube";
+    if (m.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/.test(u)) return "imagem";
+    if (m.startsWith("video/") || /\.(mp4|webm|ogg|mov)$/.test(u)) return "video";
+    if (m.startsWith("audio/") || /\.(mp3|wav|ogg|m4a)$/.test(u)) return "audio";
+    if (m.includes("pdf") || /\.pdf$/.test(u)) return "pdf";
+    if (/\.(docx?|pptx?|xlsx?)$/.test(u) || m.includes("word") || m.includes("presentation") || m.includes("spreadsheet") || m.includes("excel")) return "office";
+    return "link";
+}
+function criarConteudoMidiaInterna(url, titulo = "Arquivo", mimeType = "") {
+    const safeUrl = urlAbsolutaSegura(url);
+    const tipo = tipoMidiaPorUrl(safeUrl, mimeType);
+    if (!safeUrl) return `<div class="p-8 text-center text-gray-500">Arquivo/link não informado.</div>`;
+    if (tipo === "youtube") return `<iframe class="media-embed-frame aspect-video" src="${textoSeguro(youtubeEmbedUrlSeguro(safeUrl))}" allowfullscreen></iframe>`;
+    if (tipo === "imagem") return `<div class="min-h-[70vh] flex items-center justify-center"><img src="${textoSeguro(safeUrl)}" class="media-img-preview" alt="${textoSeguro(titulo)}"></div>`;
+    if (tipo === "video") return `<video src="${textoSeguro(safeUrl)}" controls class="w-full max-h-[74vh] rounded-2xl bg-black"></video>`;
+    if (tipo === "audio") return `<div class="min-h-[55vh] flex items-center justify-center"><audio src="${textoSeguro(safeUrl)}" controls class="w-full max-w-3xl"></audio></div>`;
+    if (tipo === "office") return `<iframe class="media-embed-frame" src="https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(safeUrl)}"></iframe><p class="text-[10px] text-gray-500 mt-2">Se o documento não carregar, use o botão “Abrir fora”. Alguns arquivos privados bloqueiam pré-visualização.</p>`;
+    return `<iframe class="media-embed-frame" src="${textoSeguro(safeUrl)}"></iframe><p class="text-[10px] text-gray-500 mt-2">Se o site bloquear incorporação, use o botão “Abrir fora”.</p>`;
+}
+function abrirMidiaInterna(url, titulo = "Arquivo", mimeType = "") {
+    const overlay = document.getElementById("mediaViewerOverlay");
+    const body = document.getElementById("mediaViewerBody");
+    const title = document.getElementById("mediaViewerTitle");
+    const open = document.getElementById("mediaViewerOpenExternal");
+    if (!overlay || !body) {
+        window.open(url, "_blank", "noopener");
+        return;
+    }
+    const safeUrl = urlAbsolutaSegura(url);
+    if (title) title.textContent = titulo || "Arquivo";
+    body.innerHTML = criarConteudoMidiaInterna(safeUrl, titulo, mimeType);
+    if (open) {
+        open.classList.toggle("hidden", !safeUrl);
+        open.onclick = () => window.open(safeUrl, "_blank", "noopener");
+    }
+    overlay.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+function fecharMidiaInterna() {
+    const overlay = document.getElementById("mediaViewerOverlay");
+    const body = document.getElementById("mediaViewerBody");
+    if (body) body.innerHTML = "";
+    overlay?.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+}
+
+function botaoMidiaInterna(url, titulo, classes = "", mimeType = "", label = "Abrir") {
+    if (!url) return "";
+    return `<button type="button" onclick="abrirMidiaInterna('${textoSeguro(String(url)).replace(/'/g,"&#39;")}', '${textoSeguro(String(titulo||'Arquivo')).replace(/'/g,"&#39;")}', '${textoSeguro(String(mimeType||'')).replace(/'/g,"&#39;")}')" class="${classes || 'px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold'}"><i class="fa-solid fa-up-right-from-square mr-1"></i>${textoSeguro(label)}</button>`;
+}
+
+function renderizarConteudoMaterial(m) {
+    if (m.tipo === "video" && m.url) return `<div class="my-3">${botaoMidiaInterna(m.url, m.titulo, 'block w-full text-center py-3 bg-gray-900 rounded-xl text-red-400 text-xs hover:bg-gray-700 transition', '', 'Abrir vídeo/aula')}</div>`;
+    if (m.tipo === "link" && m.url) return `<div class="my-3">${botaoMidiaInterna(m.url, m.titulo, 'block w-full text-center py-3 bg-gray-900 rounded-xl text-blue-400 text-xs hover:bg-gray-700 transition', '', 'Acessar recurso')}</div>`;
+    if (m.tipo === "arquivo" && (m.arquivoUrl || m.dados)) return `<div class="my-3">${botaoMidiaInterna(m.arquivoUrl || m.dados, m.nomeArquivo || m.titulo, 'block w-full text-center py-3 bg-gray-900 rounded-xl text-orange-400 text-xs hover:bg-gray-700 transition', m.mimeType || '', 'Abrir arquivo')}</div>`;
+    return "";
+}
+function renderizarSolucaoMaterial(m) {
+    if (!m.solucaoUrl && !m.solucaoArquivoUrl) return "";
+    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? botaoMidiaInterna(m.solucaoUrl, 'Gabarito / resolução', 'px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold', '', 'Abrir link') : ""}${m.solucaoArquivoUrl ? botaoMidiaInterna(m.solucaoArquivoUrl, m.solucaoNomeArquivo || 'Gabarito / resolução', 'px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold', m.solucaoMimeType || '', 'Abrir arquivo') : ""}</div></details>`;
+}
+function renderArquivoLinks(arquivos) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    return `<div class="flex flex-wrap gap-2 mt-2">${arquivos.map((a, i) => botaoMidiaInterna(a.url, a.nome || `Arquivo ${i+1}`, 'px-3 py-1 rounded-lg bg-blue-950/40 text-blue-300 border border-blue-900/40 text-[11px] font-bold', a.mimeType || '', a.nome || `Arquivo ${i+1}`)).join("")}</div>`;
+}
+
+function initPaineisRetrateis() {
+    const ids = ["painelAddMaterial", "painelAddSimulado", "painelGeradorSimuladoQuestoes", "admCronogramaPanel", "painelAddAula", "painelAddQuestao", "painelAddOlimpiada", "secaoAddManualResultado"];
+    ids.forEach(id => {
+        const painel = document.getElementById(id);
+        if (!painel || painel.dataset.retratilPronto === "true") return;
+        const primeiro = painel.firstElementChild;
+        if (!primeiro) return;
+        primeiro.classList.add("painel-retratil-header");
+        const corpo = document.createElement("div");
+        corpo.className = "painel-retratil-body";
+        while (primeiro.nextSibling) corpo.appendChild(primeiro.nextSibling);
+        painel.appendChild(corpo);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ml-auto px-3 py-1.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-[10px] font-bold uppercase";
+        btn.innerHTML = '<i class="fa-solid fa-chevron-up mr-1"></i>Recolher';
+        btn.onclick = (e) => { e.stopPropagation(); corpo.classList.toggle("recolhido"); const rec = corpo.classList.contains("recolhido"); btn.innerHTML = rec ? '<i class="fa-solid fa-chevron-down mr-1"></i>Expandir' : '<i class="fa-solid fa-chevron-up mr-1"></i>Recolher'; };
+        if (primeiro.classList.contains("flex")) primeiro.appendChild(btn); else primeiro.insertBefore(btn, primeiro.firstChild);
+        painel.dataset.retratilPronto = "true";
+    });
+}
+window.addEventListener("DOMContentLoaded", () => setTimeout(initPaineisRetrateis, 300));
+
+function formatarDataBRdeInput(valor) {
+    if (!valor) return "";
+    const [a,m,d] = String(valor).split("-");
+    return a && m && d ? `${d}/${m}/${a}` : String(valor);
+}
+function dataPeriodoCronograma(inicio, fim) {
+    const i = formatarDataBRdeInput(inicio);
+    const f = formatarDataBRdeInput(fim);
+    if (i && f && i !== f) return `${i} a ${f}`;
+    return i || f || "A confirmar";
+}
+function initCamposDataCronogramaV2() {
+    const antigo = document.getElementById("addCroData");
+    if (!antigo || document.getElementById("addCroDataInicio")) return;
+    const wrap = document.createElement("div");
+    wrap.className = "grid grid-cols-1 md:grid-cols-2 gap-2";
+    wrap.innerHTML = `<div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Data início</label><input type="date" id="addCroDataInicio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" required></div><div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Data final</label><input type="date" id="addCroDataFim" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none"></div>`;
+    antigo.parentElement?.replaceWith(wrap);
+}
+window.addEventListener("DOMContentLoaded", () => setTimeout(initCamposDataCronogramaV2, 200));
+
+function salvarNovoCronograma(event) {
+    event.preventDefault();
+    if (usuarioLogado?.nivel !== "ADM") return;
+    const olimpiadaId = document.getElementById("addCroOlimpiadaSelect")?.value || "";
+    const etapa = document.getElementById("addCroEtapa")?.value?.trim() || "";
+    const dataInicio = document.getElementById("addCroDataInicio")?.value || "";
+    const dataFim = document.getElementById("addCroDataFim")?.value || dataInicio;
+    const dataLivre = document.getElementById("addCroData")?.value?.trim() || "";
+    const data = dataPeriodoCronograma(dataInicio, dataFim) || dataLivre || "A confirmar";
+    const segmento = document.getElementById("addCroSegmento")?.value?.trim() || "Geral";
+    const acao = document.getElementById("addCroAcao")?.value?.trim() || "";
+    const infoEtapa = normalizarEtapaCronograma(etapa);
+    const cronograma = getStorage("app_cronograma");
+    const novo = { id: novoId(), olimpiadaId, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, data, dataInicio, dataFim, segmento, acao };
+    const resultado = inserirOuSubstituirEventoCronograma(cronograma, novo, null, true);
+    if (resultado.cancelado) return;
+    setStorage("app_cronograma", resultado.lista);
+    document.getElementById("formCadCronograma")?.reset();
+    preencherSelectEtapasCronograma();
+    renderizarCronograma();
+    if (resultado.substituido) alert("Evento duplicado substituído com sucesso.");
+}
+
+function processarPlanilhaCronograma(arquivo) {
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const linhas = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            const olimpiadas = getStorage("app_olimpiadas");
+            const cronograma = getStorage("app_cronograma");
+            let inseridos = 0, substituidos = 0;
+            linhas.forEach(linha => {
+                const siglaOuNome = String(linha.SIGLA || linha.Olimpiada || linha["OLIMPÍADA"] || "").trim().toLowerCase();
+                const foundOli = olimpiadas.find(o => String(o.nome||"").toLowerCase().includes(siglaOuNome) || String(o.categoria||"").toLowerCase() === siglaOuNome || String(o.nome||"").toLowerCase() === siglaOuNome);
+                if (foundOli) {
+                    const etapaOriginal = linha["FASE / ETAPA"] || linha.Etapa || "Fase Única — Aplicação";
+                    const infoEtapa = normalizarEtapaCronograma(etapaOriginal);
+                    const dataInicio = linha["DATA INÍCIO"] || linha["DATA INICIO"] || linha.DataInicio || "";
+                    const dataFim = linha["DATA FIM"] || linha.DataFim || "";
+                    const dataTexto = linha["DATA / PERÍODO 2026"] || linha["DATA / PERÍODO"] || linha.Data || "";
+                    const novoEvento = { id: String(Date.now() + inseridos), olimpiadaId: foundOli.id, etapa: infoEtapa.etapa, etapaCodigo: infoEtapa.etapaCodigo, etapaGrupo: infoEtapa.etapaGrupo, etapaGrupoNome: infoEtapa.etapaGrupoNome, dataInicio: String(dataInicio || ""), dataFim: String(dataFim || dataInicio || ""), data: dataTexto || dataPeriodoCronograma(dataInicio, dataFim) || "A confirmar", segmento: linha["SÉRIES ELEGÍVEIS"] || linha.Segmento || "Geral", acao: linha["OBSERVAÇÃO CRÍTICA"] || linha.Diretriz || "Mapeamento em análise." };
+                    const resultado = inserirOuSubstituirEventoCronograma(cronograma, novoEvento, null, false);
+                    cronograma.splice(0, cronograma.length, ...resultado.lista);
+                    if (resultado.substituido) substituidos++;
+                    inseridos++;
+                }
+            });
+            setStorage("app_cronograma", cronograma);
+            alert(`${inseridos} etapas mapeadas com sucesso!${substituidos ? `\n${substituidos} evento(s) duplicado(s) foram substituídos.` : ""}`);
+            renderizarCronograma();
+        } catch (err) { console.error(err); alert("Erro ao processar planilha de cronograma."); }
+    };
+    leitor.readAsArrayBuffer(arquivo);
+}
+
+async function downloadCronogramaTemplate() {
+    if (!bibliotecaExcelJSPresente()) { alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente."); return; }
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Avance Olímpico"; workbook.created = new Date();
+    const ws = workbook.addWorksheet("ModeloCronograma");
+    ws.columns = [
+        { header: "SIGLA", key: "SIGLA", width: 44 },
+        { header: "FASE / ETAPA", key: "etapa", width: 36 },
+        { header: "DATA INÍCIO", key: "dataInicio", width: 16 },
+        { header: "DATA FIM", key: "dataFim", width: 16 },
+        { header: "SÉRIES ELEGÍVEIS", key: "segmento", width: 24 },
+        { header: "OBSERVAÇÃO CRÍTICA", key: "observacao", width: 56 }
+    ];
+    const olimpiadas = listaOlimpiadasParaTemplate();
+    ws.addRow({ SIGLA: olimpiadas[0] || "OBMEP", etapa: "1ª Fase — Aplicação Escolar", dataInicio: "09/06/2026", dataFim: "09/06/2026", segmento: "6º EF a 3ª EM", observacao: "Imprimir cadernos de prova; recolher cartões." });
+    for (let i = 0; i < 99; i++) ws.addRow({});
+    estilizarCabecalhoTemplate(ws, 6);
+    ws.getColumn(6).alignment = { wrapText: true, vertical: "top" };
+    const listas = obterOuCriarAbaListas(workbook);
+    const rangeOlimpiadas = escreverListaValidacao(listas, "A", "Olimpíadas cadastradas", olimpiadas);
+    const rangeEtapas = escreverListaValidacao(listas, "B", "Etapas padronizadas", todasEtapasPadronizadas().map(e => e.nome));
+    const rangeSegmentos = escreverListaValidacao(listas, "C", "Séries/segmentos", listaSegmentosCronogramaParaTemplate());
+    aplicarListaSuspensa(ws, "A", 2, 101, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "B", 2, 101, rangeEtapas, "Escolha uma etapa padronizada.");
+    aplicarListaSuspensa(ws, "E", 2, 101, rangeSegmentos, "Escolha uma série/segmento da lista.");
+    await baixarWorkbookExcelJS(workbook, "modelo_carga_cronograma_com_datas_inicio_fim.xlsx");
+}
+
+function simuladoInicioData(sim) {
+    if (!sim?.dataAbertura) return null;
+    const h = sim.horaAbertura || "00:00";
+    const d = new Date(`${sim.dataAbertura}T${h}`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+function simuladoEditavelAteInicio(sim) {
+    const inicio = simuladoInicioData(sim);
+    return !inicio || Date.now() < inicio.getTime();
+}
+function podePrevisualizarSimulado() { return podeGerenciarSimulados(); }
+function linkPublicoSimulado(sim) { return `${location.origin}${location.pathname}?simuladoPublico=${encodeURIComponent(sim.id)}&ano=${encodeURIComponent(anoDadosAtivo || anoSelecionado || '2026')}`; }
+function copiarLinkPublicoSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return;
+    const link = linkPublicoSimulado(sim);
+    navigator.clipboard?.writeText(link).then(() => alert("Link público copiado."), () => prompt("Copie o link público:", link));
+}
+function abrirLinkPublicoSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (sim) abrirMidiaInterna(linkPublicoSimulado(sim), `Link público — ${sim.titulo}`);
+}
+function previsualizarSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    simuladoSessaoAtual = { simuladoId: String(id), iniciado: true, inicio: Date.now(), limiteMs: 0, preview: true };
+    renderizarAmbienteSimulado();
+    document.getElementById("simuladoAmbienteOverlay")?.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+function fecharAmbienteSimulado() {
+    if (simuladoSessaoAtual?.preview) { limparAmbienteSimulado(); return; }
+    if (simuladoSessaoAtual?.iniciado) {
+        if (!confirm("Ao sair deste ambiente, o simulado será encerrado e as respostas marcadas até agora serão enviadas. Deseja sair e enviar?")) return;
+        finalizarSimuladoAmbiente(false, "saida_da_pagina");
+        return;
+    }
+    limparAmbienteSimulado();
+}
+function editarSimulado(id) {
+    if (!podeGerenciarSimulados()) return;
+    const lista = getStorage("app_simulados", []);
+    const idx = lista.findIndex(s => String(s.id) === String(id));
+    if (idx < 0) return alert("Simulado não encontrado.");
+    const sim = lista[idx];
+    if (!simuladoEditavelAteInicio(sim)) return alert("Este simulado já iniciou. Para preservar envios e ranking, a edição fica bloqueada após o início.");
+    abrirModalEdicao({
+        titulo: "Editar simulado",
+        campos: [
+            { nome: "titulo", label: "Título", valor: sim.titulo || "" },
+            { nome: "disciplina", label: "Disciplina", valor: sim.disciplina || "" },
+            { nome: "nivel", label: "Nível", valor: sim.nivel || "" },
+            { nome: "dataAbertura", label: "Data de abertura", tipo: "date", valor: sim.dataAbertura || "" },
+            { nome: "horaAbertura", label: "Hora de início", tipo: "time", valor: sim.horaAbertura || "" },
+            { nome: "dataFim", label: "Data de encerramento", tipo: "date", valor: sim.dataFim || "" },
+            { nome: "horaFim", label: "Hora de término", tipo: "time", valor: sim.horaFim || "" },
+            { nome: "descricao", label: "Descrição / instruções", tipo: "textarea", valor: sim.descricao || "" }
+        ],
+        onSalvar: async (d) => {
+            lista[idx] = { ...lista[idx], ...d, atualizadoEm: Date.now() };
+            await setStorage("app_simulados", lista);
+            renderizarSimulados();
+            alert("Simulado atualizado.");
+        }
+    });
+}
+
+async function uploadArquivosInputEl(input, pasta) {
+    const files = Array.from(input?.files || []);
+    const arr = [];
+    for (const f of files) {
+        const up = await enviarArquivoParaFirebaseStorage(f, pasta);
+        arr.push({ url: up.fileUrl, storagePath: up.storagePath, nome: up.fileName, mimeType: up.mimeType, tamanho: up.size });
+    }
+    return arr;
+}
+function adicionarQuestaoManualSimulado(dados = {}) {
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (!lista) return;
+    const n = lista.querySelectorAll(".sim-questao-manual").length + 1;
+    const wrap = document.createElement("div");
+    wrap.className = "sim-questao-manual rounded-xl border border-blue-900/40 bg-gray-900/60 p-3 space-y-2";
+    wrap.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="text-xs font-black text-blue-200 uppercase">Questão manual ${n}</span><button type="button" onclick="this.closest('.sim-questao-manual').remove()" class="text-red-300 text-xs font-bold">Remover</button></div>
+    <textarea data-campo="enunciado" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Enunciado da questão...">${textoSeguro(dados.enunciado||"")}</textarea>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+      <select data-campo="tipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Múltipla escolha</option><option>Dissertativa</option><option>Mista</option><option>Verdadeiro ou Falso</option></select>
+      <select data-campo="dificuldade" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Fácil</option><option>Médio</option><option>Difícil</option><option>Muito difícil</option><option>Olímpica</option><option>Vestibular</option></select>
+      <select data-campo="alternativaCorreta" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option value="">Sem gabarito</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select>
+      <input data-campo="tema" list="listaTemasQuestoes" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Tema">
+      <input data-campo="arquivosInput" type="file" multiple accept="image/*,.pdf,.doc,.docx,.ppt,.pptx" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
+    </div><p class="text-[10px] text-gray-500">Use imagens, gráficos, tabelas ou documentos de apoio para deixar a questão mais completa.</p>`;
+    lista.appendChild(wrap);
+    if (dados.tipo) wrap.querySelector('[data-campo="tipo"]').value = dados.tipo;
+    if (dados.dificuldade) wrap.querySelector('[data-campo="dificuldade"]').value = dados.dificuldade;
+    if (dados.alternativaCorreta) wrap.querySelector('[data-campo="alternativaCorreta"]').value = dados.alternativaCorreta;
+    if (dados.tema) wrap.querySelector('[data-campo="tema"]').value = dados.tema;
+}
+async function lerQuestoesManuaisSimuladoComMidia() {
+    const els = Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual"));
+    const out = [];
+    for (let idx = 0; idx < els.length; idx++) {
+        const el = els[idx];
+        const enunciado = el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "";
+        if (!enunciado) continue;
+        const arquivos = await uploadArquivosInputEl(el.querySelector('[data-campo="arquivosInput"]'), "simulados_questoes_manuais");
+        out.push({ numero: idx + 1, questaoId: `manual_${idx+1}`, titulo: `Questão ${idx+1}`, enunciado, tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha", dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio", tema: el.querySelector('[data-campo="tema"]')?.value || "", alternativaCorreta: el.querySelector('[data-campo="alternativaCorreta"]')?.value || "", arquivos });
+    }
+    return out;
+}
+
+function renderizarQuestoesDoSimuladoSeguro(sim) {
+    const qs = Array.isArray(sim.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return "";
+    return `<div class="simulado-secure-area space-y-4">${qs.map(q => `<div class="rounded-2xl bg-gray-950/60 border border-gray-700 p-4"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-sm font-black text-white">Questão ${q.numero}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${textoSeguro([q.disciplina, q.tema, q.dificuldade].filter(Boolean).join(" · "))}</span></div><p class="text-sm text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">${textoSeguro(q.enunciado || q.titulo || "")}</p>${renderArquivoLinks(q.arquivos)}</div>`).join("")}</div>`;
+}
+function renderizarAmbienteSimulado() {
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!box || !simuladoSessaoAtual) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    const envio = envioSimuladoUsuario(sim);
+    if (!simuladoSessaoAtual.iniciado) {
+        const mins = minutosDuracaoSimulado(sim);
+        box.innerHTML = `<div class="max-w-3xl mx-auto bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl"><div class="flex items-start gap-4"><div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-2xl"><i class="fa-solid fa-stopwatch"></i></div><div class="flex-1"><h2 class="text-2xl font-black text-white">Ambiente cronometrado</h2><p class="text-sm text-gray-400 mt-2 leading-relaxed">Você irá iniciar o simulado <b class="text-gray-200">${textoSeguro(sim.titulo)}</b>. Após clicar em <b>Iniciar simulado</b>, se você sair deste ambiente, o simulado será encerrado e as respostas marcadas até o momento serão enviadas.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5"><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Prazo</p><p class="text-sm text-gray-200 font-bold mt-1">${textoPrazoSimulado(sim)} ${sim.horaFim ? `às ${textoSeguro(sim.horaFim)}` : ""}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo</p><p class="text-sm text-gray-200 font-bold mt-1">${mins ? `${mins} minutos` : "Sem limite definido"}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Formato</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(sim.formato || "simulado")}</p></div></div><div class="mt-6 flex flex-col sm:flex-row gap-3"><button onclick="iniciarSimuladoCronometrado()" class="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs"><i class="fa-solid fa-play mr-2"></i>Iniciar simulado</button><button onclick="fecharAmbienteSimulado()" class="px-5 py-3 rounded-2xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold uppercase text-xs">Cancelar</button></div></div></div></div>`;
+        return;
+    }
+    const questoesHTML = renderizarQuestoesDoSimuladoSeguro(sim);
+    const mediaPrincipal = questoesHTML || (sim.arquivoUrl ? criarConteudoMidiaInterna(sim.arquivoUrl, sim.arquivoNome || sim.titulo, sim.arquivoMimeType || "") : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo de simulado anexado. Use as instruções abaixo.</div>`);
+    const isPreview = !!simuladoSessaoAtual.preview;
+    box.innerHTML = `<div class="space-y-4 simulado-secure-area"><div class="sticky top-0 z-10 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><p class="text-[10px] text-gray-500 uppercase font-bold">${isPreview ? "Pré-visualização da equipe" : "Simulado em andamento"}</p><h2 class="text-lg font-black text-white">${textoSeguro(sim.titulo)}</h2></div><div class="flex flex-wrap items-center gap-2"><span id="simAmbTimer" class="px-4 py-2 rounded-xl bg-amber-900/40 text-amber-200 border border-amber-800/50 text-sm font-black">--:--</span>${isPreview ? "" : `<button onclick="finalizarSimuladoAmbiente(false, 'finalizado_pelo_aluno')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>Finalizar e enviar</button>`}<button onclick="fecharAmbienteSimulado()" class="px-4 py-2 rounded-xl bg-red-900/40 hover:bg-red-800/50 text-red-200 text-xs font-bold uppercase">Sair</button></div></div><div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,0.8fr)] gap-5"><div class="space-y-3"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4 min-h-[75vh]">${mediaPrincipal}</div>${sim.imagemUrl ? `<button onclick="abrirMidiaInterna('${textoSeguro(sim.imagemUrl).replace(/'/g,'&#39;')}', 'Imagem de apoio')" class="px-3 py-2 rounded-xl bg-gray-700 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Ver imagem de apoio</button>` : ""}${sim.descricao ? `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Instruções</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${textoSeguro(sim.descricao)}</p></div>` : ""}</div><div class="space-y-4"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4">${renderGradeRespostaObjetivaAmbiente(sim, envio)}<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Resposta dissertativa / observações</label><textarea id="simAmbTexto" rows="5" ${isPreview ? "disabled" : ""} class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Digite comentários, justificativas ou resposta dissertativa...">${textoSeguro(envio?.texto || "")}</textarea>${isPreview ? `<p class="text-[10px] text-purple-300 mt-2">Modo prévia: nada é enviado, nada conta no ranking.</p>` : `<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Anexo de resolução</label><input type="file" id="simAmbArquivo" accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">`}${envio?.arquivoUrl ? botaoMidiaInterna(envio.arquivoUrl, envio.arquivoNome || 'Anexo enviado', 'text-blue-400 text-xs font-bold mt-2 inline-block', envio.arquivoMimeType || '', 'Anexo enviado anteriormente') : ""}</div></div></div></div>`;
+    atualizarTimerSimulado();
+}
+
+async function salvarNovoSimulado(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para publicar simulados.");
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    try {
+        const titulo = document.getElementById("simTitulo")?.value.trim() || "Simulado sem título";
+        const descricao = document.getElementById("simDescricao")?.value.trim() || "";
+        const gabaritoTexto = document.getElementById("simGabarito")?.value.trim() || "";
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
+        const questoesManuais = await lerQuestoesManuaisSimuladoComMidia();
+        if (!validarConteudoEducacionalIA([titulo, descricao, gabaritoTexto, ...questoesManuais.map(q=>q.enunciado)], "simulado")) return;
+        const arquivo = document.getElementById("simArquivo")?.files?.[0] || null;
+        const imagem = document.getElementById("simImagem")?.files?.[0] || null;
+        const solucaoArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+        const horas = Math.max(0, Number(document.getElementById("simDuracaoHoras")?.value || 0));
+        const minutos = Math.max(0, Number(document.getElementById("simDuracaoMinutos")?.value || 0));
+        const sim = { id: novoId(), titulo, disciplina: document.getElementById("simDisciplina")?.value || "Geral", nivel: document.getElementById("simNivel")?.value || "Geral", formato: document.getElementById("simFormato")?.value || "objetivo", dataAbertura: document.getElementById("simDataAbertura")?.value || "", horaAbertura: document.getElementById("simHoraAbertura")?.value || "", dataFim: document.getElementById("simDataFim")?.value || "", horaFim: document.getElementById("simHoraFim")?.value || "", duracaoMinutos: horas * 60 + minutos, duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido", quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || questoesManuais.length || 0), questoesBanco: questoesManuais, gabaritoObjetivo: questoesManuais.length ? questoesManuais.map((q,i)=>({numero:i+1,resposta:q.alternativaCorreta})).filter(g=>g.resposta) : lerGabaritoObjetivoSimulado(), gabarito: gabaritoTexto, descricao, solucaoUrl: document.getElementById("simSolucaoUrl")?.value.trim() || "", publico: !!document.getElementById("simPublico")?.checked, destino: { tipo: document.getElementById("simDestinoTipo")?.value || "todos", valores: Array.from(document.getElementById("simDestinoValores")?.selectedOptions || []).map(o=>o.value) }, criadoEm: Date.now(), criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || "" };
+        if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados"); Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType }); }
+        if (imagem) { const up = await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens"); Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName }); }
+        if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); sim.solucaoArquivoUrl = up.fileUrl; sim.solucaoStoragePath = up.storagePath; sim.solucaoNomeArquivo = up.fileName; sim.solucaoMimeType = up.mimeType; }
+        const lista = getStorage("app_simulados", []); lista.push(sim); await setStorage("app_simulados", lista);
+        document.getElementById("formCadSimulado")?.reset(); if (document.getElementById("simQuestoesManuaisLista")) document.getElementById("simQuestoesManuaisLista").innerHTML = ""; gerarCamposGabaritoSimulado(false);
+        renderizarSimulados(); atualizarSelectRankingSimulados();
+        alert(sim.publico ? `Simulado publicado. Link público:\n${linkPublicoSimulado(sim)}` : "Simulado publicado com sucesso.");
+    } catch (erro) { console.error(erro); alert(`Erro ao publicar simulado.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
+}
+
+function renderizarSimulados() {
+    popularFiltrosSimulados();
+    const grid = document.getElementById("gridSimulados"); if (!grid) return;
+    const fd = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const fn = document.getElementById("filtroSimNivel")?.value || "TODOS";
+    const ff = document.getElementById("filtroSimFormato")?.value || "TODOS";
+    const fs = document.getElementById("filtroSimStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroSimBusca")?.value || "");
+    let sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario);
+    sims = sims.filter(s => (fd === "TODOS" || s.disciplina === fd) && (fn === "TODOS" || s.nivel === fn) && (ff === "TODOS" || s.formato === ff));
+    if (busca) sims = sims.filter(s => normalizarTexto(`${s.titulo} ${s.descricao} ${s.disciplina} ${s.nivel}`).includes(busca));
+    if (fs !== "TODOS") sims = sims.filter(s => fs === "RESPONDIDOS" ? !!envioSimuladoUsuario(s) : !envioSimuladoUsuario(s));
+    sims.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+    if (!sims.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p></div>`; return; }
+    grid.innerHTML = sims.map(s => {
+        const envio = envioSimuladoUsuario(s); const encerrado = simuladoPrazoEncerrado(s); const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
+        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+        const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
+        const botaoAluno = !podeGerenciarSimulados() ? (podeIniciarSimulado(s) ? `<button onclick="abrirAmbienteSimulado('${s.id}')" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-door-open mr-1"></i>Entrar no simulado</button>` : "") : "";
+        const ger = podeGerenciarSimulados() ? `<button onclick="previsualizarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button>${simuladoEditavelAteInicio(s) ? `<button onclick="editarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button>` : `<span class="px-3 py-2 rounded-xl bg-gray-900 text-gray-500 text-xs font-bold">Edição bloqueada</span>`}<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
+        const linkPub = s.publico ? `<div class="mt-3 rounded-2xl border border-purple-900/40 bg-purple-950/20 p-3"><p class="text-[10px] uppercase font-black text-purple-300 mb-2">Link público do simulado</p><div class="flex flex-wrap gap-2"><button onclick="copiarLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-700 text-white text-xs font-bold"><i class="fa-solid fa-copy mr-1"></i>Copiar</button><button onclick="abrirLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-gray-900 text-purple-200 text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir</button></div><p class="text-[10px] text-purple-200/70 mt-2 break-all">${textoSeguro(linkPublicoSimulado(s))}</p></div>` : "";
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-black uppercase text-blue-300">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 text-xs text-gray-400">Use o painel “Ranking / relatório por simulado” acima para exportar CSV e analisar os envios.</div></details>` : "";
+        return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl"><div class="flex flex-wrap gap-2 mb-3">${enviadoTexto}${prazoBadge}<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">${textoSeguro(s.formato || "Simulado")}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold uppercase">${textoSeguro(s.nivel || "Geral")}</span></div><h3 class="text-xl font-black text-white">${textoSeguro(s.titulo)}</h3><p class="text-sm text-gray-300 mt-2">${textoSeguro(s.disciplina || "Geral")} · ${textoPrazoSimulado(s)} · ${textoSeguro(s.duracao || (s.duracaoMinutos ? `${s.duracaoMinutos} min` : "Sem tempo"))}</p>${s.descricao ? `<p class="text-sm text-gray-300 mt-4 whitespace-pre-wrap">${textoSeguro(s.descricao)}</p>` : ""}<div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl && podeGerenciarSimulados() ? botaoMidiaInterna(s.arquivoUrl, s.arquivoNome || s.titulo, 'px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold', s.arquivoMimeType || '', 'Abrir simulado') : ""}${s.imagemUrl && podeGerenciarSimulados() ? botaoMidiaInterna(s.imagemUrl, 'Imagem de apoio', 'px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold', '', 'Imagem') : ""}${botaoAluno}${ger}</div>${linkPub}${renderLinksGabaritoSimulado(s)}${enviosResumo}</div>`;
+    }).join("");
+    atualizarSelectRankingSimulados(); renderizarRankingSimulado(false);
+}
+
+function abrirAulaInterna(id) {
+    const aula = getStorage("app_aulas", []).find(a => String(a.id) === String(id));
+    if (!aula) return alert("Aula não encontrada.");
+    const body = document.getElementById("mediaViewerBody"); const title = document.getElementById("mediaViewerTitle"); const overlay = document.getElementById("mediaViewerOverlay");
+    if (!body || !overlay) return abrirMidiaInterna(aula.url || aula.arquivoUrl, aula.tema, aula.arquivoMimeType || "");
+    if (title) title.textContent = aula.tema || "Aula";
+    const comentarios = Array.isArray(aula.comentarios) ? aula.comentarios : [];
+    const mediaUrl = aula.url || aula.arquivoUrl || "";
+    body.innerHTML = `<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(360px,0.85fr)] gap-5"><div class="space-y-4"><div class="bg-gray-950 rounded-2xl p-3 border border-gray-700">${criarConteudoMidiaInterna(mediaUrl, aula.tema, aula.arquivoMimeType || "")}</div>${aula.descricao ? `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-black text-gray-400 uppercase mb-2">Descrição / roteiro</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${textoSeguro(aula.descricao)}</p></div>` : ""}</div><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-black text-gray-300 uppercase mb-3"><i class="fa-solid fa-comments text-blue-400 mr-1"></i>Comentários da aula</h4><div class="space-y-2 max-h-[55vh] overflow-y-auto pr-1">${comentarios.length ? comentarios.map(c=>`<div class="rounded-xl bg-gray-950 border border-gray-700 p-3"><div class="flex justify-between gap-2 mb-1"><b class="text-xs text-gray-200">${textoSeguro(c.nome || 'Usuário')}</b><span class="text-[10px] text-gray-500">${formatarDataHora(c.criadoEm)}</span></div><p class="text-xs text-gray-300 whitespace-pre-wrap">${textoSeguro(c.texto || '')}</p></div>`).join('') : `<p class="text-xs text-gray-500 italic">Nenhum comentário ainda.</p>`}</div><form onsubmit="publicarComentarioAula('${aula.id}', event)" class="mt-3 space-y-2"><textarea id="comentarioAula_${aula.id}" rows="3" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Comente, pergunte ou deixe uma observação..."></textarea><button class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase">Enviar comentário</button></form></div></div>`;
+    const open = document.getElementById("mediaViewerOpenExternal"); if (open) { open.classList.toggle("hidden", !mediaUrl); open.onclick = () => window.open(mediaUrl, "_blank", "noopener"); }
+    overlay.classList.remove("hidden"); document.body.classList.add("overflow-hidden");
+}
+async function publicarComentarioAula(id, event) {
+    event.preventDefault();
+    const texto = document.getElementById(`comentarioAula_${id}`)?.value.trim() || "";
+    if (!texto) return;
+    const lista = getStorage("app_aulas", []); const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return;
+    lista[idx].comentarios = Array.isArray(lista[idx].comentarios) ? lista[idx].comentarios : [];
+    lista[idx].comentarios.push({ id: novoId(), texto, nome: usuarioLogado?.nome || "Usuário", usuarioId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoEm: Date.now() });
+    await setStorage("app_aulas", lista);
+    abrirAulaInterna(id);
+}
+function renderizarAulas() {
+    popularFiltrosAulas();
+    const grid = document.getElementById("gridAulas"); if (!grid) return;
+    const fn = document.getElementById("filtroAulaNivel")?.value || "TODOS";
+    const fd = document.getElementById("filtroAulaDisciplina")?.value || "TODOS";
+    const fp = document.getElementById("filtroAulaPlaylist")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroAulaBusca")?.value || "");
+    let aulas = getStorage("app_aulas", []);
+    aulas = aulas.filter(a => (fn === "TODOS" || a.nivel === fn) && (fd === "TODOS" || a.disciplina === fd) && (fp === "TODOS" || a.playlist === fp));
+    if (busca) aulas = aulas.filter(a => normalizarTexto(`${a.tema} ${a.playlist} ${a.descricao} ${a.disciplina}`).includes(busca));
+    aulas.sort((a,b)=>String(a.nivel).localeCompare(String(b.nivel),"pt-BR") || String(a.disciplina).localeCompare(String(b.disciplina),"pt-BR") || String(a.playlist).localeCompare(String(b.playlist),"pt-BR") || (a.criadoEm||0)-(b.criadoEm||0));
+    if (!aulas.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-video text-3xl mb-3 opacity-40"></i><p>Nenhuma aula encontrada.</p></div>`; return; }
+    const grupos = {}; aulas.forEach(a => { const k = `${a.nivel}||${a.disciplina}||${a.playlist}`; if (!grupos[k]) grupos[k] = { nivel:a.nivel, disciplina:a.disciplina, playlist:a.playlist, aulas:[] }; grupos[k].aulas.push(a); });
+    grid.innerHTML = Object.values(grupos).map(g => `<div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl overflow-hidden"><div class="p-5 border-b border-gray-700 bg-gray-900/40"><p class="text-[10px] uppercase tracking-widest text-blue-300 font-black">${textoSeguro(g.nivel)} · ${textoSeguro(g.disciplina)}</p><h3 class="text-lg font-black text-white mt-1"><i class="fa-solid fa-play mr-2 text-blue-400"></i>${textoSeguro(g.playlist)}</h3></div><div class="divide-y divide-gray-700/50">${g.aulas.map(a => { const del = podeGerenciarAulas() ? `<button onclick="excluirAula('${a.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : ""; return `<div class="p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"><div><h4 class="font-black text-white">${textoSeguro(a.tema)}</h4><p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(a.criadoPor || "Sistema")} · ${Array.isArray(a.comentarios) ? a.comentarios.length : 0} comentário(s)</p>${a.descricao ? `<p class="text-sm text-gray-300 mt-2 line-clamp-2">${textoSeguro(a.descricao)}</p>` : ""}</div><div class="flex gap-2 flex-wrap"><button onclick="abrirAulaInterna('${a.id}')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-circle-play mr-1"></i>Abrir aula</button>${del}</div></div>`; }).join("")}</div></div>`).join("");
+}
