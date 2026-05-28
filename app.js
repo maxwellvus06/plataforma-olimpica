@@ -9525,7 +9525,7 @@ async function salvarNovoSimulado(event) {
     const lista = getStorage("app_simulados", []); lista.push(sim); await setStorage("app_simulados", lista);
     document.getElementById("formCadSimulado")?.reset(); document.getElementById("simQuestoesManuaisLista") && (document.getElementById("simQuestoesManuaisLista").innerHTML = ""); gerarCamposGabaritoSimulado(false);
     renderizarSimulados(); atualizarSelectRankingSimulados();
-    alert(sim.publico ? `Simulado publicado. Link público:\n${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoSelecionado}` : "Simulado publicado com sucesso.");
+    alert(sim.publico ? `Simulado publicado. Link público:\n${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoDadosAtivo}` : "Simulado publicado com sucesso.");
   } catch (erro) { console.error(erro); alert(`Erro ao publicar simulado.\n\n${erro.message || erro}`); }
   finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
 }
@@ -9580,7 +9580,7 @@ async function gerarSimuladoPeloBancoQuestoes() {
     criadoEm: Date.now(), criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || ""
   };
   const lista = getStorage("app_simulados", []); lista.push(sim); await setStorage("app_simulados", lista);
-  document.getElementById("gerSimResumo").innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${escolhidas.length} questões.</span>` + (sim.publico ? `<br><span class="text-purple-200">Link público: ${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoSelecionado}</span>` : "");
+  document.getElementById("gerSimResumo").innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${escolhidas.length} questões.</span>` + (sim.publico ? `<br><span class="text-purple-200">Link público: ${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoDadosAtivo}</span>` : "");
   renderizarSimulados(); atualizarSelectRankingSimulados();
   alert("Simulado criado a partir do Banco de Questões.");
 }
@@ -9657,7 +9657,7 @@ window.renderizarPreviewRelatorioCriativo = function(rel) {
 // -------------------- Público visitante --------------------
 async function carregarSimuladoPublicoPorId(id, ano) {
   initFirebase();
-  const ref = firebaseFirestore.collection(`anos/${ano || anoSelecionado}/sistema_simulados`).doc(String(id));
+  const ref = firebaseFirestore.collection(`anos/${ano || anoDadosAtivo}/sistema_simulados`).doc(String(id));
   const snap = await ref.get();
   if (!snap.exists) throw new Error("Simulado público não encontrado.");
   const sim = { id: snap.id, ...snap.data() };
@@ -9831,3 +9831,402 @@ function exportarOlimpiadasExibidasExcel() {
 window.exportarResultadosFiltradosExcel = exportarResultadosFiltradosExcel;
 window.exportarCalendarioFiltradoExcel = exportarCalendarioFiltradoExcel;
 window.exportarOlimpiadasExibidasExcel = exportarOlimpiadasExibidasExcel;
+
+
+// ==================== PATCH FINAL — SIMULADOS: CONTEXTO, PÚBLICO, EDIÇÃO E JANELA 6H ====================
+function niveisGestoresSimulados() {
+    return ["ADM", "Staff", "Monitor", "Professor/Orientador"];
+}
+
+function podeGerenciarSimulados() {
+    return niveisGestoresSimulados().includes(usuarioLogado?.nivel);
+}
+
+function dataInicioSimuladoComoData(sim) {
+    const data = String(sim?.dataAbertura || "").trim();
+    if (!data) return null;
+    const hora = String(sim?.horaAbertura || "00:00").trim() || "00:00";
+    const d = new Date(`${data}T${hora}:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dataFimSimuladoComoData(sim) {
+    const data = String(sim?.dataFim || "").trim();
+    if (!data) return null;
+    const hora = String(sim?.horaFim || "23:59").trim() || "23:59";
+    const d = new Date(`${data}T${hora}:59`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function simuladoAindaNaoAbriu(sim) {
+    const inicio = dataInicioSimuladoComoData(sim);
+    return !!inicio && Date.now() < inicio.getTime();
+}
+
+function simuladoPrazoEncerrado(sim) {
+    const fim = dataFimSimuladoComoData(sim);
+    return !!fim && Date.now() > fim.getTime();
+}
+
+function simuladoDentroDaJanelaSeisHoras(sim) {
+    const inicio = dataInicioSimuladoComoData(sim);
+    if (!inicio) return true;
+    return Date.now() >= inicio.getTime() - (6 * 60 * 60 * 1000);
+}
+
+function textoPrazoSimulado(sim) {
+    const inicio = dataInicioSimuladoComoData(sim);
+    const fim = dataFimSimuladoComoData(sim);
+    if (inicio && Date.now() < inicio.getTime()) {
+        const diff = inicio.getTime() - Date.now();
+        const horas = Math.ceil(diff / (60 * 60 * 1000));
+        return `Abre em ${inicio.toLocaleString("pt-BR")} · faltam ${horas}h`;
+    }
+    if (fim && Date.now() > fim.getTime()) return `Prazo encerrado em ${fim.toLocaleString("pt-BR")}`;
+    if (fim) return `Prazo: ${fim.toLocaleString("pt-BR")}`;
+    return "Sem prazo definido";
+}
+
+function minutosDuracaoSimulado(sim) {
+    if (Number(sim?.duracaoMinutos) > 0) return Number(sim.duracaoMinutos);
+    const raw = String(sim?.duracao || "").toLowerCase().trim();
+    if (!raw || raw.includes("sem limite")) return 0;
+    const h = raw.match(/(\d+)\s*h/);
+    const m = raw.match(/(\d+)\s*min/);
+    return (h ? Number(h[1]) * 60 : 0) + (m ? Number(m[1]) : 0);
+}
+
+function simuladoDestinadoAoUsuario(sim) {
+    if (!usuarioLogado) return false;
+    if (podeGerenciarSimulados() || usuarioLogado.nivel === "Visualizador") return true;
+    if (!simuladoDentroDaJanelaSeisHoras(sim)) return false;
+    const destino = sim.destino || { tipo: "todos", valores: [] };
+    if (!destino.tipo || destino.tipo === "todos") return true;
+    const valores = (destino.valores || []).map(String);
+    const escolas = getStorage("app_escolas", []);
+    const aluno = alunoDoUsuarioLogado();
+    const escolaAluno = aluno ? escolas.find(e => e.id === aluno.escolaId || e.nome === aluno.escola) : null;
+    if (destino.tipo === "nivel") return valores.includes(sim.nivel) || valores.includes(aluno?.nivel) || valores.includes(aluno?.serie) || valores.includes(usuarioLogado.nivel);
+    if (destino.tipo === "cidade") {
+        const cidadeId = usuarioLogado.cidadeId || escolaAluno?.cidadeId || getEscolaVinculadaUsuario()?.cidadeId;
+        return valores.includes(String(cidadeId));
+    }
+    if (destino.tipo === "escola") {
+        const escolaId = usuarioLogado.vinculoId || aluno?.escolaId || escolaAluno?.id;
+        return valores.includes(String(escolaId));
+    }
+    if (destino.tipo === "aluno") return !!aluno && valores.includes(String(aluno.id));
+    return true;
+}
+
+function podeIniciarSimulado(sim) {
+    if (podeGerenciarSimulados()) return true;
+    if (!simuladoDentroDaJanelaSeisHoras(sim)) return false;
+    if (simuladoAindaNaoAbriu(sim)) return false;
+    if (simuladoPrazoEncerrado(sim)) return false;
+    const envio = envioSimuladoUsuario(sim);
+    return !(envio && envio.status === "encerrado");
+}
+
+function linkPublicoSimulado(sim) {
+    return `${location.origin}${location.pathname}?simuladoPublico=${encodeURIComponent(sim.id)}&ano=${encodeURIComponent(anoDadosAtivo || new Date().getFullYear())}`;
+}
+
+async function copiarLinkSimuladoPublico(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    const link = linkPublicoSimulado(sim);
+    try {
+        await navigator.clipboard.writeText(link);
+        alert("Link público copiado para a área de transferência.");
+    } catch (_) {
+        prompt("Copie o link público:", link);
+    }
+}
+
+function abrirLinkPublicoSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    window.open(linkPublicoSimulado(sim), "_blank");
+}
+
+function atualizarQuestaoManualTipo(sel) {
+    const box = sel?.closest?.(".sim-questao-manual");
+    if (!box) return;
+    const tipo = String(sel.value || "").toLowerCase();
+    const gab = box.querySelector('[data-campo="alternativaCorreta"]');
+    const gabWrap = box.querySelector('[data-wrap="gabaritoManual"]');
+    const dis = tipo.includes("dissertativa");
+    if (gabWrap) gabWrap.classList.toggle("hidden", dis);
+    if (gab && dis) gab.value = "";
+}
+
+function adicionarQuestaoManualSimulado(dados = {}) {
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (!lista) return;
+    const n = lista.querySelectorAll(".sim-questao-manual").length + 1;
+    const wrap = document.createElement("div");
+    wrap.className = "sim-questao-manual rounded-xl border border-blue-900/40 bg-gray-900/60 p-3 space-y-2";
+    wrap.innerHTML = `
+        <div class="flex items-center justify-between gap-2"><span class="text-xs font-black text-blue-200 uppercase">Questão manual ${n}</span><button type="button" onclick="this.closest('.sim-questao-manual').remove()" class="text-red-300 text-xs font-bold">Remover</button></div>
+        <textarea data-campo="enunciado" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Enunciado da questão...">${textoSeguro(dados.enunciado||"")}</textarea>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <select data-campo="tipo" onchange="atualizarQuestaoManualTipo(this)" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Múltipla escolha</option><option>Dissertativa</option><option>Mista</option><option>Verdadeiro ou Falso</option></select>
+          <select data-campo="dificuldade" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Fácil</option><option>Médio</option><option>Difícil</option><option>Muito difícil</option><option>Olímpica</option><option>Vestibular</option></select>
+          <div data-wrap="gabaritoManual"><select data-campo="alternativaCorreta" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option value="">Sem gabarito</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></div>
+          <input data-campo="tema" list="listaTemasQuestoes" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Tema">
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <input type="file" data-campo="arquivoQuestao" accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
+          <p class="text-[10px] text-gray-500 self-center">Opcional: anexe imagem/PDF da questão. Para questão dissertativa, o aluno poderá anexar foto/PDF da resolução no ambiente da prova.</p>
+        </div>`;
+    lista.appendChild(wrap);
+    wrap.querySelector('[data-campo="tipo"]').value = dados.tipo || "Múltipla escolha";
+    wrap.querySelector('[data-campo="dificuldade"]').value = dados.dificuldade || "Médio";
+    wrap.querySelector('[data-campo="alternativaCorreta"]').value = dados.alternativaCorreta || "";
+    wrap.querySelector('[data-campo="tema"]').value = dados.tema || "";
+    if (Array.isArray(dados.arquivos) && dados.arquivos.length) wrap.dataset.arquivos = JSON.stringify(dados.arquivos);
+    atualizarQuestaoManualTipo(wrap.querySelector('[data-campo="tipo"]'));
+}
+
+function lerQuestoesManuaisSimulado() {
+    return Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual")).map((el, idx) => ({
+        numero: idx + 1,
+        questaoId: `manual_${idx+1}`,
+        titulo: `Questão ${idx+1}`,
+        enunciado: el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "",
+        tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha",
+        dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio",
+        tema: el.querySelector('[data-campo="tema"]')?.value || "",
+        alternativaCorreta: String(el.querySelector('[data-campo="tipo"]')?.value || "").toLowerCase().includes("dissertativa") ? "" : (el.querySelector('[data-campo="alternativaCorreta"]')?.value || ""),
+        arquivos: el.dataset.arquivos ? JSON.parse(el.dataset.arquivos) : [],
+        _fileInput: el.querySelector('[data-campo="arquivoQuestao"]')
+    })).filter(q => q.enunciado);
+}
+
+async function lerQuestoesManuaisSimuladoComUploads() {
+    const qs = lerQuestoesManuaisSimulado();
+    for (const q of qs) {
+        const file = q._fileInput?.files?.[0] || null;
+        delete q._fileInput;
+        if (file) {
+            const up = await enviarArquivoParaFirebaseStorage(file, "simulados_questoes");
+            q.arquivos = [...(q.arquivos || []), { nome: up.fileName, url: up.fileUrl, storagePath: up.storagePath, mimeType: up.mimeType, tipo: "anexo" }];
+        }
+    }
+    return qs;
+}
+
+function renderizarQuestoesDoSimuladoSeguro(sim) {
+    const qs = Array.isArray(sim.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return "";
+    return `<div class="simulado-secure-area space-y-4">${qs.map(q => `<div class="rounded-2xl bg-gray-950/60 border border-gray-700 p-4"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-sm font-black text-white">Questão ${q.numero}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${textoSeguro([q.disciplina, q.tema, q.dificuldade, q.tipo].filter(Boolean).join(" · "))}</span></div><p class="text-sm text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">${textoSeguro(q.enunciado || q.titulo || "")}</p>${renderArquivoLinks(q.arquivos)}</div>`).join("")}</div>`;
+}
+
+function prepararEdicaoSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    const form = document.getElementById("formCadSimulado");
+    if (!form) return alert("Formulário de simulado não encontrado.");
+    let hidden = document.getElementById("simEditId");
+    if (!hidden) { hidden = document.createElement("input"); hidden.type = "hidden"; hidden.id = "simEditId"; form.appendChild(hidden); }
+    hidden.value = sim.id;
+    const set = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.value = valor || ""; };
+    set("simTitulo", sim.titulo); set("simDisciplina", sim.disciplina); set("simNivel", sim.nivel); set("simFormato", sim.formato); set("simDataAbertura", sim.dataAbertura); set("simHoraAbertura", sim.horaAbertura); set("simDataFim", sim.dataFim); set("simHoraFim", sim.horaFim); set("simDescricao", sim.descricao); set("simGabarito", sim.gabarito); set("simSolucaoUrl", sim.solucaoUrl);
+    const horas = Math.floor(Number(sim.duracaoMinutos || 0) / 60); const minutos = Number(sim.duracaoMinutos || 0) % 60;
+    set("simDuracaoHoras", horas); set("simDuracaoMinutos", minutos);
+    const publico = document.getElementById("simPublico"); if (publico) publico.checked = !!sim.publico;
+    const qtd = document.getElementById("simQtdQuestoes"); if (qtd) qtd.value = sim.quantidadeQuestoes || sim.gabaritoObjetivo?.length || 20;
+    const lista = document.getElementById("simQuestoesManuaisLista"); if (lista) { lista.innerHTML = ""; (sim.questoesBanco || []).filter(q => String(q.questaoId||"").startsWith("manual_")).forEach(q => adicionarQuestaoManualSimulado(q)); }
+    if (Array.isArray(sim.gabaritoObjetivo) && sim.gabaritoObjetivo.length) { gerarCamposGabaritoSimulado(false); setTimeout(()=>sim.gabaritoObjetivo.forEach(g=>{ const el=document.querySelector(`#simGabaritoObjetivoGrid select[data-q="${g.numero}"]`); if(el) el.value=g.resposta; }),50); }
+    atualizarDestinoSimulado(); ajustarCamposSimulado();
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    alert("Simulado carregado para edição. Faça os ajustes e clique em Publicar/Salvar Simulado.");
+}
+
+function previsualizarSimulado(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    simuladoSessaoAtual = { simuladoId: String(id), iniciado: false, inicio: null, limiteMs: minutosDuracaoSimulado(sim) * 60 * 1000, preview: true };
+    renderizarAmbienteSimulado();
+    document.getElementById("simuladoAmbienteOverlay")?.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+
+function finalizarSimuladoPodeProsseguir(sim, automatico) {
+    if (automatico || simuladoSessaoAtual?.preview) return true;
+    const respostasObjetivas = lerRespostaObjetivaAmbiente();
+    const totalObj = Array.isArray(sim.gabaritoObjetivo) ? sim.gabaritoObjetivo.length : 0;
+    const texto = document.getElementById("simAmbTexto")?.value?.trim() || "";
+    const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+    const faltas = [];
+    if (["objetivo", "misto"].includes(String(sim.formato || "").toLowerCase()) && totalObj && respostasObjetivas.length < totalObj) faltas.push(`${totalObj - respostasObjetivas.length} questão(ões) objetiva(s)`);
+    if (["dissertativo", "misto"].includes(String(sim.formato || "").toLowerCase()) && !texto && !arquivo) faltas.push("resposta/anexo dissertativo");
+    if (faltas.length) return confirm(`Ainda falta(m): ${faltas.join(", ")}.
+
+Deseja concluir mesmo assim?`);
+    return true;
+}
+
+async function finalizarSimuladoAmbiente(automatico = false, motivo = "finalizado") {
+    if (!simuladoSessaoAtual || simuladoEnvioEmAndamento) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    if (simuladoSessaoAtual.preview) { limparAmbienteSimulado(); alert("Pré-visualização encerrada. Nenhum envio foi registrado."); return; }
+    if (!finalizarSimuladoPodeProsseguir(sim, automatico)) return;
+    simuladoEnvioEmAndamento = true;
+    try {
+        const uid = String(usuarioLogado.authUid || usuarioLogado.id);
+        const respostasObjetivas = lerRespostaObjetivaAmbiente();
+        const texto = document.getElementById("simAmbTexto")?.value?.trim() || "";
+        const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+        const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostasObjetivas);
+        const alunoAtual = alunoDoUsuarioLogado();
+        const envioAnterior = envioSimuladoUsuario(sim);
+        const inicio = simuladoSessaoAtual.inicio || Date.now();
+        const envio = { id: `${sim.id}_${uid}`, simuladoId: sim.id, simuladoTitulo: sim.titulo || "", publico: false, visitante: false, usuarioId: uid, usuarioNome: usuarioLogado.nome, usuarioNivel: usuarioLogado.nivel, alunoId: usuarioLogado.alunoId || alunoAtual?.id || "", alunoNome: alunoAtual?.nome || usuarioLogado.nome || "", escolaId: alunoAtual?.escolaId || usuarioLogado.vinculoId || "", escolaNome: alunoAtual?.escola || getEscolaVinculadaUsuario()?.nome || "", cidade: alunoAtual?.cidade || "", email: usuarioLogado.emailAuth || usuarioLogado.email || alunoAtual?.emailInstitucional || alunoAtual?.emailPessoal || "", whatsapp: alunoAtual?.contato || alunoAtual?.telefone || "", respostasObjetivas, texto, acertos: correcao.acertos, totalObjetivas: correcao.total, respondidasObjetivas: correcao.respondidas, percentual: correcao.percentual, iniciadoEm: envioAnterior?.iniciadoEm || inicio, enviadoEm: Date.now(), encerradoEm: Date.now(), tempoGastoSegundos: Math.max(0, Math.round((Date.now() - inicio) / 1000)), status: "encerrado", motivoEncerramento: motivo, automatico: !!automatico };
+        if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_respostas"); Object.assign(envio, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType }); }
+        else if (envioAnterior?.arquivoUrl) Object.assign(envio, { arquivoUrl: envioAnterior.arquivoUrl, arquivoStoragePath: envioAnterior.arquivoStoragePath || "", arquivoNome: envioAnterior.arquivoNome || "", arquivoMimeType: envioAnterior.arquivoMimeType || "" });
+        await salvarEnvioSimuladoFirestore(envio);
+        limparAmbienteSimulado(); renderizarSimulados();
+        alert(automatico ? "Tempo encerrado. Suas respostas foram enviadas." : "Parabéns! Simulado concluído e enviado com sucesso.");
+    } catch (erro) { console.error("Erro ao finalizar simulado", erro); alert(`Erro ao finalizar/enviar simulado.\n\n${erro.message || erro}`); }
+    finally { simuladoEnvioEmAndamento = false; }
+}
+
+function abrirAmbienteSimulado(simuladoId) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoId));
+    if (!sim) return alert("Simulado não encontrado.");
+    if (!podeGerenciarSimulados() && !podeIniciarSimulado(sim)) {
+        const envio = envioSimuladoUsuario(sim);
+        if (envio?.status === "encerrado") return alert("Você já encerrou este simulado. O envio registrado está disponível para a equipe pedagógica.");
+        if (!simuladoDentroDaJanelaSeisHoras(sim)) return alert("Este simulado só aparecerá para o aluno faltando até 6 horas para o início.");
+        if (simuladoAindaNaoAbriu(sim)) return alert("Este simulado ainda não está aberto.");
+        if (simuladoPrazoEncerrado(sim)) return alert("O prazo deste simulado já foi encerrado.");
+    }
+    simuladoSessaoAtual = { simuladoId: String(simuladoId), iniciado: false, inicio: null, limiteMs: minutosDuracaoSimulado(sim) * 60 * 1000, preview: podeGerenciarSimulados() };
+    renderizarAmbienteSimulado();
+    document.getElementById("simuladoAmbienteOverlay")?.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+}
+
+function renderizarAmbienteSimulado() {
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!box || !simuladoSessaoAtual) return;
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    const envio = simuladoSessaoAtual.preview ? null : envioSimuladoUsuario(sim);
+    if (!simuladoSessaoAtual.iniciado) {
+        const mins = minutosDuracaoSimulado(sim);
+        const previewBadge = simuladoSessaoAtual.preview ? `<span class="inline-block mt-2 px-3 py-1 rounded-xl bg-purple-900/40 text-purple-200 text-xs font-black uppercase">Pré-visualização da equipe — não registra envio</span>` : "";
+        box.innerHTML = `<div class="max-w-3xl mx-auto bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl"><div class="flex items-start gap-4"><div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-2xl"><i class="fa-solid fa-stopwatch"></i></div><div class="flex-1"><h2 class="text-2xl font-black text-white">Ambiente cronometrado</h2>${previewBadge}<p class="text-sm text-gray-400 mt-2 leading-relaxed">Você irá iniciar o simulado <b class="text-gray-200">${textoSeguro(sim.titulo)}</b>. Após clicar em <b>Iniciar simulado</b>, não saia da janela antes de concluir. Caso saia, o simulado será encerrado e as respostas marcadas até o momento serão salvas.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5"><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Prazo</p><p class="text-sm text-gray-200 font-bold mt-1">${textoPrazoSimulado(sim)}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Tempo</p><p class="text-sm text-gray-200 font-bold mt-1">${mins ? `${mins} minutos` : "Sem limite definido"}</p></div><div class="rounded-2xl bg-gray-950 border border-gray-700 p-4"><p class="text-[10px] text-gray-500 uppercase font-bold">Formato</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(sim.formato || "simulado")}</p></div></div><div class="mt-6 flex flex-col sm:flex-row gap-3"><button onclick="iniciarSimuladoCronometrado()" class="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs"><i class="fa-solid fa-play mr-2"></i>Iniciar simulado</button><button onclick="fecharAmbienteSimulado()" class="px-5 py-3 rounded-2xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold uppercase text-xs">Cancelar</button></div></div></div></div>`;
+        return;
+    }
+    const questoesHTML = renderizarQuestoesDoSimuladoSeguro(sim);
+    const embed = questoesHTML || (sim.arquivoUrl ? `<div class="simulado-secure-area"><iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0&scrollbar=1" class="simulado-secure-viewer w-full rounded-2xl border border-gray-700 bg-black"></iframe><a href="${sim.arquivoUrl}" target="_blank" class="inline-block mt-2 text-xs text-blue-300 font-bold">Abrir arquivo em nova aba caso o navegador bloqueie a visualização</a></div>` : `<div class="rounded-2xl border border-gray-700 bg-gray-950 p-8 text-center text-gray-500">Nenhum arquivo de simulado anexado. Use as instruções abaixo.</div>`);
+    box.innerHTML = `<div class="space-y-4 simulado-secure-area"><div class="sticky top-0 z-10 bg-gray-900/95 border border-gray-700 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><p class="text-[10px] text-gray-500 uppercase font-bold">${simuladoSessaoAtual.preview ? "Pré-visualização" : "Simulado em andamento"}</p><h2 class="text-lg font-black text-white">${textoSeguro(sim.titulo)}</h2></div><div class="flex flex-wrap items-center gap-2"><span id="simAmbTimer" class="px-4 py-2 rounded-xl bg-amber-900/40 text-amber-200 border border-amber-800/50 text-sm font-black">--:--</span><button onclick="finalizarSimuladoAmbiente(false, 'finalizado_pelo_aluno')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-1"></i>${simuladoSessaoAtual.preview ? "Encerrar preview" : "Finalizar e enviar"}</button><button onclick="fecharAmbienteSimulado()" class="px-4 py-2 rounded-xl bg-red-900/40 hover:bg-red-800/50 text-red-200 text-xs font-bold uppercase">Sair</button></div></div><div class="grid grid-cols-1 2xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,0.8fr)] gap-5"><div class="space-y-3"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4 min-h-[75vh]">${embed}</div>${sim.imagemUrl ? `<img src="${sim.imagemUrl}" class="w-full rounded-2xl border border-gray-700 bg-gray-950">` : ""}${sim.descricao ? `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Instruções</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${textoSeguro(sim.descricao)}</p></div>` : ""}</div><div class="space-y-4"><div class="bg-gray-800 border border-gray-700 rounded-2xl p-4">${renderGradeRespostaObjetivaAmbiente(sim, envio)}<label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Resposta dissertativa / observações</label><textarea id="simAmbTexto" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 focus:outline-none resize-none" placeholder="Digite comentários, justificativas ou resposta dissertativa...">${textoSeguro(envio?.texto || "")}</textarea><label class="block text-xs font-bold text-gray-400 uppercase mt-4 mb-1">Anexo de resolução</label><input type="file" id="simAmbArquivo" accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300"><p class="text-[10px] text-gray-500 mt-1">Aceita foto, PDF, DOC/DOCX. Ideal para questões dissertativas.</p>${envio?.arquivoUrl ? `<a href="${envio.arquivoUrl}" target="_blank" class="text-blue-400 text-xs font-bold mt-2 inline-block">Anexo enviado anteriormente</a>` : ""}</div></div></div></div>`;
+    atualizarTimerSimulado();
+}
+
+async function salvarNovoSimulado(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para publicar simulados.");
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    try {
+        const editId = document.getElementById("simEditId")?.value || "";
+        const titulo = document.getElementById("simTitulo")?.value.trim() || "Simulado sem título";
+        const descricao = document.getElementById("simDescricao")?.value.trim() || "";
+        const gabaritoTexto = document.getElementById("simGabarito")?.value.trim() || "";
+        const questoesManuais = await lerQuestoesManuaisSimuladoComUploads();
+        if (!validarConteudoEducacionalIA([titulo, descricao, gabaritoTexto, ...questoesManuais.map(q=>q.enunciado)], "simulado")) return;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+        const horas = Math.max(0, Number(document.getElementById("simDuracaoHoras")?.value || 0));
+        const minutos = Math.max(0, Number(document.getElementById("simDuracaoMinutos")?.value || 0));
+        const lista = getStorage("app_simulados", []);
+        const antigo = editId ? lista.find(s => String(s.id) === String(editId)) : null;
+        const sim = { ...(antigo || {}), id: editId || novoId(), titulo, disciplina: document.getElementById("simDisciplina")?.value || "Geral", nivel: document.getElementById("simNivel")?.value || "Geral", formato: document.getElementById("simFormato")?.value || "objetivo", dataAbertura: document.getElementById("simDataAbertura")?.value || "", horaAbertura: document.getElementById("simHoraAbertura")?.value || "", dataFim: document.getElementById("simDataFim")?.value || "", horaFim: document.getElementById("simHoraFim")?.value || "", duracaoMinutos: horas * 60 + minutos, duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido", quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || questoesManuais.length || 0), questoesBanco: questoesManuais.length ? questoesManuais : (antigo?.questoesBanco || []), gabaritoObjetivo: questoesManuais.length ? questoesManuais.map((q,i)=>({numero:i+1,resposta:q.alternativaCorreta})).filter(g=>g.resposta) : lerGabaritoObjetivoSimulado(), gabarito: gabaritoTexto, descricao, solucaoUrl: document.getElementById("simSolucaoUrl")?.value.trim() || antigo?.solucaoUrl || "", publico: !!document.getElementById("simPublico")?.checked, destino: { tipo: document.getElementById("simDestinoTipo")?.value || "todos", valores: Array.from(document.getElementById("simDestinoValores")?.selectedOptions || []).map(o=>o.value) }, criadoEm: antigo?.criadoEm || Date.now(), criadoPorId: antigo?.criadoPorId || usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: antigo?.criadoPorNome || usuarioLogado?.nome || "", criadoPorNivel: antigo?.criadoPorNivel || usuarioLogado?.nivel || "", atualizadoEm: Date.now() };
+        const arquivo = document.getElementById("simArquivo")?.files?.[0] || null;
+        const imagem = document.getElementById("simImagem")?.files?.[0] || null;
+        const solucaoArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+        if (arquivo) { const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados"); Object.assign(sim, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType, arquivoTamanho: up.size }); }
+        if (imagem) { const up = await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens"); Object.assign(sim, { imagemUrl: up.fileUrl, imagemStoragePath: up.storagePath, imagemNome: up.fileName }); }
+        if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); Object.assign(sim, { solucaoArquivoUrl: up.fileUrl, solucaoStoragePath: up.storagePath, solucaoNomeArquivo: up.fileName }); }
+        if (!questoesManuais.length && ["objetivo", "misto"].includes(sim.formato) && !sim.gabaritoObjetivo.length && !confirm("Você não preencheu o gabarito objetivo. Publicar mesmo assim?")) return;
+        const idx = lista.findIndex(s => String(s.id) === String(sim.id));
+        if (idx >= 0) lista[idx] = { ...lista[idx], ...sim }; else lista.push(sim);
+        await setStorage("app_simulados", lista);
+        document.getElementById("formCadSimulado")?.reset();
+        const h = document.getElementById("simEditId"); if (h) h.value = "";
+        const l = document.getElementById("simQuestoesManuaisLista"); if (l) l.innerHTML = "";
+        gerarCamposGabaritoSimulado(false); renderizarSimulados(); atualizarSelectRankingSimulados();
+        alert(sim.publico ? `Simulado salvo. Link público:\n${linkPublicoSimulado(sim)}` : "Simulado salvo com sucesso.");
+    } catch (erro) { console.error(erro); alert(`Erro ao publicar simulado.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
+}
+
+function renderizarSimulados() {
+    popularFiltrosSimulados();
+    const grid = document.getElementById("gridSimulados");
+    if (!grid) return;
+    const fd = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const fn = document.getElementById("filtroSimNivel")?.value || "TODOS";
+    const ff = document.getElementById("filtroSimFormato")?.value || "TODOS";
+    const fs = document.getElementById("filtroSimStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroSimBusca")?.value || "");
+    let sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario);
+    sims = sims.filter(s => (fd === "TODOS" || s.disciplina === fd) && (fn === "TODOS" || s.nivel === fn) && (ff === "TODOS" || s.formato === ff));
+    if (busca) sims = sims.filter(s => normalizarTexto(`${s.titulo} ${s.descricao} ${s.disciplina} ${s.nivel}`).includes(busca));
+    if (fs !== "TODOS") sims = sims.filter(s => fs === "RESPONDIDOS" ? !!envioSimuladoUsuario(s) : !envioSimuladoUsuario(s));
+    sims.sort((a,b) => (dataInicioSimuladoComoData(a)?.getTime() || b.criadoEm || 0) - (dataInicioSimuladoComoData(b)?.getTime() || a.criadoEm || 0));
+    if (!sims.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p></div>`; return; }
+    grid.innerHTML = sims.map(s => {
+        const envio = envioSimuladoUsuario(s);
+        const encerrado = simuladoPrazoEncerrado(s);
+        const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
+        const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+        const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+        const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
+        const publicoBtns = podeGerenciarSimulados() && s.publico ? `<button onclick="copiarLinkSimuladoPublico('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-900/40 text-purple-200 border border-purple-800/40 text-xs font-bold"><i class="fa-solid fa-link mr-1"></i>Copiar link</button><button onclick="abrirLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold">Abrir link</button>` : "";
+        const ger = podeGerenciarSimulados() ? `<button onclick="previsualizarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button><button onclick="prepararEdicaoSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button><button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>${publicoBtns}` : "";
+        const botaoAluno = !podeGerenciarSimulados() ? (podeIniciarSimulado(s) ? `<button onclick="abrirAmbienteSimulado('${s.id}')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-stopwatch mr-1"></i>Entrar no simulado</button>` : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>${envio?.status === "encerrado" ? "Simulado encerrado" : (encerrado ? "Prazo encerrado" : "Indisponível")}</button>`) : "";
+        const rankingMini = rankingSimulado(s).slice(0, 5);
+        const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno/Visitante</th><th class="p-2 text-left">Escola</th><th class="p-2 text-left">Cidade</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Contato</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome || e.nome)}</td><td class="p-2 text-gray-400">${textoSeguro(e.escolaNome || e.escolaOrigem || "—")}</td><td class="p-2 text-gray-400">${textoSeguro(e.cidade || "—")}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${textoSeguro([e.email,e.whatsapp].filter(Boolean).join(" · ") || "—")}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}</div></details>` : "";
+        return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl"><div class="flex flex-col lg:flex-row lg:items-start gap-4"><div class="flex-1"><div class="flex flex-wrap items-center gap-2 mb-2">${enviadoTexto}${prazoBadge}${s.publico ? `<span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-bold uppercase">Link público</span>` : ""}<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">${textoSeguro(s.formato || "simulado")}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-400 text-[10px] font-bold uppercase">${textoSeguro(s.nivel || "Geral")}</span></div><h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3><p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${textoPrazoSimulado(s)} · ${textoSeguro(s.duracao || "")}</p>${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}<div class="flex flex-wrap gap-2 mt-4">${botaoAluno}${ger}</div><div class="mt-3">${renderLinksGabaritoSimulado(s)}</div></div>${!podeGerenciarSimulados() ? `<div class="w-full lg:w-80 bg-gray-900/70 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Como responder</h4><p class="text-xs text-gray-400 leading-relaxed">Clique em <b>Entrar no simulado</b>. Ele abrirá em ambiente próprio e cronometrado. Ao sair depois de iniciar, o envio será encerrado automaticamente.</p>${envio ? `<div class="mt-3 rounded-xl bg-emerald-900/30 border border-emerald-900/40 p-3 text-xs text-emerald-200"><b>Último envio:</b><br>${envio.encerradoEm ? new Date(envio.encerradoEm).toLocaleString("pt-BR") : "registrado"}</div>` : ""}</div>` : ""}</div>${enviosResumo}</div>`;
+    }).join("");
+    atualizarSelectRankingSimulados(); renderizarRankingSimulado(false);
+}
+
+async function enviarSimuladoPublico(simuladoId, ano) {
+    const nome = document.getElementById("pubNome")?.value.trim();
+    const escolaOrigem = document.getElementById("pubEscola")?.value.trim();
+    const cidade = document.getElementById("pubCidade")?.value.trim();
+    const email = document.getElementById("pubEmail")?.value.trim();
+    const whatsapp = document.getElementById("pubWhatsapp")?.value.trim();
+    if (!nome || !escolaOrigem || !cidade || !email || !whatsapp) return alert("Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.");
+    if (!validarConteudoEducacionalIA([nome, escolaOrigem, cidade, email, whatsapp, document.getElementById("pubTexto")?.value], "envio público")) return;
+    const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+    const respostas = [];
+    document.querySelectorAll('[name^="pub_q_"]:checked').forEach(inp => { respostas.push({ numero: Number(inp.name.replace("pub_q_", "")), resposta: inp.value }); });
+    const correcao = corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostas);
+    const doc = { id: `${simuladoId}_visitante_${Date.now()}`, simuladoId, simuladoTitulo: sim.titulo || "", publico: true, visitante: true, alunoNome: nome, nome, escolaOrigem, escolaNome: escolaOrigem, cidade, email, whatsapp, respostasObjetivas: respostas, texto: document.getElementById("pubTexto")?.value.trim() || "", acertos: correcao.acertos, totalObjetivas: correcao.total, respondidasObjetivas: correcao.respondidas, percentual: correcao.percentual, enviadoEm: Date.now(), encerradoEm: Date.now(), status: "visitante_enviado" };
+    await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(doc.id).set(doc);
+    await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(doc.id).set(doc);
+    alert("Simulado enviado com sucesso. Obrigado pela participação!");
+}
+
+async function abrirSimuladoPublico() {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("simuladoPublico");
+    if (!id) return;
+    try {
+        const ano = params.get("ano") || String(new Date().getFullYear());
+        const sim = await carregarSimuladoPublicoPorId(id, ano);
+        document.getElementById("loginScreen")?.classList.add("hidden");
+        const ov = document.getElementById("simuladoPublicoOverlay");
+        const box = document.getElementById("simuladoPublicoConteudo");
+        if (!ov || !box) return;
+        ov.classList.remove("hidden");
+        box.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-2xl space-y-5"><div><p class="text-xs text-purple-300 font-black uppercase tracking-wider">Simulado público</p><h1 class="text-2xl font-black text-white mt-1">${textoSeguro(sim.titulo)}</h1><p class="text-sm text-gray-400 mt-2">Preencha seus dados para iniciar como visitante. Suas informações e respostas ficarão no mesmo painel de envios do simulado.</p></div><div id="pubDados" class="grid grid-cols-1 md:grid-cols-5 gap-3"><input id="pubNome" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Nome completo" required><input id="pubEscola" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Escola de origem" required><input id="pubCidade" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="Cidade" required><input id="pubEmail" type="email" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="E-mail" required><input id="pubWhatsapp" class="p-3 rounded-xl bg-gray-950 border border-gray-700 text-white" placeholder="WhatsApp" required></div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4">${renderizarQuestoesDoSimuladoSeguro(sim) || (sim.arquivoUrl ? `<iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0" class="w-full h-[75vh] rounded-xl bg-black"></iframe>` : "")}</div><div class="bg-gray-900 border border-gray-700 rounded-2xl p-4"><h3 class="text-sm font-bold text-white uppercase mb-3">Cartão-resposta</h3>${renderGradeRespostaPublica(sim)}<textarea id="pubTexto" rows="4" class="w-full mt-4 p-3 rounded-xl bg-gray-950 border border-gray-700 text-gray-200" placeholder="Resposta textual / observações"></textarea></div><button onclick="enviarSimuladoPublico('${sim.id}','${ano}')" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase">Enviar simulado</button></div>`;
+    } catch(e) { alert(e.message || e); }
+}
+
