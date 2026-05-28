@@ -8756,3 +8756,539 @@ async function enviarSimuladoPublico(simuladoId, ano) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => { popularTaxonomiaQuestoes(); atualizarDistribuicaoGeradorSimulado(); abrirSimuladoPublico(); }, 1200);
 });
+
+// ==================== PATCH — SIMULADOS: LINK PÚBLICO, EDIÇÃO ANTES DA ABERTURA E MÍDIAS EM QUESTÕES MANUAIS ====================
+(function(){
+  const NIVEIS_GERENCIAM_SIMULADOS_PATCH = ["ADM", "Staff", "Monitor", "Professor/Orientador"];
+
+  window.podeGerenciarSimulados = function() {
+    return NIVEIS_GERENCIAM_SIMULADOS_PATCH.includes(usuarioLogado?.nivel);
+  };
+
+  function urlPublicaSimulado(id) {
+    return `${location.origin}${location.pathname}?simuladoPublico=${encodeURIComponent(id)}&ano=${encodeURIComponent(anoSelecionado)}`;
+  }
+  window.urlPublicaSimulado = urlPublicaSimulado;
+
+  window.copiarLinkPublicoSimulado = async function(id) {
+    const url = urlPublicaSimulado(id);
+    try {
+      await navigator.clipboard.writeText(url);
+      alert(`Link público copiado:\n${url}`);
+    } catch (_) {
+      prompt("Copie o link público do simulado:", url);
+    }
+  };
+
+  window.abrirLinkPublicoSimulado = function(id) {
+    window.open(urlPublicaSimulado(id), "_blank", "noopener,noreferrer");
+  };
+
+  function dataInicioSimuladoComoDataPatch(sim) {
+    if (!sim?.dataAbertura) return null;
+    try {
+      const d = new Date(`${sim.dataAbertura}T${sim.horaAbertura || "00:00"}`);
+      return isNaN(d.getTime()) ? null : d;
+    } catch (_) { return null; }
+  }
+
+  function podeEditarSimuladoPatch(sim) {
+    if (!podeGerenciarSimulados() || !sim) return false;
+    const inicio = dataInicioSimuladoComoDataPatch(sim);
+    if (!inicio) return true;
+    return Date.now() < inicio.getTime();
+  }
+  window.podeEditarSimulado = podeEditarSimuladoPatch;
+
+  function resetarFormularioSimuladoPatch() {
+    const form = document.getElementById("formCadSimulado");
+    if (!form) return;
+    form.dataset.editId = "";
+    form.reset();
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (lista) lista.innerHTML = "";
+    gerarCamposGabaritoSimulado(false);
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado';
+    const tituloPainel = document.querySelector("#painelAddSimulado h3");
+    if (tituloPainel) tituloPainel.innerHTML = '<i class="fa-solid fa-clipboard-question text-blue-400 mr-2"></i>Cadastrar Simulado';
+  }
+  window.cancelarEdicaoSimulado = resetarFormularioSimuladoPatch;
+
+  window.editarSimulado = function(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    if (!podeEditarSimuladoPatch(sim)) return alert("Este simulado já iniciou. Por segurança, a edição só é permitida antes da data/hora de início.");
+    const form = document.getElementById("formCadSimulado");
+    if (!form) return alert("Formulário de simulado não encontrado.");
+    form.dataset.editId = String(sim.id);
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ""; };
+    set("simTitulo", sim.titulo || "");
+    set("simDisciplina", sim.disciplina || "Geral");
+    set("simNivel", sim.nivel || "Geral");
+    set("simFormato", sim.formato || "objetivo");
+    set("simDataAbertura", sim.dataAbertura || "");
+    set("simHoraAbertura", sim.horaAbertura || "");
+    set("simDataFim", sim.dataFim || "");
+    set("simHoraFim", sim.horaFim || "");
+    const dur = Number(sim.duracaoMinutos || 0);
+    set("simDuracaoHoras", Math.floor(dur / 60));
+    set("simDuracaoMinutos", dur % 60);
+    set("simQtdQuestoes", sim.quantidadeQuestoes || sim.gabaritoObjetivo?.length || sim.questoesBanco?.length || 20);
+    set("simGabarito", sim.gabarito || "");
+    set("simDescricao", sim.descricao || "");
+    set("simSolucaoUrl", sim.solucaoUrl || "");
+    const chk = document.getElementById("simPublico");
+    if (chk) chk.checked = !!sim.publico;
+    const destTipo = document.getElementById("simDestinoTipo");
+    if (destTipo) {
+      destTipo.value = sim.destino?.tipo || "todos";
+      atualizarDestinoSimulado();
+      const vals = (sim.destino?.valores || []).map(String);
+      const sel = document.getElementById("simDestinoValores");
+      if (sel) Array.from(sel.options).forEach(o => o.selected = vals.includes(String(o.value)));
+    }
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (lista) {
+      lista.innerHTML = "";
+      (Array.isArray(sim.questoesBanco) ? sim.questoesBanco : []).forEach(q => adicionarQuestaoManualSimulado(q));
+    }
+    gerarCamposGabaritoSimulado(false);
+    if (Array.isArray(sim.gabaritoObjetivo)) {
+      setTimeout(() => {
+        sim.gabaritoObjetivo.forEach(g => {
+          const sel = document.querySelector(`#simGabaritoObjetivoGrid select[data-q="${Number(g.numero)}"]`);
+          if (sel) sel.value = g.resposta || "";
+        });
+      }, 30);
+    }
+    ajustarCamposSimulado();
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar Correções do Simulado';
+    const tituloPainel = document.querySelector("#painelAddSimulado h3");
+    if (tituloPainel) tituloPainel.innerHTML = '<i class="fa-solid fa-pen-to-square text-amber-300 mr-2"></i>Editando Simulado';
+    document.getElementById("painelAddSimulado")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // Questões manuais agora aceitam mídia/imagem/documentos por questão.
+  window.adicionarQuestaoManualSimulado = function(dados = {}) {
+    const lista = document.getElementById("simQuestoesManuaisLista");
+    if (!lista) return;
+    const n = lista.querySelectorAll(".sim-questao-manual").length + 1;
+    const wrap = document.createElement("div");
+    wrap.className = "sim-questao-manual rounded-xl border border-blue-900/40 bg-gray-900/60 p-3 space-y-3";
+    const arquivosExistentes = Array.isArray(dados.arquivos) ? dados.arquivos : [];
+    wrap.dataset.arquivosExistentes = JSON.stringify(arquivosExistentes);
+    wrap.innerHTML = `
+      <div class="flex items-center justify-between gap-2"><span class="text-xs font-black text-blue-200 uppercase">Questão manual ${n}</span><button type="button" onclick="this.closest('.sim-questao-manual').remove()" class="text-red-300 text-xs font-bold">Remover</button></div>
+      <textarea data-campo="enunciado" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Enunciado da questão...">${textoSeguro(dados.enunciado||"")}</textarea>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+        <select data-campo="tipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Múltipla escolha</option><option>Dissertativa</option><option>Mista</option><option>Verdadeiro ou Falso</option></select>
+        <select data-campo="dificuldade" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option>Fácil</option><option>Médio</option><option>Difícil</option><option>Muito difícil</option><option>Olímpica</option><option>Vestibular</option></select>
+        <select data-campo="alternativaCorreta" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-300"><option value="">Sem gabarito</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select>
+        <input data-campo="tema" list="listaTemasQuestoes" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Tema">
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <input data-campo="subtema" list="listaSubtemasQuestoes" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Subtema">
+        <input data-campo="fonte" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Fonte / observação da questão">
+      </div>
+      <div class="rounded-xl border border-gray-700 bg-gray-950/60 p-3">
+        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Mídias da questão</label>
+        <input data-campo="arquivos" type="file" multiple accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300">
+        <p class="text-[10px] text-gray-500 mt-1">Use imagens, diagramas, figuras, PDF ou DOCX para enriquecer a questão.</p>
+        ${arquivosExistentes.length ? `<div class="mt-2 flex flex-wrap gap-2">${arquivosExistentes.map((a,i)=>`<a href="${a.url || a.fileUrl || '#'}" target="_blank" class="px-2 py-1 rounded-lg bg-blue-900/40 text-blue-200 text-[10px] font-bold">Mídia ${i+1}</a>`).join("")}</div>` : ""}
+      </div>`;
+    lista.appendChild(wrap);
+    if (dados.tipo) wrap.querySelector('[data-campo="tipo"]').value = dados.tipo;
+    if (dados.dificuldade) wrap.querySelector('[data-campo="dificuldade"]').value = dados.dificuldade;
+    if (dados.alternativaCorreta) wrap.querySelector('[data-campo="alternativaCorreta"]').value = dados.alternativaCorreta;
+    if (dados.tema) wrap.querySelector('[data-campo="tema"]').value = dados.tema;
+    if (dados.subtema) wrap.querySelector('[data-campo="subtema"]').value = dados.subtema;
+    if (dados.fonte) wrap.querySelector('[data-campo="fonte"]').value = dados.fonte;
+  };
+
+  window.lerQuestoesManuaisSimulado = function() {
+    return Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual")).map((el, idx) => ({
+      numero: idx + 1,
+      questaoId: `manual_${idx+1}`,
+      titulo: `Questão ${idx+1}`,
+      enunciado: el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "",
+      tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha",
+      dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio",
+      tema: el.querySelector('[data-campo="tema"]')?.value || "",
+      subtema: el.querySelector('[data-campo="subtema"]')?.value || "",
+      fonte: el.querySelector('[data-campo="fonte"]')?.value || "",
+      alternativaCorreta: el.querySelector('[data-campo="alternativaCorreta"]')?.value || "",
+      arquivos: JSON.parse(el.dataset.arquivosExistentes || "[]")
+    })).filter(q => q.enunciado || q.arquivos?.length);
+  };
+
+  async function lerQuestoesManuaisSimuladoComMidiasPatch() {
+    const itens = Array.from(document.querySelectorAll("#simQuestoesManuaisLista .sim-questao-manual"));
+    const saida = [];
+    for (let idx = 0; idx < itens.length; idx++) {
+      const el = itens[idx];
+      const base = {
+        numero: idx + 1,
+        questaoId: `manual_${idx+1}`,
+        titulo: `Questão ${idx+1}`,
+        enunciado: el.querySelector('[data-campo="enunciado"]')?.value?.trim() || "",
+        tipo: el.querySelector('[data-campo="tipo"]')?.value || "Múltipla escolha",
+        dificuldade: el.querySelector('[data-campo="dificuldade"]')?.value || "Médio",
+        tema: el.querySelector('[data-campo="tema"]')?.value || "",
+        subtema: el.querySelector('[data-campo="subtema"]')?.value || "",
+        fonte: el.querySelector('[data-campo="fonte"]')?.value || "",
+        alternativaCorreta: el.querySelector('[data-campo="alternativaCorreta"]')?.value || "",
+        arquivos: JSON.parse(el.dataset.arquivosExistentes || "[]")
+      };
+      const files = Array.from(el.querySelector('[data-campo="arquivos"]')?.files || []);
+      for (const file of files) {
+        const up = await enviarArquivoParaFirebaseStorage(file, "simulados_questoes_manuais");
+        base.arquivos.push({ nome: file.name, mimeType: file.type, tamanho: file.size, url: up.fileUrl, storagePath: up.storagePath, enviadoEm: Date.now() });
+      }
+      if (base.enunciado || base.arquivos.length) saida.push(base);
+    }
+    return saida;
+  }
+
+  window.salvarNovoSimulado = async function(event) {
+    event.preventDefault();
+    if (!podeGerenciarSimulados()) return alert("Sem permissão para publicar simulados.");
+    const form = document.getElementById("formCadSimulado");
+    const editId = form?.dataset?.editId || "";
+    const btn = event.submitter || document.querySelector('#formCadSimulado button[type="submit"]');
+    try {
+      const titulo = document.getElementById("simTitulo")?.value.trim() || "Simulado sem título";
+      const descricao = document.getElementById("simDescricao")?.value.trim() || "";
+      const gabaritoTexto = document.getElementById("simGabarito")?.value.trim() || "";
+      const questoesPreview = lerQuestoesManuaisSimulado();
+      if (!validarConteudoEducacionalIA([titulo, descricao, gabaritoTexto, ...questoesPreview.map(q=>q.enunciado)], "simulado")) return;
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+      const lista = getStorage("app_simulados", []);
+      const anterior = editId ? lista.find(s => String(s.id) === String(editId)) : null;
+      if (editId && !anterior) throw new Error("Simulado em edição não encontrado.");
+      if (anterior && !podeEditarSimuladoPatch(anterior)) throw new Error("Este simulado já iniciou. A edição só é permitida antes da data/hora de início.");
+
+      const arquivo = document.getElementById("simArquivo")?.files?.[0] || null;
+      const imagem = document.getElementById("simImagem")?.files?.[0] || null;
+      const solucaoArquivo = document.getElementById("simSolucaoArquivo")?.files?.[0] || null;
+      const questoesManuais = await lerQuestoesManuaisSimuladoComMidiasPatch();
+      const horas = Math.max(0, Number(document.getElementById("simDuracaoHoras")?.value || 0));
+      const minutos = Math.max(0, Number(document.getElementById("simDuracaoMinutos")?.value || 0));
+      const sim = {
+        ...(anterior || {}),
+        id: editId || novoId(), titulo,
+        disciplina: document.getElementById("simDisciplina")?.value || "Geral",
+        nivel: document.getElementById("simNivel")?.value || "Geral",
+        formato: document.getElementById("simFormato")?.value || "objetivo",
+        dataAbertura: document.getElementById("simDataAbertura")?.value || "",
+        horaAbertura: document.getElementById("simHoraAbertura")?.value || "",
+        dataFim: document.getElementById("simDataFim")?.value || "",
+        horaFim: document.getElementById("simHoraFim")?.value || "",
+        duracaoMinutos: horas * 60 + minutos,
+        duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido",
+        quantidadeQuestoes: Number(document.getElementById("simQtdQuestoes")?.value || questoesManuais.length || 0),
+        questoesBanco: questoesManuais,
+        gabaritoObjetivo: questoesManuais.length ? questoesManuais.map((q,i)=>({numero:i+1,resposta:q.alternativaCorreta})).filter(g=>g.resposta) : lerGabaritoObjetivoSimulado(),
+        gabarito: gabaritoTexto,
+        descricao,
+        solucaoUrl: document.getElementById("simSolucaoUrl")?.value.trim() || "",
+        publico: !!document.getElementById("simPublico")?.checked,
+        destino: { tipo: document.getElementById("simDestinoTipo")?.value || "todos", valores: Array.from(document.getElementById("simDestinoValores")?.selectedOptions || []).map(o=>o.value) },
+        atualizadoEm: Date.now(), atualizadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", atualizadoPorNome: usuarioLogado?.nome || ""
+      };
+      if (!editId) Object.assign(sim, { criadoEm: Date.now(), criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || "" });
+      if (arquivo) Object.assign(sim, { arquivoUrl: (await enviarArquivoParaFirebaseStorage(arquivo, "simulados")).fileUrl });
+      if (imagem) Object.assign(sim, { imagemUrl: (await enviarArquivoParaFirebaseStorage(imagem, "simulados_imagens")).fileUrl });
+      if (solucaoArquivo) { const up = await enviarArquivoParaFirebaseStorage(solucaoArquivo, "simulados_solucoes"); sim.solucaoArquivoUrl = up.fileUrl; sim.solucaoStoragePath = up.storagePath; }
+      const novaLista = editId ? lista.map(s => String(s.id) === String(editId) ? sim : s) : [...lista, sim];
+      await setStorage("app_simulados", novaLista);
+      resetarFormularioSimuladoPatch();
+      renderizarSimulados(); atualizarSelectRankingSimulados();
+      const link = sim.publico ? `\n\nLink público:\n${urlPublicaSimulado(sim.id)}` : "";
+      alert(editId ? `Simulado atualizado com sucesso.${link}` : `Simulado publicado com sucesso.${link}`);
+    } catch (erro) { console.error(erro); alert(`Erro ao salvar simulado.\n\n${erro.message || erro}`); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = form?.dataset?.editId ? '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar Correções do Simulado' : '<i class="fa-solid fa-floppy-disk mr-2"></i>Publicar Simulado'; } }
+  };
+
+  function renderMidiasQuestaoPatch(q) {
+    const arquivos = Array.isArray(q?.arquivos) ? q.arquivos : [];
+    if (!arquivos.length) return "";
+    return `<div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">${arquivos.map((a, i) => {
+      const url = a.url || a.fileUrl || "#";
+      const nome = a.nome || `Mídia ${i+1}`;
+      const ehImagem = String(a.mimeType || nome).toLowerCase().match(/image|png|jpg|jpeg|webp|gif/);
+      return ehImagem ? `<a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-gray-700 bg-gray-900"><img src="${url}" alt="${textoSeguro(nome)}" class="w-full max-h-96 object-contain bg-black"><span class="block p-2 text-xs text-blue-300 font-bold">${textoSeguro(nome)}</span></a>` : `<a href="${url}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-900/30 border border-blue-900/40 text-blue-200 text-xs font-bold"><i class="fa-solid fa-paperclip mr-1"></i>${textoSeguro(nome)}</a>`;
+    }).join("")}</div>`;
+  }
+
+  window.renderizarQuestoesDoSimuladoSeguro = function(sim) {
+    const qs = Array.isArray(sim.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return "";
+    return `<div class="simulado-secure-area space-y-4">${qs.map(q => `<div class="rounded-2xl bg-gray-950/60 border border-gray-700 p-4"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-sm font-black text-white">Questão ${q.numero}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${textoSeguro([q.disciplina, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(" · "))}</span></div><p class="text-sm text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">${textoSeguro(q.enunciado || q.titulo || "")}</p>${renderMidiasQuestaoPatch(q)}</div>`).join("")}</div>`;
+  };
+
+  window.previewSimuladoEquipe = function(id) {
+    const sim = getStorage("app_simulados", []).find(s => String(s.id) === String(id));
+    if (!sim) return alert("Simulado não encontrado.");
+    const ov = document.getElementById("simuladoAmbienteOverlay");
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!ov || !box) return;
+    ov.classList.remove("hidden");
+    box.innerHTML = `<div class="max-w-7xl mx-auto bg-gray-800 border border-gray-700 rounded-3xl p-5 shadow-2xl space-y-4"><div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><p class="text-xs text-blue-300 font-black uppercase tracking-wider">Pré-visualização da equipe</p><h1 class="text-2xl font-black text-white mt-1">${textoSeguro(sim.titulo)}</h1><p class="text-sm text-gray-400 mt-1">Esta visualização não conta como tentativa nem gera envio.</p></div><div class="flex flex-wrap gap-2">${sim.publico ? `<button onclick="copiarLinkPublicoSimulado('${sim.id}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold"><i class="fa-solid fa-link mr-1"></i>Copiar link público</button>` : ""}<button onclick="fecharAmbienteSimulado()" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold">Fechar</button></div></div>${sim.arquivoUrl ? `<div class="rounded-2xl overflow-hidden border border-gray-700 bg-black"><iframe src="${sim.arquivoUrl}#toolbar=0&navpanes=0" class="w-full h-[82vh] bg-black"></iframe></div>` : ""}${sim.imagemUrl ? `<img src="${sim.imagemUrl}" class="w-full max-h-[80vh] object-contain rounded-2xl border border-gray-700 bg-black">` : ""}${renderizarQuestoesDoSimuladoSeguro(sim) || (!sim.arquivoUrl && !sim.imagemUrl ? `<p class="text-gray-500 text-sm">Este simulado ainda não possui arquivo ou questões manuais/banco vinculadas.</p>` : "")}</div>`;
+  };
+
+  // Renderização reforçada da listagem: mostra link público, editar antes da abertura e pré-visualizar para equipe.
+  window.renderizarSimulados = function() {
+    popularFiltrosSimulados();
+    const grid = document.getElementById("gridSimulados");
+    if (!grid) return;
+    const fd = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const fn = document.getElementById("filtroSimNivel")?.value || "TODOS";
+    const ff = document.getElementById("filtroSimFormato")?.value || "TODOS";
+    const fs = document.getElementById("filtroSimStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroSimBusca")?.value || "");
+    let sims = getStorage("app_simulados", []).filter(simuladoDestinadoAoUsuario);
+    sims = sims.filter(s => (fd === "TODOS" || s.disciplina === fd) && (fn === "TODOS" || s.nivel === fn) && (ff === "TODOS" || s.formato === ff));
+    if (busca) sims = sims.filter(s => normalizarTexto(`${s.titulo} ${s.descricao} ${s.disciplina} ${s.nivel}`).includes(busca));
+    if (fs !== "TODOS") sims = sims.filter(s => fs === "RESPONDIDOS" ? !!envioSimuladoUsuario(s) : !envioSimuladoUsuario(s));
+    sims.sort((a,b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+    if (!sims.length) {
+      grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p></div>`;
+      return;
+    }
+    grid.innerHTML = sims.map(s => {
+      const envio = envioSimuladoUsuario(s);
+      const encerrado = simuladoPrazoEncerrado(s);
+      const aindaNaoAbriu = simuladoAindaNaoAbriu(s);
+      const notaTexto = envio && envio.totalObjetivas ? `<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 ${classeDesempenhoSimulado(envio.percentual)} text-[10px] font-bold uppercase">${envio.acertos}/${envio.totalObjetivas} · ${envio.percentual}%</span>` : "";
+      const enviadoTexto = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>${notaTexto}` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+      const prazoBadge = encerrado ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>` : (aindaNaoAbriu ? `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>` : `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`);
+      const publicBox = s.publico ? `<div class="mt-3 rounded-xl border border-purple-900/40 bg-purple-950/20 p-3"><p class="text-[10px] text-purple-200 font-black uppercase mb-1">Link público do simulado</p><div class="flex flex-col md:flex-row gap-2"><input readonly value="${textoSeguro(urlPublicaSimulado(s.id))}" class="flex-1 p-2 rounded-lg bg-gray-950 border border-purple-900/40 text-xs text-purple-100"><button onclick="copiarLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold">Copiar</button><button onclick="abrirLinkPublicoSimulado('${s.id}')" class="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold">Abrir</button></div></div>` : "";
+      const botoesEquipe = podeGerenciarSimulados() ? `<button onclick="previewSimuladoEquipe('${s.id}')" class="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button>${podeEditarSimuladoPatch(s) ? `<button onclick="editarSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-amber-700/80 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button>` : `<span class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-500 text-xs font-bold"><i class="fa-solid fa-lock mr-1"></i>Edição bloqueada</span>`}<button onclick="excluirSimulado('${s.id}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : "";
+      const botaoAluno = !podeGerenciarSimulados() ? (podeIniciarSimulado(s) ? `<button onclick="abrirAmbienteSimulado('${s.id}')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-stopwatch mr-1"></i>Entrar no simulado</button>` : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>${envio?.status === "encerrado" ? "Simulado encerrado" : (encerrado ? "Prazo encerrado" : "Indisponível")}</button>`) : "";
+      const rankingMini = rankingSimulado(s).slice(0, 5);
+      const enviosResumo = podeGerenciarSimulados() ? `<details class="mt-4"><summary class="cursor-pointer text-xs font-bold text-blue-300 uppercase">Ver ranking e envios (${enviosDoSimulado(s).length})</summary><div class="mt-3 space-y-3">${rankingMini.length ? `<div class="rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">#</th><th class="p-2 text-left">Aluno</th><th class="p-2 text-left">Pontuação</th><th class="p-2 text-left">Tempo</th><th class="p-2 text-left">Resposta</th></tr></thead><tbody>${rankingMini.map((e,i)=>`<tr class="border-t border-gray-800"><td class="p-2 font-bold text-gray-400">${i+1}</td><td class="p-2 text-gray-200">${textoSeguro(e.alunoNome || e.usuarioNome || e.nome)}</td><td class="p-2 ${classeDesempenhoSimulado(e.percentual)} font-bold">${e.totalObjetivas ? `${e.acertos}/${e.totalObjetivas} · ${e.percentual}%` : "Correção manual"}</td><td class="p-2 text-gray-400">${e.tempoGastoSegundos ? formatarTempoMs(e.tempoGastoSegundos * 1000) : "—"}</td><td class="p-2">${e.arquivoUrl ? `<a href="${e.arquivoUrl}" target="_blank" class="text-blue-400 font-bold">Anexo</a>` : `<span class="text-gray-500">—</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="text-gray-500 text-xs">Sem envios ainda.</p>`}</div></details>` : "";
+      return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl"><div class="flex flex-col lg:flex-row lg:items-start gap-4"><div class="flex-1"><div class="flex flex-wrap items-center gap-2 mb-2">${enviadoTexto}${prazoBadge}<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">${textoSeguro(s.formato || "simulado")}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-400 text-[10px] font-bold uppercase">${textoSeguro(s.nivel || "Geral")}</span>${s.publico ? `<span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-bold uppercase">Link público</span>` : ""}</div><h3 class="text-lg font-black text-white">${textoSeguro(s.titulo)}</h3><p class="text-xs text-gray-400 mt-1">${textoSeguro(s.disciplina || "Geral")} · ${textoPrazoSimulado(s)} · ${textoSeguro(s.duracao || "")}</p>${s.descricao ? `<p class="text-sm text-gray-300 mt-3 leading-relaxed">${textoSeguro(s.descricao)}</p>` : ""}<div class="flex flex-wrap gap-2 mt-4">${s.arquivoUrl && podeGerenciarSimulados() ? `<a href="${s.arquivoUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>Abrir arquivo</a>` : ""}${s.imagemUrl && podeGerenciarSimulados() ? `<a href="${s.imagemUrl}" target="_blank" class="px-3 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold"><i class="fa-solid fa-image mr-1"></i>Imagem</a>` : ""}${botaoAluno}${botoesEquipe}</div>${publicBox}<div class="mt-3">${renderLinksGabaritoSimulado(s)}</div></div>${!podeGerenciarSimulados() ? `<div class="w-full lg:w-80 bg-gray-900/70 border border-gray-700 rounded-2xl p-4"><h4 class="text-xs font-bold text-gray-300 uppercase mb-2">Como responder</h4><p class="text-xs text-gray-400 leading-relaxed">Clique em <b>Entrar no simulado</b>. O simulado será aberto em um ambiente próprio, com cronômetro, arquivo da prova e cartão-resposta.</p>${envio ? `<div class="mt-3 rounded-xl bg-emerald-900/30 border border-emerald-900/40 p-3 text-xs text-emerald-200"><b>Último envio:</b><br>${envio.encerradoEm ? new Date(envio.encerradoEm).toLocaleString("pt-BR") : "registrado"}</div>` : ""}</div>` : ""}</div>${enviosResumo}</div>`;
+    }).join("");
+    atualizarSelectRankingSimulados();
+    renderizarRankingSimulado(false);
+  };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(() => {
+      const form = document.getElementById("formCadSimulado");
+      if (form && !document.getElementById("btnCancelarEdicaoSimuladoPatch")) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.id = "btnCancelarEdicaoSimuladoPatch";
+        btn.className = "w-full py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold text-xs uppercase tracking-wider rounded-xl transition";
+        btn.innerHTML = '<i class="fa-solid fa-ban mr-2"></i>Cancelar edição / limpar formulário';
+        btn.onclick = resetarFormularioSimuladoPatch;
+        form.appendChild(btn);
+      }
+    }, 1500);
+  });
+})();
+
+// ==================== UX COMPACTA: PASTAS + VISUALIZADOR INTERNO ====================
+function htmlBadgePasta(texto, icon = "fa-folder", cor = "text-blue-300") {
+    return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-900 border border-gray-700 ${cor} text-[10px] font-black uppercase tracking-wider"><i class="fa-solid ${icon}"></i>${textoSeguro(texto || "Geral")}</span>`;
+}
+
+function criarAgrupamentoHierarquico(lista, campos) {
+    const raiz = new Map();
+    (lista || []).forEach(item => {
+        let no = raiz;
+        campos.forEach((campo, idx) => {
+            const valor = String(item[campo] || "Geral");
+            if (!no.has(valor)) no.set(valor, idx === campos.length - 1 ? [] : new Map());
+            no = no.get(valor);
+        });
+        if (Array.isArray(no)) no.push(item);
+    });
+    return raiz;
+}
+
+function abrirVisualizadorInterno(titulo, url, tipo = "arquivo") {
+    const modal = document.getElementById("modalVisualizadorInterno");
+    const corpo = document.getElementById("modalVisualizadorInternoCorpo");
+    const tituloEl = document.getElementById("modalVisualizadorInternoTitulo");
+    if (!modal || !corpo) {
+        window.open(url, "_blank");
+        return;
+    }
+    tituloEl.innerText = titulo || "Visualizador";
+    const seguro = textoSeguro(url || "");
+    const tipoNorm = String(tipo || "").toLowerCase();
+    let html = "";
+    const yt = converterUrlYoutube(url) || youtubeEmbedUrl(url);
+    if (yt) {
+        html = `<iframe src="${textoSeguro(yt)}" class="w-full h-[76vh] rounded-2xl bg-black border border-gray-700" allowfullscreen></iframe>`;
+    } else if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url) || tipoNorm.includes("image")) {
+        html = `<div class="w-full h-[76vh] flex items-center justify-center overflow-auto bg-gray-950 rounded-2xl border border-gray-700"><img src="${seguro}" class="max-w-full max-h-full object-contain" alt="${textoSeguro(titulo || "Imagem")}"></div>`;
+    } else if (/\.(mp4|webm|ogg)(\?|$)/i.test(url) || tipoNorm.includes("video")) {
+        html = `<video src="${seguro}" controls class="w-full max-h-[76vh] rounded-2xl bg-black border border-gray-700"></video>`;
+    } else if (/\.(mp3|wav|m4a|ogg)(\?|$)/i.test(url) || tipoNorm.includes("audio")) {
+        html = `<div class="p-6 rounded-2xl bg-gray-900 border border-gray-700"><audio src="${seguro}" controls class="w-full"></audio></div>`;
+    } else {
+        html = `<iframe src="${seguro}" class="w-full h-[76vh] rounded-2xl bg-white border border-gray-700"></iframe>
+        <p class="text-[11px] text-gray-500 mt-2">Se o arquivo não carregar dentro da plataforma, o serviço de origem pode bloquear incorporação. Use o botão abaixo.</p>
+        <button onclick="window.open('${seguro}', '_blank')" class="mt-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-up-right-from-square mr-1"></i>Abrir em emergência</button>`;
+    }
+    corpo.innerHTML = html;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+function fecharVisualizadorInterno() {
+    const modal = document.getElementById("modalVisualizadorInterno");
+    const corpo = document.getElementById("modalVisualizadorInternoCorpo");
+    if (corpo) corpo.innerHTML = "";
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+}
+
+function renderizarConteudoMaterial(m) {
+    const url = m.tipo === "arquivo" ? (m.arquivoUrl || m.dados) : m.url;
+    if (!url) return "";
+    const label = m.tipo === "video" ? "Assistir dentro da plataforma" : m.tipo === "arquivo" ? "Abrir arquivo na plataforma" : "Abrir recurso na plataforma";
+    const icon = m.tipo === "video" ? "fa-circle-play" : m.tipo === "arquivo" ? "fa-file-lines" : "fa-link";
+    return `<button onclick="abrirVisualizadorInterno('${textoSeguro(m.titulo || "Material")}', '${textoSeguro(url)}', '${textoSeguro(m.mimeType || m.tipo || "arquivo")}')" class="w-full text-center py-2.5 bg-gray-900 rounded-xl text-blue-300 text-xs hover:bg-gray-700 transition my-2 font-bold"><i class="fa-solid ${icon} mr-2"></i>${label}</button>`;
+}
+
+function renderizarSolucaoMaterial(m) {
+    if (!m.solucaoUrl && !m.solucaoArquivoUrl) return "";
+    return `<details class="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-[11px] font-bold text-emerald-300 uppercase"><i class="fa-solid fa-key mr-1"></i>Ver gabarito / resolução</summary><div class="mt-3 flex flex-wrap gap-2">${m.solucaoUrl ? `<button onclick="abrirVisualizadorInterno('${textoSeguro((m.titulo || "Material") + " — Solução")}', '${textoSeguro(m.solucaoUrl)}', 'link')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Ver link</button>` : ""}${m.solucaoArquivoUrl ? `<button onclick="abrirVisualizadorInterno('${textoSeguro((m.titulo || "Material") + " — Arquivo de solução")}', '${textoSeguro(m.solucaoArquivoUrl)}', '${textoSeguro(m.solucaoMimeType || "arquivo")}')" class="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold"><i class="fa-solid fa-file-circle-check mr-1"></i>Ver arquivo</button>` : ""}</div></details>`;
+}
+
+async function renderizarPlataformaEnsino() {
+    const container = document.getElementById("gridMateriais");
+    if (!container) return;
+    container.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-4"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
+    let materiais = (await carregarMateriaisPlataforma()).map(normalizarMaterialPlataforma);
+    atualizarFiltrosPlataforma(materiais);
+    const filtroDisciplina = document.getElementById("filtroMatDisciplina")?.value || "TODOS";
+    const filtroNivel = document.getElementById("filtroMatNivel")?.value || "TODOS";
+    const filtroTipo = document.getElementById("filtroMatTipo")?.value || "TODOS";
+    const filtroStatus = document.getElementById("filtroMatStatus")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroMatBusca")?.value || "");
+    materiais = materiais.filter(m => {
+        if (filtroDisciplina !== "TODOS" && m.disciplina !== filtroDisciplina) return false;
+        if (filtroNivel !== "TODOS" && m.nivel !== filtroNivel) return false;
+        if (filtroTipo !== "TODOS" && m.tipoMaterial !== filtroTipo) return false;
+        const feito = materialFeitoPorUsuario(m);
+        if (filtroStatus === "FEITOS" && !feito) return false;
+        if (filtroStatus === "NAO_FEITOS" && feito) return false;
+        if (busca && !normalizarTexto(`${m.titulo || ""} ${m.descricao || ""} ${m.disciplina || ""} ${m.nivel || ""} ${m.tipoMaterial || ""}`).includes(busca)) return false;
+        return true;
+    });
+    if (!materiais.length) {
+        container.innerHTML = `<div class="flex flex-col items-center justify-center py-12 text-center bg-gray-800 border border-gray-700 rounded-2xl"><i class="fa-solid fa-folder-open text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material encontrado.</p></div>`;
+        return;
+    }
+    const arvore = criarAgrupamentoHierarquico(materiais, ["nivel", "disciplina", "tipoMaterial"]);
+    container.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([nivel, mapaDisc]) => `
+        <details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden">
+            <summary class="cursor-pointer px-4 py-3 bg-gray-900/50 flex items-center justify-between"><span class="font-black text-white text-sm"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(nivel)}</span><span class="text-[10px] text-gray-500 uppercase font-bold">Nível</span></summary>
+            <div class="p-3 space-y-3">${Array.from(mapaDisc.entries()).map(([disciplina, mapaTipo]) => `
+                <details open class="rounded-xl bg-gray-900/35 border border-gray-700">
+                    <summary class="cursor-pointer px-3 py-2 flex items-center gap-2 text-sm font-bold text-gray-200"><i class="fa-solid fa-folder text-amber-400"></i>${textoSeguro(disciplina)}</summary>
+                    <div class="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${Array.from(mapaTipo.entries()).map(([tipo, itens]) => `
+                        <div class="rounded-2xl border border-gray-700 bg-gray-950/35 p-3">
+                            <div class="flex items-center justify-between gap-2 mb-2">${htmlBadgePasta(tipo, 'fa-folder', 'text-emerald-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} item(ns)</span></div>
+                            <div class="space-y-2">${itens.map(m => {
+                                const icon = iconeMaterialPlataforma(m);
+                                const edit = permissao("plataforma.podeGerenciar") ? `<button onclick="editarMaterialPlataforma && editarMaterialPlataforma('${m.id}')" class="text-blue-300 hover:text-blue-200" title="Editar"><i class="fa-solid fa-pen"></i></button>` : "";
+                                const del = permissao("plataforma.podeGerenciar") ? `<button onclick="excluirMaterial('${m.id}')" class="text-red-300 hover:text-red-200" title="Apagar"><i class="fa-solid fa-trash"></i></button>` : "";
+                                return `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3 text-sm">
+                                    <div class="flex items-start justify-between gap-2"><div class="min-w-0"><p class="font-black text-white truncate"><i class="fa-solid ${icon.icone} ${icon.cor} mr-1"></i>${textoSeguro(m.titulo)}</p><p class="text-[10px] text-gray-500 mt-1">${textoSeguro(m.criadoPor || 'Sistema')} · ${formatarDataHora(m.criadoEm)}</p></div><div class="flex gap-2 text-xs">${edit}${del}</div></div>
+                                    ${m.descricao ? `<p class="text-xs text-gray-400 mt-2 line-clamp-2">${textoSeguro(m.descricao)}</p>` : ""}
+                                    <div class="mt-2 flex flex-wrap gap-2 items-center">
+                                        <label class="inline-flex items-center gap-1 px-2 py-1 rounded-lg ${materialFeitoPorUsuario(m) ? 'bg-emerald-500/10 text-emerald-300' : 'bg-gray-800 text-gray-400'} text-[10px] font-bold cursor-pointer"><input type="checkbox" ${materialFeitoPorUsuario(m) ? 'checked' : ''} onchange="alternarMaterialFeito('${m.id}', this.checked)" class="accent-emerald-500">${materialFeitoPorUsuario(m) ? 'Feito' : 'Fazer'}</label>
+                                    </div>
+                                    ${renderizarConteudoMaterial(m)}${renderizarSolucaoMaterial(m)}${renderizarInteracoesMaterial(m)}
+                                </div>`;
+                            }).join("")}</div>
+                        </div>`).join("")}</div>
+                </details>`).join("")}</div>
+        </details>`).join("")}</div>`;
+}
+
+function abrirAulaAmbiente(aulaId) {
+    const aula = (getStorage("app_aulas", []) || []).find(a => String(a.id) === String(aulaId));
+    if (!aula) return alert("Aula não encontrada.");
+    const modal = document.getElementById("modalAulaAmbiente");
+    const corpo = document.getElementById("modalAulaAmbienteCorpo");
+    if (!modal || !corpo) return;
+    const embed = aula.origem === "youtube" ? youtubeEmbedUrl(aula.url) : "";
+    const mediaUrl = embed || aula.videoUrl || aula.arquivoUrl || aula.url || "";
+    const media = mediaUrl ? (embed
+        ? `<iframe src="${textoSeguro(embed)}" class="w-full h-[58vh] rounded-2xl bg-black border border-gray-700" allowfullscreen></iframe>`
+        : `<iframe src="${textoSeguro(mediaUrl)}" class="w-full h-[58vh] rounded-2xl bg-white border border-gray-700"></iframe>`) : `<div class="rounded-2xl bg-gray-900 border border-gray-700 p-8 text-center text-gray-500">Nenhuma mídia vinculada.</div>`;
+    const comentarios = Array.isArray(aula.comentarios) ? [...aula.comentarios].sort((a,b)=>Number(b.criadoEm||0)-Number(a.criadoEm||0)) : [];
+    corpo.innerHTML = `<div class="space-y-4">
+        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><p class="text-[10px] uppercase tracking-widest text-blue-300 font-black">${textoSeguro(aula.nivel)} · ${textoSeguro(aula.disciplina)} · ${textoSeguro(aula.playlist)}</p><h2 class="text-2xl font-black text-white mt-1">${textoSeguro(aula.tema)}</h2><p class="text-xs text-gray-500 mt-1">Postado por ${textoSeguro(aula.criadoPor || 'Sistema')} · ${formatarDataHora(aula.criadoEm)}</p></div><button onclick="fecharAulaAmbiente()" class="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button></div>
+        ${aula.descricao ? `<p class="rounded-2xl bg-gray-900/60 border border-gray-700 p-4 text-sm text-gray-300 leading-relaxed">${textoSeguro(aula.descricao)}</p>` : ""}
+        ${media}
+        <div class="rounded-2xl bg-gray-800 border border-gray-700 p-4">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-comments text-blue-400 mr-2"></i>Comentários da aula (${comentarios.length})</h3>
+            <form onsubmit="publicarComentarioAula('${aula.id}', event)" class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2"><textarea id="comentarioAula_${aula.id}" required rows="2" class="p-3 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-200 resize-none" placeholder="Comente, pergunte ou registre uma observação da aula..."></textarea><button class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase">Enviar</button></form>
+            <div class="mt-4 space-y-2">${comentarios.length ? comentarios.map(c => `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><b class="text-xs text-gray-200">${textoSeguro(c.criadoPor || 'Usuário')}</b><span class="text-[10px] text-gray-500">${formatarDataHora(c.criadoEm)}</span></div><p class="text-sm text-gray-300 mt-1 whitespace-pre-wrap">${textoSeguro(c.texto || '')}</p></div>`).join('') : `<p class="text-xs text-gray-500 italic">Nenhum comentário ainda.</p>`}</div>
+        </div>
+    </div>`;
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+}
+
+function fecharAulaAmbiente() {
+    const modal = document.getElementById("modalAulaAmbiente");
+    const corpo = document.getElementById("modalAulaAmbienteCorpo");
+    if (corpo) corpo.innerHTML = "";
+    if (modal) { modal.classList.add("hidden"); modal.classList.remove("flex"); }
+}
+
+async function publicarComentarioAula(aulaId, event) {
+    event.preventDefault();
+    const input = document.getElementById(`comentarioAula_${aulaId}`);
+    const texto = input?.value.trim();
+    if (!texto) return;
+    if (typeof moderarTextoEducacional === "function") {
+        const mod = moderarTextoEducacional(texto);
+        if (!mod.ok) return alert(mod.mensagem || "Comentário bloqueado pela moderação preventiva.");
+    }
+    const aulas = getStorage("app_aulas", []);
+    const idx = aulas.findIndex(a => String(a.id) === String(aulaId));
+    if (idx < 0) return alert("Aula não encontrada.");
+    aulas[idx].comentarios = Array.isArray(aulas[idx].comentarios) ? aulas[idx].comentarios : [];
+    aulas[idx].comentarios.push({ id: novoId(), texto, criadoEm: Date.now(), criadoPor: usuarioLogado?.nome || "Usuário", criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoPorNivel: usuarioLogado?.nivel || "" });
+    await setStorage("app_aulas", aulas);
+    abrirAulaAmbiente(aulaId);
+    renderizarAulas();
+}
+
+function renderizarAulas() {
+    popularFiltrosAulas();
+    const grid = document.getElementById("gridAulas");
+    if (!grid) return;
+    const fn = document.getElementById("filtroAulaNivel")?.value || "TODOS";
+    const fd = document.getElementById("filtroAulaDisciplina")?.value || "TODOS";
+    const fp = document.getElementById("filtroAulaPlaylist")?.value || "TODOS";
+    const busca = normalizarTexto(document.getElementById("filtroAulaBusca")?.value || "");
+    let aulas = getStorage("app_aulas", []);
+    aulas = aulas.filter(a => (fn === "TODOS" || a.nivel === fn) && (fd === "TODOS" || a.disciplina === fd) && (fp === "TODOS" || a.playlist === fp));
+    if (busca) aulas = aulas.filter(a => normalizarTexto(`${a.tema} ${a.playlist} ${a.descricao} ${a.disciplina}`).includes(busca));
+    aulas.sort((a,b) => String(a.nivel).localeCompare(String(b.nivel), "pt-BR") || String(a.disciplina).localeCompare(String(b.disciplina), "pt-BR") || String(a.playlist).localeCompare(String(b.playlist), "pt-BR") || (a.criadoEm||0)-(b.criadoEm||0));
+    if (!aulas.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-video text-3xl mb-3 opacity-40"></i><p>Nenhuma aula encontrada.</p></div>`; return; }
+    const arvore = criarAgrupamentoHierarquico(aulas, ["nivel", "disciplina", "playlist"]);
+    grid.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([nivel, mapaDisc]) => `<details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden"><summary class="cursor-pointer px-4 py-3 bg-gray-900/50 flex justify-between"><span class="text-sm text-white font-black"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(nivel)}</span></summary><div class="p-3 space-y-3">${Array.from(mapaDisc.entries()).map(([disciplina, mapaPlaylist]) => `<details open class="rounded-xl bg-gray-900/35 border border-gray-700"><summary class="cursor-pointer px-3 py-2 text-sm text-gray-200 font-bold"><i class="fa-solid fa-folder text-amber-400 mr-2"></i>${textoSeguro(disciplina)}</summary><div class="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${Array.from(mapaPlaylist.entries()).map(([playlist, itens]) => `<div class="rounded-2xl bg-gray-950/35 border border-gray-700 p-3"><div class="mb-2 flex justify-between items-center">${htmlBadgePasta(playlist, 'fa-list', 'text-purple-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} aula(s)</span></div><div class="space-y-2">${itens.map(a => { const del = podeGerenciarAulas() ? `<button onclick="excluirAula('${a.id}')" class="text-red-300 hover:text-red-200" title="Apagar"><i class="fa-solid fa-trash"></i></button>` : ""; return `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="font-black text-white truncate"><i class="fa-solid fa-circle-play text-red-400 mr-1"></i>${textoSeguro(a.tema)}</p><p class="text-[10px] text-gray-500 mt-1">${textoSeguro(a.criadoPor || 'Sistema')} · ${formatarDataHora(a.criadoEm)}</p></div><div class="flex gap-2 text-xs"><button onclick="abrirAulaAmbiente('${a.id}')" class="text-blue-300 hover:text-blue-200" title="Abrir aula"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>${del}</div></div>${a.descricao ? `<p class="text-xs text-gray-400 mt-2 line-clamp-2">${textoSeguro(a.descricao)}</p>` : ''}<button onclick="abrirAulaAmbiente('${a.id}')" class="mt-2 w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black"><i class="fa-solid fa-play mr-1"></i>Entrar na aula</button></div>`; }).join('')}</div></div>`).join('')}</div></details>`).join('')}</div></details>`).join('')}</div>`;
+}
+
+function renderizarBancoQuestoes() {
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid) return;
+    if (!podeGerenciarQuestoes()) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p></div>`; return; }
+    const questoes = getStorage("app_questoes", []).filter(questaoPassaFiltros).sort((a,b) => String(a.disciplina || "").localeCompare(String(b.disciplina || ""), "pt-BR") || String(a.nivel || "").localeCompare(String(b.nivel || ""), "pt-BR") || String(a.tema || "").localeCompare(String(b.tema || ""), "pt-BR"));
+    if (!questoes.length) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p></div>`; return; }
+    const arvore = criarAgrupamentoHierarquico(questoes, ["disciplina", "nivel", "tema"]);
+    grid.innerHTML = `<div class="space-y-3">${Array.from(arvore.entries()).map(([disciplina, mapaNivel]) => `<details open class="rounded-2xl bg-gray-800 border border-gray-700 overflow-hidden"><summary class="cursor-pointer px-4 py-3 bg-gray-900/50"><span class="text-sm font-black text-white"><i class="fa-solid fa-folder-tree text-blue-400 mr-2"></i>${textoSeguro(disciplina)}</span></summary><div class="p-3 space-y-3">${Array.from(mapaNivel.entries()).map(([nivel, mapaTema]) => `<details open class="rounded-xl bg-gray-900/35 border border-gray-700"><summary class="cursor-pointer px-3 py-2 text-sm font-bold text-gray-200"><i class="fa-solid fa-folder text-amber-400 mr-2"></i>${textoSeguro(nivel)}</summary><div class="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3">${Array.from(mapaTema.entries()).map(([tema, itens]) => `<div class="rounded-2xl bg-gray-950/35 border border-gray-700 p-3"><div class="flex justify-between items-center mb-2">${htmlBadgePasta(tema || 'Sem tema', 'fa-folder-open', 'text-emerald-300')}<span class="text-[10px] text-gray-500 font-bold">${itens.length} questão(ões)</span></div><div class="space-y-2">${itens.map(q => `<div class="rounded-xl bg-gray-900 border border-gray-700 p-3"><div class="flex justify-between gap-2"><div><h4 class="text-sm font-black text-white">${textoSeguro(q.titulo || 'Questão')}</h4><p class="text-[10px] text-gray-500 mt-1">${textoSeguro([q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano].filter(Boolean).join(' · '))}</p></div><button onclick="adicionarSolucaoQuestao('${q.id}')" class="text-emerald-300 hover:text-emerald-200 text-xs" title="Nova solução"><i class="fa-solid fa-plus"></i></button></div><p class="text-xs text-gray-300 whitespace-pre-wrap mt-2 line-clamp-4">${textoSeguro(q.enunciado || '')}</p>${renderArquivoLinks(q.arquivos)}<details class="mt-2"><summary class="cursor-pointer text-[11px] font-black text-emerald-300 uppercase">Soluções (${(q.solucoes || []).length})</summary>${renderizarSolucoesQuestao(q)}</details></div>`).join('')}</div></div>`).join('')}</div></details>`).join('')}</div></details>`).join('')}</div>`;
+}
+
