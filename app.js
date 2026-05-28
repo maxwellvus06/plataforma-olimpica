@@ -4011,7 +4011,7 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
         origemCadastro: "importacao_xlsx", criadoEm: new Date().toISOString()
     };
     if (!nome) erros.push(`Linha ${nl}: Nome completo é obrigatório.`);
-    if (!emailInstitucional && !emailPessoal) erros.push(`Linha ${nl}: informe e-mail institucional ou pessoal.`);
+    // E-mail é opcional também na importação em lote. A conta pode ser criada depois pelo botão “Inscreva-se”.
     if (!cpf || !validarCpf(cpf)) erros.push(`Linha ${nl}: CPF inválido ou vazio.`);
     if (!dataNascimento) erros.push(`Linha ${nl}: Data de nascimento inválida ou vazia.`);
     if (!escola) erros.push(`Linha ${nl}: escola não cadastrada ou fora do seu escopo (${escolaNome}).`);
@@ -4021,15 +4021,38 @@ function montarAlunoDaLinhaPlanilha(linha, nl, erros) {
 }
 
 function normalizarDataPlanilha(valor) {
-    if (!valor) return "";
+    if (valor === null || valor === undefined || valor === "") return "";
+
+    const montarDataIsoValida = (ano, mes, dia) => {
+        const y = Number(ano), m = Number(mes), d = Number(dia);
+        if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return "";
+        if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return "";
+        const data = new Date(y, m - 1, d);
+        if (data.getFullYear() !== y || data.getMonth() !== m - 1 || data.getDate() !== d) return "";
+        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    };
+
+    // Quando o Excel entrega a célula como data real.
+    if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
+        return montarDataIsoValida(valor.getFullYear(), valor.getMonth() + 1, valor.getDate());
+    }
+
+    // Quando o Excel entrega a célula como número serial.
     if (typeof valor === "number") {
         const parsed = XLSX.SSF.parse_date_code(valor);
-        if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+        if (parsed) return montarDataIsoValida(parsed.y, parsed.m, parsed.d);
     }
+
     const s = String(valor).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+
+    // Aceita o formato técnico antigo, para não quebrar planilhas já prontas.
+    const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (iso) return montarDataIsoValida(iso[1], iso[2], iso[3]);
+
+    // Formato preferencial no Brasil: DD/MM/AAAA. Também aceita DD-MM-AAAA e DD.MM.AAAA.
+    const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (br) return montarDataIsoValida(br[3], br[2], br[1]);
+
     return "";
 }
 
@@ -4103,7 +4126,7 @@ async function downloadAlunosTemplate() {
         { header: "Contato do pai/responsável", key: "contatoResp", width: 26 }
     ];
     const escolas = escolasPermitidasParaCadastroUsuario().map(e => e.nome);
-    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "maria@escola.edu.br", cpf: "529.982.247-25", nascimento: "2010-05-20", sexo: "Feminino", etnia: "Parda", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
+    ws.addRow({ nome: "Maria Exemplo da Silva", emailInst: "", emailPessoal: "", cpf: "529.982.247-25", nascimento: "20/05/2010", sexo: "Feminino", etnia: "Parda", escola: escolas[0] || "Nome da Escola", serie: "8º Ano EF", turma: "Manhã / 8º A", mae: "Nome da Mãe", contatoResp: "(86) 99999-9999" });
     for (let i = 0; i < 199; i++) ws.addRow({});
     estilizarCabecalhoTemplate(ws, ws.columns.length);
     const listas = obterOuCriarAbaListas(workbook);
@@ -4115,7 +4138,7 @@ async function downloadAlunosTemplate() {
     aplicarListaSuspensa(ws, "G", 2, 201, rangeEtnias, "Escolha a etnia/cor-raça do aluno.");
     aplicarListaSuspensa(ws, "H", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
     aplicarListaSuspensa(ws, "I", 2, 201, rangeSeries, "Escolha a série da lista.");
-    ws.getColumn("E").numFmt = "yyyy-mm-dd";
+    ws.getColumn("E").numFmt = "dd/mm/yyyy";
     await baixarWorkbookExcelJS(workbook, `modelo_cadastro_alunos_${anoDadosAtivo}.xlsx`);
 }
 
