@@ -908,7 +908,7 @@ function ativarPrimeiraAbaPermitida() {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -2512,6 +2512,7 @@ function editarResultado(chaveCodificada) {
         titulo: "Editar resultado olímpico",
         campos: [
             { nome: "aluno", label: "Nome do aluno", valor: atual.aluno || "" },
+            { nome: "alunoCpf", label: "CPF do aluno (para vincular sem confundir homônimos)", valor: atual.alunoCpf || "" },
             { nome: "municipio", label: "Cidade", tipo: "select", valor: atual.municipio || "", options: opcoesCidadesNomeUf() },
             { nome: "escola", label: "Escola", tipo: "select", valor: atual.escola || "", options: opcoesEscolasNome(atual.municipio || "") },
             { nome: "olimpiada", label: "Olimpíada", tipo: "select", valor: atual.olimpiada || "", options: opcoesOlimpiadasNome() },
@@ -2549,9 +2550,13 @@ function editarResultado(chaveCodificada) {
             if (!escola) return alert("Escola inválida."), false;
             if (escola.cidadeId !== cidade.id) return alert("A escola selecionada não pertence à cidade escolhida."), false;
 
+            const cpfEditado = d.alunoCpf || "";
+            const alunoVinculadoPorCpf = cpfLimpo(cpfEditado) ? getStorage("app_alunos", []).find(a => cpfLimpo(a.cpf || "") === cpfLimpo(cpfEditado)) : null;
             const atualizadoBase = {
                 ...atual,
                 aluno: d.aluno,
+                alunoCpf: cpfEditado,
+                alunoId: alunoVinculadoPorCpf?.id || (cpfLimpo(cpfEditado) ? atual.alunoId || "" : ""),
                 municipio: d.municipio,
                 escola: d.escola,
                 olimpiada: d.olimpiada,
@@ -2963,7 +2968,7 @@ function navegarAba(abaId, botaoTarget) {
 
     const titulos = {
         dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
-        meusresultados: "Meus Resultados", importar: "Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
+        meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
         plataforma: "Plataforma de Ensino", simulados: "Simulados", aulas: "Aulas", questoes: "Banco de Questões", monitoria: "Monitoria — Salas de Atendimento", layout: "Editor de Layout"
@@ -3854,7 +3859,7 @@ async function downloadAlunosTemplate() {
 }
 
 function liberarResultadoManual() {
-    ["addResAluno", "addResCidadeSelect", "addResEscolaSelect", "addResSerieSelect"].forEach(id => {
+    ["addResAluno", "addResAlunoCpf", "addResCidadeSelect", "addResEscolaSelect", "addResSerieSelect"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.disabled = false;
     });
@@ -3869,16 +3874,18 @@ function preencherResultadoPorAlunoSelecionado() {
     const escola = escolaDoAluno(aluno);
     const cidade = cidadeDaEscola(escola);
     const inputAluno = document.getElementById("addResAluno");
+    const inputCpf = document.getElementById("addResAlunoCpf");
     const cidadeSelect = document.getElementById("addResCidadeSelect");
     const escolaSelect = document.getElementById("addResEscolaSelect");
     const serieSelect = document.getElementById("addResSerieSelect");
     if (inputAluno) inputAluno.value = aluno.nome || "";
+    if (inputCpf) inputCpf.value = aluno.cpf || "";
     if (cidadeSelect && cidade) cidadeSelect.value = `${cidade.nome} - ${cidade.uf}`;
     popularSeletoresResultadosManuais();
     if (cidadeSelect && cidade) cidadeSelect.value = `${cidade.nome} - ${cidade.uf}`;
     if (escolaSelect && escola) escolaSelect.value = escola.nome;
     if (serieSelect && aluno.serie) serieSelect.value = aluno.serie;
-    ["addResAluno", "addResCidadeSelect", "addResEscolaSelect"].forEach(id => {
+    ["addResAluno", "addResAlunoCpf", "addResCidadeSelect", "addResEscolaSelect"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.disabled = true;
     });
@@ -4004,7 +4011,8 @@ function resultadosDoAlunoLogado() {
         if (alunoId && r.alunoId === alunoId) return true;
         const cpfResultado = cpfLimpo(r.alunoCpf || "");
         if (cpfResultado && (cpfResultado === loginCpf || cpfResultado === cpfCadastro)) return true;
-        if (alunoCadastro && normalizarTexto(r.aluno) === normalizarTexto(alunoCadastro.nome) && normalizarTexto(r.escola) === normalizarTexto(escolaNome)) return true;
+        // Segurança contra homônimos: sem alunoId ou CPF, o resultado NÃO é vinculado automaticamente.
+        // Dois alunos com mesmo nome e mesma escola só são distinguidos com CPF/alunoId.
         return false;
     });
 }
@@ -4059,6 +4067,7 @@ function initResultadoManual() {
             const alunoIdSelecionado = alunoSelect?.value || "";
             const alunoObjSelecionado = alunoIdSelecionado ? getStorage("app_alunos").find(a => a.id === alunoIdSelecionado) : null;
             const aluno = document.getElementById("addResAluno").value.trim();
+            const alunoCpfManual = document.getElementById("addResAlunoCpf")?.value?.trim() || "";
             const municipio = document.getElementById("addResCidadeSelect").value;
             const escola = document.getElementById("addResEscolaSelect").value;
             const olimpiada = document.getElementById("addResOlimpiadaSelect").value;
@@ -4075,7 +4084,9 @@ function initResultadoManual() {
             if (!cidade || !escolaObj) return alert("Cidade ou escola inválida.");
             if (escolaObj.cidadeId !== cidade.id) return alert("A escola não pertence à cidade selecionada.");
 
-            gravarResultadoComSobrescrita({ aluno, alunoId: alunoObjSelecionado?.id || "", alunoCpf: alunoObjSelecionado?.cpf || "", escola, municipio, olimpiada, serie, premio, observacao });
+            const cpfFinal = alunoObjSelecionado?.cpf || alunoCpfManual || "";
+            const alunoIdFinal = alunoObjSelecionado?.id || (cpfLimpo(cpfFinal) ? getStorage("app_alunos", []).find(a => cpfLimpo(a.cpf || "") === cpfLimpo(cpfFinal))?.id || "" : "");
+            gravarResultadoComSobrescrita({ aluno, alunoId: alunoIdFinal, alunoCpf: cpfFinal, escola, municipio, olimpiada, serie, premio, observacao });
             salvarPremiados();
             popularSeletores();
             renderizarPlataformaDashboard();
@@ -4116,7 +4127,9 @@ function preencherCidadePelaEscolaManual() {
 }
 
 function chaveResultado(r) {
-    return `${normalizarTexto(r.aluno)}|${normalizarTexto(r.escola)}|${normalizarTexto(r.olimpiada)}|${normalizarTexto(r.serie)}`;
+    const cpf = cpfLimpo(r.alunoCpf || r.cpf || "");
+    const alunoChave = cpf ? `cpf:${cpf}` : `nome:${normalizarTexto(r.aluno)}`;
+    return `${alunoChave}|${normalizarTexto(r.escola)}|${normalizarTexto(r.olimpiada)}|${normalizarTexto(r.serie)}`;
 }
 
 function gravarResultadoComSobrescrita(novo) {
@@ -4274,7 +4287,20 @@ function renderizarCronograma() {
     const tbody = document.getElementById("tableCronogramaCorpo");
     if (!tbody) return;
     const podeEditar = permissao("calendario.podeEditar");
-    const cronogramaFiltrado = obterCronogramaFiltradoExibido();
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
+    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
+    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
+
+    const cronogramaFiltrado = ordenarCronogramaPorModo(cronograma.filter(c => {
+        const info = normalizarEtapaCronograma(c.etapa);
+        const porGrupo = filtroGrupo === "TODOS" ||
+            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
+        const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
+        const porMes = cronogramaEventoNoMes(c, filtroMes);
+        return porGrupo && porEtapa && porOlimpiada && porMes;
+    }));
 
     if (!cronogramaFiltrado.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum evento encontrado para os filtros selecionados.</td></tr>`;
@@ -4579,16 +4605,16 @@ function atualizarGraficoPremios(dados) {
 }
 
 // ==================== IMPORTAR RESULTADOS ====================
-function podeExportarExcelOperacional() {
-    return ["ADM", "Staff", "Gestor", "Escola"].includes(usuarioLogado?.nivel || "");
-}
-
-function obterResultadosFiltradosExibidos() {
+function renderizarResultadosImportacao() {
     const nFiltro = document.getElementById("filterResultadoNome")?.value?.trim().toLowerCase() || "";
     const cFiltro = document.getElementById("filterResultadoCidade")?.value || "TODOS";
     const eFiltro = document.getElementById("filterResultadoEscola")?.value || "TODOS";
     const pFiltro = document.getElementById("filterResultadoPremio")?.value || "TODOS";
-    return dadosTrabalho.filter(r => {
+
+    const municipioTravado = getMunicipioFiltradoUsuario();
+    const podeEditar = permissao("resultados.podeEditar");
+
+    const filtrados = dadosTrabalho.filter(r => {
         const porMuni = resultadoDentroDoEscopoResultadosUsuario(r);
         const porNome = !nFiltro || normalizarTexto(r.aluno).includes(nFiltro);
         const porCidade = cFiltro === "TODOS" || normalizarTexto(r.municipio) === normalizarTexto(cFiltro);
@@ -4596,122 +4622,11 @@ function obterResultadosFiltradosExibidos() {
         const porPremio = pFiltro === "TODOS" || normalizarTexto(r.premio) === normalizarTexto(pFiltro);
         return porMuni && porNome && porCidade && porEscola && porPremio;
     });
-}
-
-function obterCronogramaFiltradoExibido() {
-    const cronograma = getStorage("app_cronograma");
-    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
-    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
-    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
-    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
-    return ordenarCronogramaPorModo(cronograma.filter(c => {
-        const info = normalizarEtapaCronograma(c.etapa);
-        const porGrupo = filtroGrupo === "TODOS" ||
-            (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
-        const porEtapa = filtroEtapa === "TODOS" || normalizarTexto(info.etapa) === normalizarTexto(filtroEtapa);
-        const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
-        const porMes = cronogramaEventoNoMes(c, filtroMes);
-        return porGrupo && porEtapa && porOlimpiada && porMes;
-    }));
-}
-
-async function exportarTabelaExcelOperacional(nomeArquivo, titulo, colunas, linhas) {
-    if (!podeExportarExcelOperacional()) return alert("A exportação em Excel está disponível apenas para ADM, Staff, Gestor e Escola.");
-    if (!linhas.length) return alert("Não há dados filtrados para exportar.");
-    if (!bibliotecaExcelJSPresente()) return alert("Biblioteca ExcelJS não carregou. Atualize a página com Ctrl + F5 e tente novamente.");
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Avance Olímpico";
-    workbook.created = new Date();
-    const ws = workbook.addWorksheet("Relatório");
-    ws.addRow([titulo]);
-    ws.mergeCells(1, 1, 1, colunas.length);
-    ws.getRow(1).font = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
-    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
-    ws.addRow([`Ano: ${anoDadosAtivo}`, `Gerado em: ${new Date().toLocaleString("pt-BR")}`, `Responsável: ${usuarioLogado?.nome || ""}`]);
-    ws.mergeCells(2, 3, 2, colunas.length);
-    ws.addRow([]);
-    ws.addRow(colunas.map(c => c.header));
-    const header = ws.getRow(4);
-    header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-    linhas.forEach(item => ws.addRow(colunas.map(c => item[c.key] ?? "")));
-    ws.columns.forEach((col, i) => {
-        col.width = Math.max(14, Math.min(60, colunas[i]?.width || 22));
-        col.alignment = { vertical: "top", wrapText: true };
-    });
-    ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: colunas.length } };
-    await baixarWorkbookExcelJS(workbook, nomeArquivo);
-}
-
-function exportarResultadosFiltradosExcel() {
-    const linhas = obterResultadosFiltradosExibidos().map(r => ({
-        aluno: r.aluno || "",
-        escola: r.escola || "",
-        cidade: r.municipio || "",
-        serie: r.serie || "",
-        olimpiada: r.olimpiada || "",
-        premio: r.premio || "",
-        observacao: r.observacao || "",
-        certificado: r.certificadoUrl || ""
-    }));
-    return exportarTabelaExcelOperacional(
-        `resultados_filtrados_${anoDadosAtivo}.xlsx`,
-        "Relatório de resultados filtrados",
-        [
-            { header: "Aluno", key: "aluno", width: 34 },
-            { header: "Escola", key: "escola", width: 36 },
-            { header: "Cidade", key: "cidade", width: 24 },
-            { header: "Série", key: "serie", width: 18 },
-            { header: "Olimpíada", key: "olimpiada", width: 44 },
-            { header: "Prêmio", key: "premio", width: 18 },
-            { header: "Observação", key: "observacao", width: 48 },
-            { header: "Certificado", key: "certificado", width: 54 }
-        ],
-        linhas
-    );
-}
-
-function exportarCalendarioFiltradoExcel() {
-    const olimpiadas = getStorage("app_olimpiadas");
-    const linhas = obterCronogramaFiltradoExibido().map(c => {
-        const oli = olimpiadas.find(o => o.id === c.olimpiadaId);
-        const temporal = classificarTemporalCronograma(c);
-        return {
-            olimpiada: oli ? oli.nome : "Desconhecida",
-            etapa: c.etapa || "",
-            data: formatarPeriodoCronograma(c),
-            dataInicio: c.dataInicio || "",
-            dataFim: c.dataFim || "",
-            publico: c.segmento || "",
-            acao: c.acao || "",
-            status: temporal.label || ""
-        };
-    });
-    return exportarTabelaExcelOperacional(
-        `calendario_filtrado_${anoDadosAtivo}.xlsx`,
-        "Relatório de calendário filtrado",
-        [
-            { header: "Olimpíada", key: "olimpiada", width: 44 },
-            { header: "Fase / Etapa", key: "etapa", width: 34 },
-            { header: "Data / Período", key: "data", width: 24 },
-            { header: "Data início", key: "dataInicio", width: 18 },
-            { header: "Data final", key: "dataFim", width: 18 },
-            { header: "Público", key: "publico", width: 24 },
-            { header: "Ação / Observação", key: "acao", width: 56 },
-            { header: "Status temporal", key: "status", width: 26 }
-        ],
-        linhas
-    );
-}
-
-function renderizarResultadosImportacao() {
-    const podeEditar = permissao("resultados.podeEditar");
-    const filtrados = obterResultadosFiltradosExibidos();
 
     const tbody = document.getElementById("tableResultadosImportacaoCorpo");
     if (!tbody) return;
     if (!filtrados.length) {
-        tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado para os filtros selecionados.</td></tr>`;
         return;
     }
     tbody.innerHTML = filtrados.map(r => {
@@ -4719,6 +4634,7 @@ function renderizarResultadosImportacao() {
         return `
             <tr class="hover:bg-gray-700/30 text-xs">
                 <td class="p-4 font-bold text-white">${textoSeguro(r.aluno)}</td>
+                <td class="p-4 text-gray-400 font-mono">${textoSeguro(r.alunoCpf || "—")}</td>
                 <td class="p-4 text-gray-300">${textoSeguro(r.escola)}</td>
                 <td class="p-4 text-blue-400 font-semibold">${textoSeguro(r.municipio)}</td>
                 <td class="p-4 text-gray-300 font-medium">${textoSeguro(r.serie || "Não informada")}</td>
@@ -4969,6 +4885,7 @@ function processarPlanilha(arquivo) {
             let inseridos = 0;
             linhas.forEach((linha, idx) => {
                 const aluno = String(linha.Aluno || "").trim();
+                const alunoCpf = String(linha.CPF || linha.Cpf || linha["CPF do aluno"] || linha["CPF DO ALUNO"] || "").trim();
                 const escola = String(linha.Escola || "").trim();
                 const municipio = String(linha.Municipio || linha.Município || "").trim();
                 const olimpiada = String(linha.Olimpiada || linha.Olimpíada || "").trim();
@@ -4983,7 +4900,8 @@ function processarPlanilha(arquivo) {
                 if (!olimpiadas.some(o => normalizarTexto(o.nome) === normalizarTexto(olimpiada))) { erros.push(`Linha ${nl}: olimpíada não cadastrada (${olimpiada}).`); return; }
                 if (!SERIES_PADRAO.some(s => normalizarTexto(s) === normalizarTexto(serie))) { erros.push(`Linha ${nl}: série inválida (${serie}).`); return; }
                 if (!PREMIOS_PADRAO.some(p => normalizarTexto(p) === normalizarTexto(premio))) { erros.push(`Linha ${nl}: prêmio inválido (${premio}).`); return; }
-                gravarResultadoComSobrescrita({ aluno, escola, municipio, olimpiada, serie, premio, observacao });
+                const alunoCadastrado = cpfLimpo(alunoCpf) ? getStorage("app_alunos", []).find(a => cpfLimpo(a.cpf || "") === cpfLimpo(alunoCpf)) : null;
+                gravarResultadoComSobrescrita({ aluno, alunoCpf, alunoId: alunoCadastrado?.id || "", escola, municipio, olimpiada, serie, premio, observacao });
                 inseridos++;
             });
             salvarPremiados(); popularSeletores(); renderizarPlataformaDashboard(); renderizarResultadosImportacao();
@@ -5007,12 +4925,13 @@ async function downloadTemplate() {
     const ws = workbook.addWorksheet("Modelo");
     ws.columns = [
         { header: "Aluno", key: "aluno", width: 34 },
+        { header: "CPF", key: "cpf", width: 18 },
         { header: "Escola", key: "escola", width: 42 },
         { header: "Municipio", key: "municipio", width: 26 },
         { header: "Olimpiada", key: "olimpiada", width: 54 },
         { header: "Serie", key: "serie", width: 18 },
         { header: "Premio", key: "premio", width: 20 },
-        { header: "Observacao", key: "observacao", width: 56 }
+        { header: "Observacao", key: "observacao", width: 46 }
     ];
 
     const escolas = listaEscolasParaTemplate();
@@ -5021,18 +4940,19 @@ async function downloadTemplate() {
 
     ws.addRow({
         aluno: "Nome Completo",
+        cpf: "000.000.000-00",
         escola: escolas[0] || "Nome da Escola",
         municipio: municipios[0] || "Cidade - UF",
         olimpiada: olimpiadas[0] || "Nome da Olimpíada",
         serie: "6º Ano EF",
         premio: "Ouro",
-        observacao: "Texto livre opcional: fonte, conferência, observação pedagógica etc."
+        observacao: "Texto livre opcional"
     });
 
     // Linhas em branco para preenchimento em lote
     for (let i = 0; i < 199; i++) ws.addRow({});
 
-    estilizarCabecalhoTemplate(ws, 7);
+    estilizarCabecalhoTemplate(ws, 8);
 
     const listas = obterOuCriarAbaListas(workbook);
     const rangeEscolas = escreverListaValidacao(listas, "A", "Escolas cadastradas", escolas);
@@ -5041,12 +4961,11 @@ async function downloadTemplate() {
     const rangeSeries = escreverListaValidacao(listas, "D", "Séries", SERIES_PADRAO);
     const rangePremios = escreverListaValidacao(listas, "E", "Prêmios", PREMIOS_PADRAO);
 
-    aplicarListaSuspensa(ws, "B", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
-    aplicarListaSuspensa(ws, "C", 2, 201, rangeMunicipios, "Escolha um município já cadastrado no sistema.");
-    aplicarListaSuspensa(ws, "D", 2, 201, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
-    aplicarListaSuspensa(ws, "E", 2, 201, rangeSeries, "Escolha uma série da lista.");
-    aplicarListaSuspensa(ws, "F", 2, 201, rangePremios, "Escolha um prêmio da lista.");
-    ws.getColumn(7).alignment = { wrapText: true, vertical: "top" };
+    aplicarListaSuspensa(ws, "C", 2, 201, rangeEscolas, "Escolha uma escola já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "D", 2, 201, rangeMunicipios, "Escolha um município já cadastrado no sistema.");
+    aplicarListaSuspensa(ws, "E", 2, 201, rangeOlimpiadas, "Escolha uma olimpíada já cadastrada no sistema.");
+    aplicarListaSuspensa(ws, "F", 2, 201, rangeSeries, "Escolha uma série da lista.");
+    aplicarListaSuspensa(ws, "G", 2, 201, rangePremios, "Escolha um prêmio da lista.");
 
     await baixarWorkbookExcelJS(workbook, "modelo_importacao_resultados_com_listas.xlsx");
 }
@@ -7377,8 +7296,6 @@ window.alternarMicrofoneMonitoria = alternarMicrofoneMonitoria;
 window.alternarCameraMonitoria = alternarCameraMonitoria;
 window.encerrarChamadaMonitoria = encerrarChamadaMonitoria;
 window.downloadTemplate = downloadTemplate;
-window.exportarResultadosFiltradosExcel = exportarResultadosFiltradosExcel;
-window.exportarCalendarioFiltradoExcel = exportarCalendarioFiltradoExcel;
 window.downloadOlimpiadasTemplate = downloadOlimpiadasTemplate;
 window.downloadAlunosTemplate = downloadAlunosTemplate;
 window.downloadCronogramaTemplate = downloadCronogramaTemplate;
