@@ -14972,3 +14972,496 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   }
   document.addEventListener("DOMContentLoaded", () => setTimeout(carregarQuestoesSeNecessario, 2400));
 })();
+
+// ============================================================
+// PATCH FINAL — Simulados Hardcore + alternativas neutras + layouts de mini-lista
+// 1) File picker em simulado Hardcore não conta como saída indevida.
+// 2) Questões de simulados gerados pelo banco nunca destacam a alternativa correta.
+// 3) Mini-listas ganham formatos "Lista"/"Simulado" e layouts configuráveis por ADM/Staff.
+// ============================================================
+(function melhoriasSimuladosBancoListasPatch(){
+  const TAG = "[MelhoriasSimuladosBancoListas]";
+  const DOC_LAYOUT_LISTAS = "listas_questoes";
+  const MINI_LISTA_KEY_BASE = "avance_mini_lista_questoes_v1";
+  let layoutsMiniListaCache = null;
+  let layoutsMiniListaCarregados = false;
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function normalizarLocal(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+  function htmlParaTextoLocal(html) {
+    const div = document.createElement("div");
+    div.innerHTML = String(html || "");
+    return (div.innerText || div.textContent || "").trim();
+  }
+  function htmlBasicoSeguro(html) {
+    const template = document.createElement("template");
+    template.innerHTML = String(html || "");
+    template.content.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach(el => el.remove());
+    template.content.querySelectorAll("*").forEach(el => {
+      Array.from(el.attributes || []).forEach(attr => {
+        const n = attr.name.toLowerCase();
+        const val = String(attr.value || "");
+        if (n.startsWith("on")) el.removeAttribute(attr.name);
+        if (["href", "src"].includes(n) && /^javascript:/i.test(val.trim())) el.removeAttribute(attr.name);
+      });
+      if (el.tagName === "IMG") {
+        el.setAttribute("style", `${el.getAttribute("style") || ""};max-width:100%;height:auto;display:block;margin:8px auto;border-radius:8px;`);
+      }
+    });
+    return template.innerHTML;
+  }
+  function renderHtmlOuTextoSeguro(html, texto, classe = "text-sm text-gray-200") {
+    const h = String(html || "").trim();
+    if (h) return `<div class="${classe}">${htmlBasicoSeguro(h)}</div>`;
+    return `<div class="${classe} whitespace-pre-wrap leading-relaxed">${esc(texto || "")}</div>`;
+  }
+  function listaQuestoesBanco() {
+    const v = typeof getStorage === "function" ? getStorage("app_questoes", []) : [];
+    return Array.isArray(v) ? v : [];
+  }
+  function getQuestaoBanco(id) {
+    return listaQuestoesBanco().find(q => String(q.id) === String(id));
+  }
+  function valoresAlternativas(q) {
+    const alts = q?.alternativas || {};
+    return ["A", "B", "C", "D", "E"].map(l => [l, alts[l] || q?.[`alternativa${l}`] || q?.[`alt${l}`] || ""]);
+  }
+  function temAlternativas(q) {
+    return valoresAlternativas(q).some(([,v]) => String(v || "").trim());
+  }
+  function renderAlternativasNeutras(q, modo = "tela", duasColunas = true) {
+    if (!temAlternativas(q)) return "";
+    const grid = modo === "print"
+      ? "margin-top:10px"
+      : `mt-4 grid grid-cols-1 ${duasColunas ? "md:grid-cols-2" : ""} gap-2 text-sm`;
+    if (modo === "print") {
+      return `<div style="${grid}">${valoresAlternativas(q).map(([letra, valor]) => `<div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;margin:5px 0;background:#fff"><b>${letra})</b> ${esc(valor || "")}</div>`).join("")}</div>`;
+    }
+    return `<div class="${grid}">${valoresAlternativas(q).map(([letra, valor]) => `<div class="rounded-xl border border-gray-700 bg-gray-900/60 p-3"><b class="text-blue-300 mr-1">${letra})</b><span class="text-gray-200">${esc(valor || "—")}</span></div>`).join("")}</div>`;
+  }
+
+  // ---------- PONTO 1: tolerância inteligente para file picker em Hardcore ----------
+  function dentroAmbienteSimulado(el) {
+    return !!(el && (el.closest?.("#simuladoAmbienteOverlay") || el.closest?.("#simuladoPublicoOverlay") || el.closest?.("#simuladoPublicoConteudo")));
+  }
+  window.__simuladoFilePickerGraceUntil = window.__simuladoFilePickerGraceUntil || 0;
+  window.__simuladoFilePickerGraceReason = window.__simuladoFilePickerGraceReason || "";
+  function marcarToleranciaFilePicker(ms = 30000, motivo = "seletor_de_arquivo") {
+    window.__simuladoFilePickerGraceUntil = Date.now() + ms;
+    window.__simuladoFilePickerGraceReason = motivo;
+  }
+  function emToleranciaFilePicker() {
+    return Date.now() < Number(window.__simuladoFilePickerGraceUntil || 0);
+  }
+  async function tentarRestaurarTelaCheiaAposArquivo() {
+    try {
+      if (!emToleranciaFilePicker()) return;
+      const simLogado = simuladoSessaoAtual?.simuladoId ? (getStorage("app_simulados", []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId))) : null;
+      const simPublico = simuladoPublicoSessaoAtual?.sim || null;
+      const precisaTelaCheia = (simLogado && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simLogado) && simuladoSessaoAtual?.iniciado)
+        || (simPublico && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simPublico) && simuladoPublicoSessaoAtual?.iniciado);
+      if (precisaTelaCheia && !document.fullscreenElement && typeof solicitarTelaCheiaSimuladoSeguro === "function") {
+        await solicitarTelaCheiaSimuladoSeguro();
+        if (simLogado && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simLogado)) simuladoTelaCheiaAtiva = !!document.fullscreenElement;
+        if (simPublico && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simPublico)) simuladoPublicoTelaCheiaAtiva = !!document.fullscreenElement;
+      }
+    } catch (erro) {
+      console.warn(TAG, "não foi possível restaurar tela cheia após anexo", erro);
+    }
+  }
+  document.addEventListener("pointerdown", ev => {
+    const el = ev.target;
+    if (el?.matches?.('input[type="file"]') && dentroAmbienteSimulado(el)) marcarToleranciaFilePicker();
+  }, true);
+  document.addEventListener("click", ev => {
+    const el = ev.target;
+    if (el?.matches?.('input[type="file"]') && dentroAmbienteSimulado(el)) marcarToleranciaFilePicker();
+  }, true);
+  document.addEventListener("focusin", ev => {
+    const el = ev.target;
+    if (el?.matches?.('input[type="file"]') && dentroAmbienteSimulado(el)) marcarToleranciaFilePicker(20000, "foco_no_input_arquivo");
+  }, true);
+  document.addEventListener("change", ev => {
+    const el = ev.target;
+    if (el?.matches?.('input[type="file"]') && dentroAmbienteSimulado(el)) {
+      marcarToleranciaFilePicker(20000, "arquivo_selecionado");
+      setTimeout(tentarRestaurarTelaCheiaAposArquivo, 350);
+    }
+  }, true);
+  window.addEventListener("focus", () => {
+    if (emToleranciaFilePicker()) setTimeout(tentarRestaurarTelaCheiaAposArquivo, 450);
+  });
+
+  if (typeof finalizarSimuladoPorSaidaIndevida === "function") {
+    const finalizarSaidaBase = finalizarSimuladoPorSaidaIndevida;
+    finalizarSimuladoPorSaidaIndevida = function finalizarSimuladoPorSaidaIndevidaComTolerancia(motivo) {
+      if (emToleranciaFilePicker()) {
+        console.info(TAG, "saída ignorada temporariamente por seletor de arquivo", motivo);
+        return;
+      }
+      return finalizarSaidaBase.apply(this, arguments);
+    };
+    window.finalizarSimuladoPorSaidaIndevida = finalizarSimuladoPorSaidaIndevida;
+  }
+  if (typeof finalizarSimuladoPublicoPorSaidaIndevida === "function") {
+    const finalizarPublicoSaidaBase = finalizarSimuladoPublicoPorSaidaIndevida;
+    finalizarSimuladoPublicoPorSaidaIndevida = function finalizarSimuladoPublicoPorSaidaIndevidaComTolerancia(motivo) {
+      if (emToleranciaFilePicker()) {
+        console.info(TAG, "saída pública ignorada temporariamente por seletor de arquivo", motivo);
+        return;
+      }
+      return finalizarPublicoSaidaBase.apply(this, arguments);
+    };
+    window.finalizarSimuladoPublicoPorSaidaIndevida = finalizarSimuladoPublicoPorSaidaIndevida;
+  }
+
+  // ---------- PONTO 2: render final neutro para simulados do banco ----------
+  window.renderizarQuestoesDoSimuladoSeguro = function renderizarQuestoesDoSimuladoSeguroNeutro(sim) {
+    const qs = Array.isArray(sim?.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return "";
+    return `<div class="space-y-4 simulado-secure-area">${qs.map(q => {
+      const banco = getQuestaoBanco(q.questaoId) || {};
+      const combinado = { ...banco, ...q, alternativas: q.alternativas || banco.alternativas || {} };
+      const arquivos = Array.isArray(q.arquivos) && q.arquivos.length ? q.arquivos : (banco.arquivos || []);
+      const meta = [combinado.tipo, combinado.disciplina, combinado.nivel, combinado.tema, combinado.subtema, combinado.dificuldade].filter(Boolean).join(" · ");
+      const enunciadoHtml = combinado.enunciadoHtml || banco.enunciadoHtml || "";
+      const enunciadoTexto = combinado.enunciado || banco.enunciado || combinado.titulo || banco.titulo || "";
+      const midias = typeof window.renderArquivosQuestaoInline === "function" ? window.renderArquivosQuestaoInline(arquivos) : (typeof renderArquivosQuestaoInline === "function" ? renderArquivosQuestaoInline(arquivos) : "");
+      return `<article class="rounded-2xl bg-gray-950/60 border border-gray-700 p-5"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-base font-black text-white">Questão ${esc(q.numero || "")}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${esc(meta)}</span></div><div class="mt-4">${renderHtmlOuTextoSeguro(enunciadoHtml, enunciadoTexto, "text-base text-gray-200")}</div>${midias}${renderAlternativasNeutras(combinado, "tela", true)}</article>`;
+    }).join("")}</div>`;
+  };
+
+  // ---------- PONTO 3: layouts configuráveis para mini-listas ----------
+  function podeConfigurarLayoutLista() {
+    return !!usuarioLogado && ["ADM", "Staff"].includes(usuarioLogado.nivel);
+  }
+  function layoutsPadraoMiniLista() {
+    const logo = layoutVisualAtual?.logoUrl || "";
+    return [
+      {
+        id: "lista_padrao",
+        nome: "Lista padrão",
+        tipo: "lista",
+        titulo: "Lista de Exercícios",
+        subtitulo: "Banco de Questões Olímpicas",
+        logoUrl: logo,
+        cabecalhoTexto: "Nome: ____________________________________________  Turma: ______________  Data: ____/____/______",
+        rodapeTexto: "Material gerado pela plataforma olímpica.",
+        mostrarMetadados: true,
+        mostrarAlternativas: true,
+        alternativasDuasColunas: false,
+        linhasResposta: false,
+        questaoPorPagina: false
+      },
+      {
+        id: "simulado_padrao",
+        nome: "Simulado padrão",
+        tipo: "simulado",
+        titulo: "Simulado",
+        subtitulo: "Caderno de Questões",
+        logoUrl: logo,
+        cabecalhoTexto: "Aluno(a): _________________________________________  Turma: ______________  Data: ____/____/______\nProfessor(a): _____________________________________  Nota: _______________",
+        rodapeTexto: "Leia com atenção. Marque apenas uma alternativa quando houver múltipla escolha.",
+        mostrarMetadados: false,
+        mostrarAlternativas: true,
+        alternativasDuasColunas: false,
+        linhasResposta: true,
+        questaoPorPagina: false
+      }
+    ];
+  }
+  function normalizarLayoutLista(layout) {
+    const l = { ...(layout || {}) };
+    l.id = String(l.id || `layout_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+    l.nome = String(l.nome || "Layout sem nome").trim();
+    l.tipo = ["lista", "simulado"].includes(String(l.tipo || "").toLowerCase()) ? String(l.tipo).toLowerCase() : "lista";
+    l.titulo = String(l.titulo || (l.tipo === "simulado" ? "Simulado" : "Lista de Exercícios")).trim();
+    l.subtitulo = String(l.subtitulo || "").trim();
+    l.logoUrl = String(l.logoUrl || "").trim();
+    l.cabecalhoTexto = String(l.cabecalhoTexto || "").trim();
+    l.rodapeTexto = String(l.rodapeTexto || "").trim();
+    l.mostrarMetadados = l.mostrarMetadados !== false;
+    l.mostrarAlternativas = l.mostrarAlternativas !== false;
+    l.alternativasDuasColunas = !!l.alternativasDuasColunas;
+    l.linhasResposta = !!l.linhasResposta;
+    l.questaoPorPagina = !!l.questaoPorPagina;
+    return l;
+  }
+  async function carregarLayoutsMiniLista(force = false) {
+    if (layoutsMiniListaCarregados && !force) return layoutsMiniListaCache || layoutsPadraoMiniLista();
+    let layouts = layoutsPadraoMiniLista();
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseFirestore) {
+        const snap = await firebaseFirestore.collection("sistema_layout").doc(DOC_LAYOUT_LISTAS).get();
+        if (snap.exists) {
+          const dados = snap.data() || {};
+          if (Array.isArray(dados.layouts) && dados.layouts.length) layouts = dados.layouts;
+        }
+      }
+    } catch (erro) {
+      console.warn(TAG, "não foi possível carregar layouts de listas", erro);
+    }
+    layoutsMiniListaCache = layouts.map(normalizarLayoutLista);
+    layoutsMiniListaCarregados = true;
+    return layoutsMiniListaCache;
+  }
+  async function salvarLayoutsMiniLista(layouts) {
+    layoutsMiniListaCache = (layouts || []).map(normalizarLayoutLista);
+    layoutsMiniListaCarregados = true;
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+    await firebaseFirestore.collection("sistema_layout").doc(DOC_LAYOUT_LISTAS).set({
+      id: DOC_LAYOUT_LISTAS,
+      tipoDocumento: "layouts_mini_listas_questoes",
+      layouts: layoutsMiniListaCache,
+      atualizadoEm: Date.now(),
+      atualizadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "",
+      atualizadoPorNome: usuarioLogado?.nome || ""
+    }, { merge: true });
+    return layoutsMiniListaCache;
+  }
+  function miniListaKey() {
+    return `${MINI_LISTA_KEY_BASE}_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${anoDadosAtivo || "2026"}`;
+  }
+  function getMiniListaIdsLocal() {
+    try { return JSON.parse(localStorage.getItem(miniListaKey()) || "[]").map(String); }
+    catch (_) { return []; }
+  }
+  function getQuestoesMiniListaLocal() {
+    const ids = new Set(getMiniListaIdsLocal());
+    return listaQuestoesBanco().filter(q => ids.has(String(q.id)));
+  }
+  function linhasRespostaPrint(qtd = 6) {
+    return `<div style="margin-top:10px">${Array.from({length: qtd}).map(() => `<div style="border-bottom:1px solid #d1d5db;height:22px"></div>`).join("")}</div>`;
+  }
+  function montarHtmlMiniLista(qs, layout, print = false) {
+    layout = normalizarLayoutLista(layout);
+    const titulo = layout.titulo || (layout.tipo === "simulado" ? "Simulado" : "Lista de Exercícios");
+    const subtitulo = layout.subtitulo || "";
+    const logo = layout.logoUrl || "";
+    const cabecalho = layout.cabecalhoTexto || "";
+    const rodape = layout.rodapeTexto || "";
+    if (!print) {
+      const cab = `<div class="rounded-2xl border border-gray-700 bg-gray-900/70 p-5"><div class="flex items-start gap-4">${logo ? `<img src="${esc(logo)}" class="w-16 h-16 rounded-xl object-contain bg-white p-1">` : ""}<div class="flex-1"><p class="text-[10px] text-blue-300 font-black uppercase tracking-wider">${layout.tipo === "simulado" ? "Formato de simulado" : "Formato de lista"}</p><h4 class="text-xl font-black text-white">${esc(titulo)}</h4>${subtitulo ? `<p class="text-sm text-gray-400 mt-1">${esc(subtitulo)}</p>` : ""}${cabecalho ? `<p class="text-xs text-gray-500 mt-3 whitespace-pre-wrap">${esc(cabecalho)}</p>` : ""}</div></div></div>`;
+      const body = qs.map((q, idx) => {
+        const meta = [q.codigo, q.disciplina, q.nivel, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(" · ");
+        const imgs = typeof window.renderArquivosQuestaoInline === "function" ? window.renderArquivosQuestaoInline(q.arquivos || []) : "";
+        return `<article class="rounded-2xl border border-gray-700 bg-gray-900/60 p-4"><div class="text-xs text-gray-500 mb-2"><b class="text-gray-300">Questão ${idx+1}</b>${layout.mostrarMetadados && meta ? ` — ${esc(meta)}` : ""}</div>${renderHtmlOuTextoSeguro(q.enunciadoHtml, q.enunciado, "text-sm text-gray-200")}${imgs}${layout.mostrarAlternativas ? renderAlternativasNeutras(q, "tela", layout.alternativasDuasColunas) : ""}${layout.linhasResposta ? `<div class="mt-3 rounded-xl bg-gray-950/60 border border-gray-700 p-3 text-xs text-gray-500">Espaço para resposta será impresso no PDF.</div>` : ""}</article>`;
+      }).join("");
+      return cab + body + (rodape ? `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-3 text-xs text-gray-500">${esc(rodape)}</div>` : "");
+    }
+
+    const cabPrint = `<div class="ml-header"><div class="ml-logo-title">${logo ? `<img src="${esc(logo)}" class="ml-logo">` : ""}<div><h1>${esc(titulo)}</h1>${subtitulo ? `<p class="ml-subtitle">${esc(subtitulo)}</p>` : ""}</div></div>${cabecalho ? `<div class="ml-cabecalho">${esc(cabecalho).replace(/\n/g, "<br>")}</div>` : ""}<div class="ml-info">${qs.length} questão(ões) · gerado em ${new Date().toLocaleDateString("pt-BR")}</div></div>`;
+    const bodyPrint = qs.map((q, idx) => {
+      const meta = [q.codigo, q.disciplina, q.nivel, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(" · ");
+      const pageBreak = layout.questaoPorPagina ? "page-break-after:always;" : "";
+      const htmlEnun = htmlBasicoSeguro(q.enunciadoHtml || esc(q.enunciado || "").replace(/\n/g, "<br>"));
+      const imagensAnexas = (q.arquivos || []).filter(a => {
+        const alvo = `${a?.mimeType || ""} ${a?.nome || ""} ${a?.url || ""}`.toLowerCase();
+        return alvo.includes("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(alvo);
+      }).map(a => `<img src="${esc(a.url)}" class="ml-img-anexo">`).join("");
+      return `<div class="ml-questao" style="${pageBreak}"><div class="ml-qmeta"><b>Questão ${idx+1}</b>${layout.mostrarMetadados && meta ? ` — ${esc(meta)}` : ""}</div><div class="ml-enunciado">${htmlEnun}</div>${imagensAnexas}${layout.mostrarAlternativas ? renderAlternativasNeutras(q, "print", layout.alternativasDuasColunas) : ""}${layout.linhasResposta ? linhasRespostaPrint(layout.tipo === "simulado" ? 5 : 4) : ""}</div>`;
+    }).join("");
+    const rodapePrint = rodape ? `<div class="ml-rodape">${esc(rodape).replace(/\n/g, "<br>")}</div>` : "";
+    return `<div class="ml-page ${layout.tipo === "simulado" ? "ml-simulado" : "ml-lista"}">${cabPrint}${bodyPrint}${rodapePrint}</div>`;
+  }
+  function garantirEstiloMiniListaLayouts() {
+    if (document.getElementById("styleMiniListaLayoutsAvancados")) return;
+    const st = document.createElement("style");
+    st.id = "styleMiniListaLayoutsAvancados";
+    st.textContent = `
+      #printMiniListaQuestoesAvancada { display: none; }
+      .mini-lista-editor input, .mini-lista-editor select, .mini-lista-editor textarea { outline: none; }
+      @media print {
+        body.print-mini-lista-avancada { background: white !important; }
+        body.print-mini-lista-avancada > *:not(#printMiniListaQuestoesAvancada) { display: none !important; }
+        body.print-mini-lista-avancada #printMiniListaQuestoesAvancada { display: block !important; color: #111827 !important; background: white !important; }
+        @page { size: A4; margin: 14mm; }
+        #printMiniListaQuestoesAvancada, #printMiniListaQuestoesAvancada * { box-sizing: border-box; }
+        .ml-page { font-family: Arial, sans-serif; color: #111827; font-size: 12px; line-height: 1.35; }
+        .ml-header { border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; }
+        .ml-logo-title { display: flex; align-items: center; gap: 14px; }
+        .ml-logo { width: 72px; height: 72px; object-fit: contain; }
+        .ml-header h1 { font-size: 23px; margin: 0; text-transform: uppercase; letter-spacing: .02em; }
+        .ml-subtitle { margin: 4px 0 0; color: #374151; font-size: 13px; }
+        .ml-cabecalho { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; color: #111827; }
+        .ml-info { margin-top: 8px; color: #4b5563; font-size: 11px; }
+        .ml-questao { page-break-inside: avoid; border: 1px solid #d1d5db; border-radius: 10px; padding: 13px; margin-bottom: 14px; background: #fff; }
+        .ml-qmeta { color: #374151; font-size: 12px; margin-bottom: 8px; }
+        .ml-enunciado { font-size: 13px; color: #111827; }
+        .ml-enunciado img, .ml-img-anexo { display: block; max-width: 100%; max-height: 420px; margin: 8px auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .ml-rodape { border-top: 1px solid #d1d5db; margin-top: 12px; padding-top: 8px; color: #4b5563; font-size: 11px; }
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  async function garantirModalMiniListaAvancado() {
+    garantirEstiloMiniListaLayouts();
+    if (!document.getElementById("printMiniListaQuestoesAvancada")) {
+      const print = document.createElement("div");
+      print.id = "printMiniListaQuestoesAvancada";
+      document.body.appendChild(print);
+    }
+    if (document.getElementById("modalMiniListaQuestoesAvancada")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalMiniListaQuestoesAvancada";
+    modal.className = "hidden fixed inset-0 z-[93] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharMiniListaQuestoes()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-file-pdf text-red-400 mr-2"></i>Mini-lista de questões</h3><p class="text-xs text-gray-400 mt-1">Escolha se quer imprimir como lista de exercícios ou como simulado. Depois salve como PDF.</p></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[150px_260px_auto] gap-2 w-full lg:w-auto"><select id="miniListaFormato" onchange="atualizarOpcoesLayoutMiniLista()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Formato lista</option><option value="simulado">Formato simulado</option></select><select id="miniListaLayout" onchange="renderizarPreviewMiniListaLayout()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"></select><div class="flex gap-2"><button type="button" onclick="imprimirMiniListaQuestoes()" class="flex-1 px-4 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-print mr-2"></i>Gerar PDF</button><button type="button" onclick="fecharMiniListaQuestoes()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div></div><div id="miniListaQuestoesCorpoAvancado" class="space-y-4"></div></div>`;
+    document.body.appendChild(modal);
+  }
+  window.atualizarOpcoesLayoutMiniLista = async function atualizarOpcoesLayoutMiniLista() {
+    const layouts = await carregarLayoutsMiniLista();
+    const formato = document.getElementById("miniListaFormato")?.value || "lista";
+    const select = document.getElementById("miniListaLayout");
+    if (!select) return;
+    const filtrados = layouts.filter(l => l.tipo === formato);
+    const base = filtrados.length ? filtrados : layouts;
+    select.innerHTML = base.map(l => `<option value="${esc(l.id)}">${esc(l.nome)}</option>`).join("");
+    renderizarPreviewMiniListaLayout();
+  };
+  window.renderizarPreviewMiniListaLayout = async function renderizarPreviewMiniListaLayout() {
+    const qs = getQuestoesMiniListaLocal();
+    const layouts = await carregarLayoutsMiniLista();
+    const layoutId = document.getElementById("miniListaLayout")?.value || "";
+    const formato = document.getElementById("miniListaFormato")?.value || "lista";
+    let layout = layouts.find(l => l.id === layoutId) || layouts.find(l => l.tipo === formato) || layouts[0] || layoutsPadraoMiniLista()[0];
+    const corpo = document.getElementById("miniListaQuestoesCorpoAvancado");
+    const print = document.getElementById("printMiniListaQuestoesAvancada");
+    if (corpo) corpo.innerHTML = montarHtmlMiniLista(qs, layout, false);
+    if (print) print.innerHTML = montarHtmlMiniLista(qs, layout, true);
+  };
+  window.abrirMiniListaQuestoes = async function abrirMiniListaQuestoesAvancada() {
+    const qs = getQuestoesMiniListaLocal();
+    if (!qs.length) return alert("Sua mini-lista ainda está vazia.");
+    await carregarLayoutsMiniLista();
+    await garantirModalMiniListaAvancado();
+    const modal = document.getElementById("modalMiniListaQuestoesAvancada");
+    modal?.classList.remove("hidden");
+    modal?.classList.add("flex");
+    await atualizarOpcoesLayoutMiniLista();
+  };
+  window.fecharMiniListaQuestoes = function fecharMiniListaQuestoesAvancada() {
+    document.getElementById("modalMiniListaQuestoesAvancada")?.classList.add("hidden");
+    document.getElementById("modalMiniListaQuestoesAvancada")?.classList.remove("flex");
+    document.getElementById("modalMiniListaQuestoes")?.classList.add("hidden");
+    document.getElementById("modalMiniListaQuestoes")?.classList.remove("flex");
+  };
+  window.imprimirMiniListaQuestoes = function imprimirMiniListaQuestoesAvancada() {
+    renderizarPreviewMiniListaLayout();
+    document.body.classList.add("print-mini-lista-avancada");
+    setTimeout(() => { window.print(); setTimeout(() => document.body.classList.remove("print-mini-lista-avancada"), 500); }, 150);
+  };
+
+  function inserirPainelLayoutsMiniLista() {
+    if (!podeConfigurarLayoutLista()) return;
+    if (document.getElementById("painelLayoutsMiniListaQuestoes")) return;
+    const view = document.getElementById("view-questoes");
+    if (!view) return;
+    const painel = document.createElement("div");
+    painel.id = "painelLayoutsMiniListaQuestoes";
+    painel.className = "mini-lista-editor bg-gray-800/50 border border-indigo-900/40 rounded-2xl p-5 shadow-xl";
+    painel.innerHTML = `<div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-indigo-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff configuram modelos que aparecem para os alunos ao gerar PDF da mini-lista.</p></div><div class="flex flex-wrap gap-2"><select id="layoutListaSelect" onchange="selecionarLayoutMiniListaAdmin()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[240px]"></select><button type="button" onclick="novoLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Novo</button><button type="button" onclick="salvarLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-black uppercase">Salvar</button><button type="button" onclick="excluirLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold uppercase">Excluir</button></div></div><div class="grid grid-cols-1 lg:grid-cols-4 gap-3"><input id="layoutListaId" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="id_do_layout"><input id="layoutListaNome" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Nome do layout"><select id="layoutListaTipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Lista</option><option value="simulado">Simulado</option></select><input id="layoutListaTitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Título impresso"></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3"><input id="layoutListaSubtitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Subtítulo"><input id="layoutListaLogoUrl" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="URL da logo"><input type="file" id="layoutListaLogoArquivo" accept="image/*" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300"></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3"><textarea id="layoutListaCabecalho" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Cabeçalho: Nome, turma, data..."></textarea><textarea id="layoutListaRodape" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Rodapé / instruções finais"></textarea></div><div class="flex flex-wrap gap-3 mt-3 text-xs text-gray-300"><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaMetadados" class="accent-indigo-500"> Mostrar metadados</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativas" class="accent-indigo-500"> Mostrar alternativas</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativasDuasColunas" class="accent-indigo-500"> Alternativas em duas colunas na tela</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaLinhasResposta" class="accent-indigo-500"> Espaço para resposta</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaQuestaoPorPagina" class="accent-indigo-500"> Uma questão por página</label></div>`;
+    view.insertBefore(painel, view.children[1] || null);
+    popularSelectLayoutsMiniListaAdmin();
+  }
+  async function popularSelectLayoutsMiniListaAdmin() {
+    const select = document.getElementById("layoutListaSelect");
+    if (!select) return;
+    const layouts = await carregarLayoutsMiniLista(true);
+    select.innerHTML = layouts.map(l => `<option value="${esc(l.id)}">${esc(l.nome)} · ${l.tipo}</option>`).join("");
+    selecionarLayoutMiniListaAdmin();
+  }
+  window.selecionarLayoutMiniListaAdmin = async function selecionarLayoutMiniListaAdmin() {
+    const layouts = await carregarLayoutsMiniLista();
+    const id = document.getElementById("layoutListaSelect")?.value || "";
+    const l = layouts.find(x => x.id === id) || layouts[0] || layoutsPadraoMiniLista()[0];
+    const set = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.value = valor ?? ""; };
+    const chk = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.checked = !!valor; };
+    set("layoutListaId", l.id); set("layoutListaNome", l.nome); set("layoutListaTipo", l.tipo); set("layoutListaTitulo", l.titulo); set("layoutListaSubtitulo", l.subtitulo); set("layoutListaLogoUrl", l.logoUrl); set("layoutListaCabecalho", l.cabecalhoTexto); set("layoutListaRodape", l.rodapeTexto);
+    chk("layoutListaMetadados", l.mostrarMetadados); chk("layoutListaAlternativas", l.mostrarAlternativas); chk("layoutListaAlternativasDuasColunas", l.alternativasDuasColunas); chk("layoutListaLinhasResposta", l.linhasResposta); chk("layoutListaQuestaoPorPagina", l.questaoPorPagina);
+  };
+  window.novoLayoutMiniListaAdmin = function novoLayoutMiniListaAdmin() {
+    const id = `layout_${Date.now()}`;
+    const set = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.value = valor ?? ""; };
+    const chk = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.checked = !!valor; };
+    set("layoutListaId", id); set("layoutListaNome", "Novo layout"); set("layoutListaTipo", "lista"); set("layoutListaTitulo", "Lista de Exercícios"); set("layoutListaSubtitulo", ""); set("layoutListaLogoUrl", layoutVisualAtual?.logoUrl || ""); set("layoutListaCabecalho", "Nome: ____________________________________________  Turma: ______________  Data: ____/____/______"); set("layoutListaRodape", "");
+    chk("layoutListaMetadados", true); chk("layoutListaAlternativas", true); chk("layoutListaAlternativasDuasColunas", false); chk("layoutListaLinhasResposta", false); chk("layoutListaQuestaoPorPagina", false);
+  };
+  async function layoutDoFormularioAdmin() {
+    let logoUrl = document.getElementById("layoutListaLogoUrl")?.value.trim() || "";
+    const file = document.getElementById("layoutListaLogoArquivo")?.files?.[0] || null;
+    if (file) {
+      if (typeof enviarArquivoParaFirebaseStorage !== "function") throw new Error("Upload para Storage não está disponível.");
+      const up = await enviarArquivoParaFirebaseStorage(file, "layouts_listas_questoes");
+      logoUrl = up.fileUrl;
+      const input = document.getElementById("layoutListaLogoUrl");
+      if (input) input.value = logoUrl;
+    }
+    return normalizarLayoutLista({
+      id: document.getElementById("layoutListaId")?.value || `layout_${Date.now()}`,
+      nome: document.getElementById("layoutListaNome")?.value || "Layout sem nome",
+      tipo: document.getElementById("layoutListaTipo")?.value || "lista",
+      titulo: document.getElementById("layoutListaTitulo")?.value || "Lista de Exercícios",
+      subtitulo: document.getElementById("layoutListaSubtitulo")?.value || "",
+      logoUrl,
+      cabecalhoTexto: document.getElementById("layoutListaCabecalho")?.value || "",
+      rodapeTexto: document.getElementById("layoutListaRodape")?.value || "",
+      mostrarMetadados: !!document.getElementById("layoutListaMetadados")?.checked,
+      mostrarAlternativas: !!document.getElementById("layoutListaAlternativas")?.checked,
+      alternativasDuasColunas: !!document.getElementById("layoutListaAlternativasDuasColunas")?.checked,
+      linhasResposta: !!document.getElementById("layoutListaLinhasResposta")?.checked,
+      questaoPorPagina: !!document.getElementById("layoutListaQuestaoPorPagina")?.checked
+    });
+  }
+  window.salvarLayoutMiniListaAdmin = async function salvarLayoutMiniListaAdmin() {
+    if (!podeConfigurarLayoutLista()) return alert("Apenas ADM/Staff podem configurar layouts.");
+    try {
+      const layout = await layoutDoFormularioAdmin();
+      if (!layout.id || !layout.nome) return alert("Informe ID e nome do layout.");
+      const layouts = await carregarLayoutsMiniLista();
+      const idx = layouts.findIndex(l => l.id === layout.id);
+      if (idx >= 0) layouts[idx] = layout; else layouts.push(layout);
+      await salvarLayoutsMiniLista(layouts);
+      await popularSelectLayoutsMiniListaAdmin();
+      const sel = document.getElementById("layoutListaSelect"); if (sel) sel.value = layout.id;
+      alert("Layout de impressão salvo.");
+    } catch (erro) {
+      console.error(erro);
+      alert(`Erro ao salvar layout.\n\n${erro.message || erro}`);
+    }
+  };
+  window.excluirLayoutMiniListaAdmin = async function excluirLayoutMiniListaAdmin() {
+    if (!podeConfigurarLayoutLista()) return alert("Apenas ADM/Staff podem excluir layouts.");
+    const id = document.getElementById("layoutListaSelect")?.value || document.getElementById("layoutListaId")?.value || "";
+    if (["lista_padrao", "simulado_padrao"].includes(id)) return alert("Os layouts padrão não podem ser excluídos. Edite-os ou crie outro.");
+    const ok = await confirmarPlataforma(`Excluir o layout ${id}?`, "Excluir layout", "Excluir", "Cancelar");
+    if (!ok) return;
+    const layouts = (await carregarLayoutsMiniLista()).filter(l => l.id !== id);
+    await salvarLayoutsMiniLista(layouts.length ? layouts : layoutsPadraoMiniLista());
+    await popularSelectLayoutsMiniListaAdmin();
+    alert("Layout excluído.");
+  };
+
+  const navegarBase = typeof navegarAba === "function" ? navegarAba : null;
+  if (navegarBase) {
+    navegarAba = function navegarAbaComLayoutsMiniLista(abaId, botao) {
+      const r = navegarBase.apply(this, arguments);
+      if (abaId === "questoes") setTimeout(() => { carregarLayoutsMiniLista().then(inserirPainelLayoutsMiniLista).catch(e => console.warn(TAG, e)); }, 120);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
+    carregarLayoutsMiniLista().then(() => { inserirPainelLayoutsMiniLista(); }).catch(e => console.warn(TAG, e));
+  }, 2800));
+
+  console.log(TAG, "patch carregado");
+})();
