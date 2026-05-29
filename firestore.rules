@@ -156,6 +156,14 @@ service cloud.firestore {
       allow create, update, delete: if ehAdm() || ehStaff() || ehMonitor() || ehProfessor();
     }
 
+
+    match /anos/{ano}/sistema_questoes_problemas/{docId} {
+      allow create: if usuarioValido()
+        && request.resource.data.questaoId is string
+        && request.resource.data.status == "Aberto";
+      allow read, update, delete: if ehAdm() || ehStaff();
+    }
+
     match /anos/{ano}/sistema_banco_questoes/{docId} {
       allow read: if usuarioValido();
       allow create, update, delete: if ehAdm() || ehStaff() || ehMonitor() || ehProfessor();

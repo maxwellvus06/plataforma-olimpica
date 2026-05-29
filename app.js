@@ -15465,3 +15465,758 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "patch carregado");
 })();
+
+
+
+// ============================================================
+// PATCH — Banco de Questões: paginação, relatos de problema e lista aleatória
+// Implementa:
+// 1) Paginação 5/10/20 na exibição do banco.
+// 2) Botão "Relatar problema" para alunos/usuários e central de notificações para ADM/Staff.
+// 3) Gerador de mini-lista aleatória por critérios de inclusão/exclusão.
+// ============================================================
+(function bancoQuestoesPaginacaoRelatosAleatorioPatch(){
+  const TAG = "[BQ-Paginacao-Relatos-Aleatorio]";
+  const MINI_LISTA_KEY_BASE = "avance_mini_lista_questoes_v1";
+  const TIPOS_PROBLEMA = [
+    "Falta imagem/anexo",
+    "Imagem/anexo não abre",
+    "Enunciado errado ou incompleto",
+    "Erro de digitação/formatação",
+    "Alternativas com problema",
+    "Gabarito incorreto",
+    "Sem solução/resolução",
+    "Solução incompleta ou errada",
+    "Tema/subtema errado",
+    "Disciplina/nível errado",
+    "Questão duplicada",
+    "Outra situação"
+  ];
+
+  let paginaAtualQuestoes = 1;
+  let ultimoFiltroQuestoes = "";
+  let problemasQuestoesCache = [];
+  let problemasQuestoesCarregadosEm = 0;
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function norm(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+  function idSeguro(id) { return String(id || "").replace(/'/g, "&#39;"); }
+  function nivelUsuario() { return String(usuarioLogado?.nivel || ""); }
+  function podeVerBancoQuestoesPatch() { return !!usuarioLogado; }
+  function podeEditarQuestoesPatch() { return !!usuarioLogado && ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(nivelUsuario()); }
+  function podeGerenciarRelatosQuestoes() { return !!usuarioLogado && ["ADM", "Staff"].includes(nivelUsuario()); }
+  function listaQuestoesPatch() {
+    const v = typeof getStorage === "function" ? getStorage("app_questoes", []) : [];
+    return Array.isArray(v) ? v : [];
+  }
+  function unique(vals) {
+    return Array.from(new Set((vals || []).map(v => String(v || "").trim()).filter(Boolean)))
+      .sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base", numeric: true }));
+  }
+  function assinaturaFiltrosQuestoes() {
+    return ["filtroQuestaoDisciplina","filtroQuestaoNivel","filtroQuestaoArea","filtroQuestaoTema","filtroQuestaoDificuldade","filtroQuestaoTipo","filtroQuestaoBusca"]
+      .map(id => `${id}:${document.getElementById(id)?.value || ""}`).join("|");
+  }
+  function passaFiltrosQuestoesPatch(q) {
+    const disc = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const nivel = document.getElementById("filtroQuestaoNivel")?.value || "TODOS";
+    const area = document.getElementById("filtroQuestaoArea")?.value || "TODOS";
+    const tema = document.getElementById("filtroQuestaoTema")?.value || "TODOS";
+    const dif = document.getElementById("filtroQuestaoDificuldade")?.value || "TODOS";
+    const tipo = document.getElementById("filtroQuestaoTipo")?.value || "TODOS";
+    const busca = norm(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (disc !== "TODOS" && String(q.disciplina || "") !== disc) return false;
+    if (nivel !== "TODOS" && String(q.nivel || "") !== nivel) return false;
+    if (area !== "TODOS" && String(q.area || "") !== area) return false;
+    if (tema !== "TODOS" && String(q.tema || "") !== tema) return false;
+    if (dif !== "TODOS" && String(q.dificuldade || "") !== dif) return false;
+    if (tipo !== "TODOS" && String(q.tipo || "") !== tipo) return false;
+    if (busca) {
+      const alvo = norm([
+        q.codigo, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema,
+        q.dificuldade, q.tipo, q.fonte, q.ano, q.fase, q.enunciado,
+        q.enunciadoHtml, ...(q.tags || [])
+      ].join(" "));
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  }
+  function ordenarQuestoesPatch(a,b) {
+    return String(a.disciplina||"").localeCompare(String(b.disciplina||""), "pt-BR")
+      || String(a.area||"").localeCompare(String(b.area||""), "pt-BR")
+      || String(a.tema||"").localeCompare(String(b.tema||""), "pt-BR")
+      || String(a.codigo||"").localeCompare(String(b.codigo||""), "pt-BR", { numeric: true });
+  }
+
+  function miniListaKeyPatch() {
+    return `${MINI_LISTA_KEY_BASE}_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${anoDadosAtivo || "2026"}`;
+  }
+  function getMiniListaIdsPatch() {
+    try { return JSON.parse(localStorage.getItem(miniListaKeyPatch()) || "[]").map(String); }
+    catch (_) { return []; }
+  }
+  function setMiniListaIdsPatch(ids) {
+    const unicos = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+    try { localStorage.setItem(miniListaKeyPatch(), JSON.stringify(unicos)); } catch (_) {}
+  }
+  function questoesMiniListaPatch() {
+    const ids = new Set(getMiniListaIdsPatch());
+    return listaQuestoesPatch().filter(q => ids.has(String(q.id)));
+  }
+  function estaNaMiniListaPatch(id) { return getMiniListaIdsPatch().includes(String(id)); }
+
+  function atualizarResumoMiniListaQuestoesPatch() {
+    const el = document.getElementById("miniListaQuestoesResumo");
+    if (!el) return;
+    const qs = questoesMiniListaPatch();
+    if (!qs.length) { el.innerHTML = "Nenhuma questão selecionada."; return; }
+    const porDisc = new Map();
+    qs.forEach(q => porDisc.set(q.disciplina || "Sem disciplina", (porDisc.get(q.disciplina || "Sem disciplina") || 0) + 1));
+    el.innerHTML = `<b class="text-blue-200">${qs.length}</b> questão(ões) selecionada(s). ${Array.from(porDisc.entries()).map(([d,n]) => `${esc(d)}: ${n}`).join(" · ")}`;
+  }
+
+  function isImagemArquivoPatch(a) {
+    return /^image\//i.test(String(a?.mimeType || "")) || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(String(a?.url || ""));
+  }
+  function isPdfArquivoPatch(a) {
+    return /pdf/i.test(String(a?.mimeType || "")) || /\.pdf(\?|#|$)/i.test(String(a?.url || ""));
+  }
+  function htmlBasicoSeguroPatch(html) {
+    const template = document.createElement("template");
+    template.innerHTML = String(html || "");
+    template.content.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach(el => el.remove());
+    template.content.querySelectorAll("*").forEach(el => {
+      Array.from(el.attributes || []).forEach(attr => {
+        const n = attr.name.toLowerCase();
+        const val = String(attr.value || "");
+        if (n.startsWith("on")) el.removeAttribute(attr.name);
+        if (["href","src"].includes(n) && !/^(https?:|data:image\/)/i.test(val.trim())) el.removeAttribute(attr.name);
+      });
+      if (el.tagName === "IMG") {
+        el.classList.add("questao-corpo-img");
+        el.setAttribute("style", `${el.getAttribute("style") || ""};max-width:100%;height:auto;display:block;margin:8px auto;border-radius:8px;`);
+      }
+    });
+    return template.innerHTML;
+  }
+  function renderHtmlOuTextoPatch(html, texto, classe = "text-sm text-gray-300") {
+    const h = String(html || "").trim();
+    if (h) return `<div class="${classe} questao-corpo-html">${htmlBasicoSeguroPatch(h)}</div>`;
+    return `<div class="${classe} whitespace-pre-wrap leading-relaxed">${esc(texto || "")}</div>`;
+  }
+  function alternativasObjetoPatch(q) {
+    const alts = q?.alternativas || {};
+    const out = {};
+    ["A","B","C","D","E"].forEach(l => out[l] = alts[l] || q?.[`alternativa${l}`] || q?.[`alt${l}`] || "");
+    return out;
+  }
+  function temAlternativasPatch(q) {
+    return Object.values(alternativasObjetoPatch(q)).some(v => String(v || "").trim());
+  }
+  function alternativasHtmlPatch(q, mostrarGabarito = false) {
+    const alts = alternativasObjetoPatch(q);
+    if (!Object.values(alts).some(v => String(v || "").trim())) return "";
+    const gab = String(q?.alternativaCorreta || q?.gabarito || "").toUpperCase();
+    return `<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">${["A","B","C","D","E"].map(l => {
+      const correta = mostrarGabarito && gab === l;
+      return `<div class="rounded-xl border ${correta ? "border-emerald-700 bg-emerald-950/30" : "border-gray-700 bg-gray-900/60"} p-3"><b class="${correta ? "text-emerald-300" : "text-blue-300"} mr-1">${l})</b><span class="text-gray-200">${esc(alts[l] || "—")}</span></div>`;
+    }).join("")}</div>`;
+  }
+  function abrirArquivoInterno(url, nome = "Arquivo", mimeType = "") {
+    if (typeof abrirMidiaQuestao === "function") return abrirMidiaQuestao(url, mimeType, nome);
+    window.open(url, "_blank");
+  }
+  function renderArquivosPatch(arquivos) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    const imgs = arquivos.filter(isImagemArquivoPatch);
+    const outros = arquivos.filter(a => !isImagemArquivoPatch(a));
+    return `<div class="mt-3 space-y-2">
+      ${imgs.length ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${imgs.map((a,i) => `<button type="button" onclick="window.__bqAbrirArquivoInterno('${String(a.url || "").replace(/'/g,"&#39;")}','${String(a.nome || `Imagem ${i+1}`).replace(/'/g,"&#39;")}','${String(a.mimeType || "").replace(/'/g,"&#39;")}')" class="block text-left"><img src="${esc(a.url)}" class="w-full max-h-80 object-contain rounded-xl border border-gray-700 bg-gray-950 p-1" alt="${esc(a.nome || `Imagem ${i+1}`)}"><span class="text-[10px] text-blue-300 font-bold mt-1 inline-block"><i class="fa-solid fa-up-right-and-down-left-from-center mr-1"></i>Abrir imagem</span></button>`).join("")}</div>` : ""}
+      ${outros.length ? `<div class="flex flex-wrap gap-2">${outros.map((a,i) => `<button type="button" onclick="window.__bqAbrirArquivoInterno('${String(a.url || "").replace(/'/g,"&#39;")}','${String(a.nome || `Arquivo ${i+1}`).replace(/'/g,"&#39;")}','${String(a.mimeType || "").replace(/'/g,"&#39;")}')" class="px-3 py-1.5 rounded-lg bg-blue-950/40 text-blue-300 border border-blue-900/40 text-[11px] font-bold"><i class="fa-solid ${isPdfArquivoPatch(a) ? "fa-file-pdf" : "fa-paperclip"} mr-1"></i>${esc(a.nome || `Arquivo ${i+1}`)}</button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+  window.__bqAbrirArquivoInterno = abrirArquivoInterno;
+
+  function inserirPainelPaginacaoQuestoes() {
+    if (document.getElementById("painelPaginacaoQuestoes")) return;
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid || !grid.parentNode) return;
+    const painel = document.createElement("div");
+    painel.id = "painelPaginacaoQuestoes";
+    painel.className = "rounded-2xl border border-gray-800 bg-gray-900/50 p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3";
+    painel.innerHTML = `
+      <div id="bqPaginacaoInfo" class="text-xs text-gray-400">Carregando paginação...</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <label class="text-[11px] text-gray-500 font-bold uppercase">Por página</label>
+        <select id="bqPorPagina" onchange="window.__bqMudarPorPagina()" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+        <button id="bqPaginaAnterior" type="button" onclick="window.__bqMudarPagina(-1)" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-200 text-xs font-bold disabled:opacity-40">Anterior</button>
+        <span id="bqPaginaAtualLabel" class="px-3 py-2 rounded-xl bg-gray-800 border border-gray-700 text-gray-300 text-xs font-black">1/1</span>
+        <button id="bqPaginaProxima" type="button" onclick="window.__bqMudarPagina(1)" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-200 text-xs font-bold disabled:opacity-40">Próxima</button>
+      </div>`;
+    grid.parentNode.insertBefore(painel, grid);
+  }
+  window.__bqMudarPagina = function __bqMudarPagina(delta) {
+    paginaAtualQuestoes = Math.max(1, Number(paginaAtualQuestoes || 1) + Number(delta || 0));
+    renderizarBancoQuestoes();
+  };
+  window.__bqMudarPorPagina = function __bqMudarPorPagina() {
+    paginaAtualQuestoes = 1;
+    renderizarBancoQuestoes();
+  };
+  function atualizarControlesPaginacao(total, inicio, fim, totalPaginas) {
+    const info = document.getElementById("bqPaginacaoInfo");
+    const label = document.getElementById("bqPaginaAtualLabel");
+    const ant = document.getElementById("bqPaginaAnterior");
+    const prox = document.getElementById("bqPaginaProxima");
+    if (info) info.innerHTML = total ? `Exibindo <b class="text-gray-200">${inicio + 1}–${fim}</b> de <b class="text-gray-200">${total}</b> questão(ões) filtrada(s).` : "Nenhuma questão filtrada.";
+    if (label) label.textContent = `${Math.min(paginaAtualQuestoes, totalPaginas || 1)}/${totalPaginas || 1}`;
+    if (ant) ant.disabled = paginaAtualQuestoes <= 1;
+    if (prox) prox.disabled = paginaAtualQuestoes >= (totalPaginas || 1);
+  }
+
+  function renderCardQuestaoPatch(q, mostrarGabarito, canEdit) {
+    const inList = estaNaMiniListaPatch(q.id);
+    const problemas = problemasQuestoesCache.filter(p => String(p.questaoId) === String(q.id) && !["Resolvido","Descartado"].includes(String(p.status || ""))).length;
+    return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-mono text-[11px] text-blue-300 bg-blue-950/30 border border-blue-900/40 rounded-lg px-2 py-1">${esc(q.codigo || q.id)}</span>
+            <span class="px-2 py-1 rounded-lg ${q.status === "Ativa" ? "bg-emerald-950/40 text-emerald-300" : "bg-gray-900 text-gray-400"} text-[10px] font-bold">${esc(q.status || "Ativa")}</span>
+            ${inList ? `<span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-200 text-[10px] font-bold"><i class="fa-solid fa-check mr-1"></i>Na mini-lista</span>` : ""}
+            ${problemas ? `<span class="px-2 py-1 rounded-lg bg-red-950/40 text-red-300 text-[10px] font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${problemas} relato(s)</span>` : ""}
+          </div>
+          <h4 class="text-base font-black text-white mt-2">${esc(q.titulo || "Questão sem título")}</h4>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${esc(q.disciplina)}</span>
+            <span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${esc(q.nivel)}</span>
+            <span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.area || "Sem área")}</span>
+            <span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${esc(q.dificuldade)}</span>
+            <span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.tipo)}</span>
+            ${mostrarGabarito && q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-black">Gabarito ${esc(q.alternativaCorreta)}</span>` : ""}
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${inList ? `<button onclick="removerQuestaoMiniLista('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-blue-950/40 hover:bg-blue-900/50 text-blue-200 text-xs font-bold border border-blue-800/50"><i class="fa-solid fa-minus mr-1"></i>Remover da lista</button>` : `<button onclick="adicionarQuestaoMiniLista('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-blue-700/30 hover:bg-blue-700/50 text-blue-300 text-xs font-bold border border-blue-800/50"><i class="fa-solid fa-plus mr-1"></i>Adicionar à lista</button>`}
+          <button onclick="abrirRelatoProblemaQuestao('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-red-950/30 hover:bg-red-900/50 text-red-300 text-xs font-bold border border-red-900/50"><i class="fa-solid fa-flag mr-1"></i>Relatar problema</button>
+          ${canEdit ? `<button onclick="editarQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-amber-700/30 hover:bg-amber-700/50 text-amber-300 text-xs font-bold border border-amber-800/50"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar</button><button onclick="adicionarSolucaoQuestao('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 text-xs font-bold border border-emerald-800/50"><i class="fa-solid fa-lightbulb mr-1"></i>Solução</button><button onclick="duplicarQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700"><i class="fa-solid fa-copy mr-1"></i>Duplicar</button><button onclick="excluirQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-300 text-xs font-bold border border-red-900/50"><i class="fa-solid fa-trash mr-1"></i>Excluir</button>` : ""}
+        </div>
+      </div>
+      <div class="mt-3 text-xs text-gray-500">${esc([q.fonte, q.ano, q.fase].filter(Boolean).join(" · ") || "Fonte não informada")} · ${esc(q.tema || "Sem tema")}${q.subtema ? ` › ${esc(q.subtema)}` : ""}${q.tempoEstimadoMin ? ` · ${esc(q.tempoEstimadoMin)} min` : ""}</div>
+      <div class="mt-3">${renderHtmlOuTextoPatch(q.enunciadoHtml, q.enunciado, "text-sm text-gray-300")}</div>
+      ${renderArquivosPatch(q.arquivos || [])}
+      ${alternativasHtmlPatch(q, mostrarGabarito)}
+      ${(q.tags || []).length ? `<div class="flex flex-wrap gap-1 mt-3">${q.tags.map(t => `<span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-400 text-[10px]">#${esc(t)}</span>`).join("")}</div>` : ""}
+      ${canEdit && Array.isArray(q.solucoes) ? `<details class="mt-3 rounded-xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-emerald-300 uppercase">Ver soluções e comentários</summary><div class="mt-3 space-y-2">${q.solucoes.length ? q.solucoes.map(s => `<div class="rounded-xl bg-gray-950/60 border border-gray-700 p-3"><div class="flex flex-wrap justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-bold">${esc(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${esc(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${renderHtmlOuTextoPatch(s.textoHtml, s.texto, "text-sm text-gray-300 mt-2")}${renderArquivosPatch(s.arquivos || [])}</div>`).join("") : `<p class="text-xs text-gray-500">Nenhuma solução cadastrada.</p>`}</div></details>` : ""}
+    </div>`;
+  }
+
+  window.renderizarBancoQuestoes = function renderizarBancoQuestoesPaginado() {
+    try {
+      inserirPainelPaginacaoQuestoes();
+      inserirBotaoGeradorAleatorioMiniLista();
+      inserirBotaoProblemasQuestoesHeader();
+      const grid = document.getElementById("gridQuestoes");
+      if (!grid) return;
+      if (!podeVerBancoQuestoesPatch()) {
+        grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Faça login para acessar.</p></div>`;
+        atualizarControlesPaginacao(0, 0, 0, 1);
+        return;
+      }
+
+      const sig = assinaturaFiltrosQuestoes();
+      if (sig !== ultimoFiltroQuestoes) {
+        paginaAtualQuestoes = 1;
+        ultimoFiltroQuestoes = sig;
+      }
+
+      const canEdit = podeEditarQuestoesPatch();
+      const mostrarGabarito = canEdit;
+      const todasFiltradas = listaQuestoesPatch().filter(passaFiltrosQuestoesPatch).sort(ordenarQuestoesPatch);
+      const porPagina = [5,10,20].includes(Number(document.getElementById("bqPorPagina")?.value)) ? Number(document.getElementById("bqPorPagina")?.value) : 10;
+      const total = todasFiltradas.length;
+      const totalPaginas = Math.max(1, Math.ceil(total / porPagina));
+      paginaAtualQuestoes = Math.min(Math.max(1, paginaAtualQuestoes), totalPaginas);
+      const inicio = (paginaAtualQuestoes - 1) * porPagina;
+      const fim = Math.min(total, inicio + porPagina);
+      const pagina = todasFiltradas.slice(inicio, fim);
+
+      atualizarResumoMiniListaQuestoesPatch();
+      atualizarControlesPaginacao(total, inicio, fim, totalPaginas);
+
+      if (!total) {
+        grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões, importe por Excel ou ajuste os filtros.</p></div>`;
+        return;
+      }
+
+      const cardsResumo = `<div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        ${[
+          ["Questões filtradas", total, "fa-database", "text-blue-400"],
+          ["Na mini-lista", questoesMiniListaPatch().length, "fa-file-pdf", "text-emerald-400"],
+          ["Com imagem", todasFiltradas.filter(q => /<img/i.test(String(q.enunciadoHtml || "")) || (q.arquivos || []).some(isImagemArquivoPatch)).length, "fa-image", "text-cyan-400"],
+          ["Objetivas", todasFiltradas.filter(q => norm(q.tipo).includes("multipla") || norm(q.tipo).includes("objetiva") || temAlternativasPatch(q)).length, "fa-list-check", "text-amber-400"]
+        ].map(([t,v,ic,cor]) => `<div class="rounded-2xl border border-gray-700 bg-gray-800 p-4"><p class="text-[10px] uppercase font-bold text-gray-500">${t}</p><p class="text-2xl font-black text-white mt-1"><i class="fa-solid ${ic} ${cor} mr-2"></i>${v}</p></div>`).join("")}
+      </div>`;
+
+      grid.innerHTML = cardsResumo + pagina.map(q => renderCardQuestaoPatch(q, mostrarGabarito, canEdit)).join("");
+    } catch (erro) {
+      console.error(TAG, erro);
+      const grid = document.getElementById("gridQuestoes");
+      if (grid) grid.innerHTML = `<div class="rounded-2xl bg-red-950/30 border border-red-900/60 p-6 text-red-100"><b>Erro ao renderizar banco de questões.</b><br>${esc(erro.message || erro)}</div>`;
+    }
+  };
+
+  // Mantém os botões da mini-lista funcionando com os mesmos nomes globais.
+  window.adicionarQuestaoMiniLista = function adicionarQuestaoMiniListaPaginado(id) {
+    const ids = getMiniListaIdsPatch();
+    if (!ids.includes(String(id))) ids.push(String(id));
+    setMiniListaIdsPatch(ids);
+    atualizarResumoMiniListaQuestoesPatch();
+    renderizarBancoQuestoes();
+  };
+  window.removerQuestaoMiniLista = function removerQuestaoMiniListaPaginado(id) {
+    setMiniListaIdsPatch(getMiniListaIdsPatch().filter(x => String(x) !== String(id)));
+    atualizarResumoMiniListaQuestoesPatch();
+    renderizarBancoQuestoes();
+  };
+  window.adicionarQuestoesFiltradasMiniLista = function adicionarQuestoesFiltradasMiniListaPaginado() {
+    const ids = listaQuestoesPatch().filter(passaFiltrosQuestoesPatch).map(q => String(q.id));
+    if (!ids.length) return alert("Nenhuma questão encontrada nos filtros atuais.");
+    setMiniListaIdsPatch([...getMiniListaIdsPatch(), ...ids]);
+    atualizarResumoMiniListaQuestoesPatch();
+    renderizarBancoQuestoes();
+  };
+  window.limparMiniListaQuestoes = async function limparMiniListaQuestoesPaginado() {
+    if (!getMiniListaIdsPatch().length) return;
+    const ok = typeof confirmarPlataforma === "function" ? await confirmarPlataforma("Limpar sua mini-lista atual?", "Limpar mini-lista", "Limpar", "Cancelar") : confirm("Limpar sua mini-lista atual?");
+    if (!ok) return;
+    setMiniListaIdsPatch([]);
+    atualizarResumoMiniListaQuestoesPatch();
+    renderizarBancoQuestoes();
+  };
+
+  // -------------------- Relatar problema --------------------
+  function colecaoProblemasQuestoes() {
+    return `anos/${anoDadosAtivo || "2026"}/sistema_questoes_problemas`;
+  }
+  async function carregarProblemasQuestoes(force = false) {
+    if (!podeGerenciarRelatosQuestoes()) return [];
+    const agora = Date.now();
+    if (!force && problemasQuestoesCache.length && (agora - problemasQuestoesCarregadosEm < 45000)) return problemasQuestoesCache;
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) return [];
+    const snap = await firebaseFirestore.collection(colecaoProblemasQuestoes()).orderBy("criadoEm", "desc").limit(250).get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...(doc.data() || {}) }));
+    problemasQuestoesCache = arr;
+    problemasQuestoesCarregadosEm = agora;
+    return arr;
+  }
+  async function atualizarBadgeProblemasQuestoes() {
+    if (!podeGerenciarRelatosQuestoes()) return;
+    try {
+      const arr = await carregarProblemasQuestoes(true);
+      const abertos = arr.filter(p => !["Resolvido", "Descartado"].includes(String(p.status || ""))).length;
+      const badge = document.getElementById("badgeProblemasQuestoes");
+      const btn = document.getElementById("btnProblemasQuestoes");
+      if (badge) {
+        badge.textContent = abertos;
+        badge.classList.toggle("hidden", !abertos);
+      }
+      if (btn) btn.classList.toggle("border-red-700", !!abertos);
+    } catch (erro) {
+      console.warn(TAG, "não foi possível atualizar relatos", erro);
+    }
+  }
+  function inserirBotaoProblemasQuestoesHeader() {
+    if (!podeGerenciarRelatosQuestoes()) return;
+    if (document.getElementById("btnProblemasQuestoes")) return;
+    const parent = document.getElementById("btnToggleTema")?.parentElement || document.querySelector("header div.flex.items-center.gap-3");
+    if (!parent) return;
+    const btn = document.createElement("button");
+    btn.id = "btnProblemasQuestoes";
+    btn.type = "button";
+    btn.onclick = () => abrirPainelProblemasQuestoes();
+    btn.className = "relative px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-950 text-xs font-bold text-gray-300 hover:text-white hover:border-red-700 transition";
+    btn.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasQuestoes" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+    parent.insertBefore(btn, document.getElementById("btnToggleTema") || parent.firstChild);
+    setTimeout(atualizarBadgeProblemasQuestoes, 200);
+  }
+  function garantirModalRelatarProblemaQuestao() {
+    if (document.getElementById("modalRelatarProblemaQuestao")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalRelatarProblemaQuestao";
+    modal.className = "hidden fixed inset-0 z-[96] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharRelatoProblemaQuestao()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-flag text-red-400 mr-2"></i>Relatar problema na questão</h3><p id="relatoQuestaoTitulo" class="text-xs text-gray-400 mt-1">Informe o problema encontrado.</p></div>
+          <button type="button" onclick="fecharRelatoProblemaQuestao()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <input type="hidden" id="relatoQuestaoId">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-200">
+          ${TIPOS_PROBLEMA.map(t => `<label class="flex items-center gap-2 p-2 rounded-xl bg-gray-900 border border-gray-700"><input type="checkbox" class="relatoQuestaoTipo accent-red-500" value="${esc(t)}">${esc(t)}</label>`).join("")}
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-gray-400 uppercase mb-1.5">Comentário do aluno/usuário</label>
+          <textarea id="relatoQuestaoDescricao" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Explique o problema. Ex: a imagem do enunciado não aparece; o gabarito parece errado; a questão está classificada no tema errado..."></textarea>
+        </div>
+        <div class="flex flex-col md:flex-row justify-end gap-2">
+          <button type="button" onclick="fecharRelatoProblemaQuestao()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button>
+          <button type="button" onclick="enviarRelatoProblemaQuestao()" class="px-4 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-2"></i>Enviar relato</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  window.abrirRelatoProblemaQuestao = function abrirRelatoProblemaQuestao(id) {
+    if (!usuarioLogado) return alert("Faça login para relatar problema.");
+    garantirModalRelatarProblemaQuestao();
+    const q = listaQuestoesPatch().find(x => String(x.id) === String(id));
+    if (!q) return alert("Questão não encontrada.");
+    document.getElementById("relatoQuestaoId").value = q.id;
+    document.getElementById("relatoQuestaoTitulo").textContent = `${q.codigo || q.id} — ${q.titulo || "Questão sem título"}`;
+    document.querySelectorAll(".relatoQuestaoTipo").forEach(ch => ch.checked = false);
+    document.getElementById("relatoQuestaoDescricao").value = "";
+    const modal = document.getElementById("modalRelatarProblemaQuestao");
+    modal?.classList.remove("hidden"); modal?.classList.add("flex");
+  };
+  window.fecharRelatoProblemaQuestao = function fecharRelatoProblemaQuestao() {
+    const modal = document.getElementById("modalRelatarProblemaQuestao");
+    modal?.classList.add("hidden"); modal?.classList.remove("flex");
+  };
+  window.enviarRelatoProblemaQuestao = async function enviarRelatoProblemaQuestao() {
+    try {
+      if (!usuarioLogado) return alert("Faça login para relatar problema.");
+      const id = document.getElementById("relatoQuestaoId")?.value || "";
+      const q = listaQuestoesPatch().find(x => String(x.id) === String(id));
+      if (!q) return alert("Questão não encontrada.");
+      const tipos = Array.from(document.querySelectorAll(".relatoQuestaoTipo:checked")).map(ch => ch.value);
+      const descricao = String(document.getElementById("relatoQuestaoDescricao")?.value || "").trim();
+      if (!tipos.length && !descricao) return alert("Marque pelo menos um tipo de problema ou escreva um comentário.");
+      if (typeof initFirebase === "function") initFirebase();
+      if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+      const docId = typeof novoId === "function" ? novoId() : `rel_${Date.now()}`;
+      const relato = {
+        id: docId,
+        questaoId: q.id,
+        questaoCodigo: q.codigo || "",
+        questaoTitulo: q.titulo || "",
+        questaoDisciplina: q.disciplina || "",
+        questaoTema: q.tema || "",
+        tipos,
+        descricao,
+        status: "Aberto",
+        criadoEm: Date.now(),
+        criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "",
+        criadoPorNome: usuarioLogado?.nome || usuarioLogado?.login || "Usuário",
+        criadoPorNivel: usuarioLogado?.nivel || "",
+        ano: anoDadosAtivo || "2026"
+      };
+      await firebaseFirestore.collection(colecaoProblemasQuestoes()).doc(docId).set(relato);
+      fecharRelatoProblemaQuestao();
+      alert("Relato enviado. A equipe vai analisar a questão.");
+      if (podeGerenciarRelatosQuestoes()) await atualizarBadgeProblemasQuestoes();
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao enviar relato.\n\n${erro.message || erro}`);
+    }
+  };
+
+  function garantirModalProblemasQuestoes() {
+    if (document.getElementById("modalProblemasQuestoes")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalProblemasQuestoes";
+    modal.className = "hidden fixed inset-0 z-[97] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharPainelProblemasQuestoes()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-400 mr-2"></i>Problemas relatados no Banco de Questões</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff analisam, abrem a questão, colocam em revisão, resolvem ou descartam relatos.</p></div>
+          <div class="flex flex-wrap gap-2">
+            <select id="filtroRelatosQuestoesStatus" onchange="renderizarPainelProblemasQuestoes()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option value="Resolvido">Resolvidos</option><option value="Descartado">Descartados</option></select>
+            <button type="button" onclick="carregarProblemasQuestoesManual()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
+            <button type="button" onclick="fecharPainelProblemasQuestoes()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button>
+          </div>
+        </div>
+        <div id="listaProblemasQuestoes" class="space-y-3"></div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  window.abrirPainelProblemasQuestoes = async function abrirPainelProblemasQuestoes() {
+    if (!podeGerenciarRelatosQuestoes()) return alert("Apenas ADM/Staff podem ver os relatos.");
+    garantirModalProblemasQuestoes();
+    const modal = document.getElementById("modalProblemasQuestoes");
+    modal?.classList.remove("hidden"); modal?.classList.add("flex");
+    await carregarProblemasQuestoes(true);
+    renderizarPainelProblemasQuestoes();
+    renderizarBancoQuestoes();
+  };
+  window.fecharPainelProblemasQuestoes = function fecharPainelProblemasQuestoes() {
+    const modal = document.getElementById("modalProblemasQuestoes");
+    modal?.classList.add("hidden"); modal?.classList.remove("flex");
+  };
+  window.carregarProblemasQuestoesManual = async function carregarProblemasQuestoesManual() {
+    await carregarProblemasQuestoes(true);
+    renderizarPainelProblemasQuestoes();
+    atualizarBadgeProblemasQuestoes();
+    renderizarBancoQuestoes();
+  };
+  window.renderizarPainelProblemasQuestoes = function renderizarPainelProblemasQuestoes() {
+    const box = document.getElementById("listaProblemasQuestoes");
+    if (!box) return;
+    const filtro = document.getElementById("filtroRelatosQuestoesStatus")?.value || "ABERTOS";
+    let arr = problemasQuestoesCache.slice();
+    if (filtro === "ABERTOS") arr = arr.filter(p => !["Resolvido","Descartado"].includes(String(p.status || "")));
+    else if (filtro !== "TODOS") arr = arr.filter(p => String(p.status || "") === filtro);
+    if (!arr.length) {
+      box.innerHTML = `<div class="rounded-2xl bg-gray-900 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl mb-3 text-emerald-500"></i><p class="font-bold">Nenhum relato nessa visualização.</p></div>`;
+      return;
+    }
+    box.innerHTML = arr.map(p => {
+      const q = listaQuestoesPatch().find(x => String(x.id) === String(p.questaoId));
+      return `<div class="rounded-2xl border ${["Resolvido","Descartado"].includes(String(p.status||"")) ? "border-gray-700 bg-gray-900/50" : "border-red-900/50 bg-red-950/15"} p-4">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap gap-2 items-center">
+              <span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-300 border border-gray-700 text-[10px] font-black">${esc(p.status || "Aberto")}</span>
+              <span class="font-mono text-[11px] text-blue-300">${esc(p.questaoCodigo || p.questaoId)}</span>
+              <span class="text-[10px] text-gray-500">${p.criadoEm ? new Date(p.criadoEm).toLocaleString("pt-BR") : ""}</span>
+            </div>
+            <h4 class="text-sm font-black text-white mt-2">${esc(p.questaoTitulo || q?.titulo || "Questão sem título")}</h4>
+            <p class="text-xs text-gray-400 mt-1">${esc([p.questaoDisciplina || q?.disciplina, p.questaoTema || q?.tema].filter(Boolean).join(" · "))}</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            ${q ? `<button onclick="editarQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-amber-700/30 hover:bg-amber-700/50 text-amber-300 text-xs font-bold border border-amber-800/50"><i class="fa-solid fa-pen-to-square mr-1"></i>Abrir/editar questão</button>` : ""}
+            <button onclick="marcarQuestaoProblemaEmRevisao('${idSeguro(p.id)}')" class="px-3 py-2 rounded-xl bg-purple-700/30 hover:bg-purple-700/50 text-purple-200 text-xs font-bold border border-purple-800/50">Colocar em revisão</button>
+            <button onclick="resolverRelatoProblemaQuestao('${idSeguro(p.id)}')" class="px-3 py-2 rounded-xl bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 text-xs font-bold border border-emerald-800/50">Resolver</button>
+            <button onclick="descartarRelatoProblemaQuestao('${idSeguro(p.id)}')" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-1">${(p.tipos || []).map(t => `<span class="px-2 py-1 rounded-full bg-red-950/40 text-red-200 text-[10px] border border-red-900/50">${esc(t)}</span>`).join("")}</div>
+        ${p.descricao ? `<p class="mt-3 text-sm text-gray-200 whitespace-pre-wrap">${esc(p.descricao)}</p>` : ""}
+        <p class="mt-3 text-[11px] text-gray-500">Relatado por: ${esc(p.criadoPorNome || "Usuário")} · ${esc(p.criadoPorNivel || "")}${p.resolvidoPorNome ? ` · Resolvido por ${esc(p.resolvidoPorNome)}` : ""}</p>
+        ${p.resolucaoComentario ? `<div class="mt-2 rounded-xl bg-gray-950 border border-gray-700 p-3 text-xs text-gray-300"><b>Comentário:</b> ${esc(p.resolucaoComentario)}</div>` : ""}
+      </div>`;
+    }).join("");
+  };
+  async function atualizarRelatoProblema(id, dados) {
+    if (!podeGerenciarRelatosQuestoes()) return alert("Apenas ADM/Staff podem atualizar relatos.");
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+    await firebaseFirestore.collection(colecaoProblemasQuestoes()).doc(String(id)).set({
+      ...dados,
+      atualizadoEm: Date.now(),
+      atualizadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "",
+      atualizadoPorNome: usuarioLogado?.nome || ""
+    }, { merge: true });
+    problemasQuestoesCache = problemasQuestoesCache.map(p => String(p.id) === String(id) ? { ...p, ...dados, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || "" } : p);
+  }
+  window.marcarQuestaoProblemaEmRevisao = async function marcarQuestaoProblemaEmRevisao(id) {
+    try {
+      const p = problemasQuestoesCache.find(x => String(x.id) === String(id));
+      if (!p) return alert("Relato não encontrado.");
+      const qs = listaQuestoesPatch();
+      const idx = qs.findIndex(q => String(q.id) === String(p.questaoId));
+      if (idx >= 0) {
+        qs[idx] = { ...qs[idx], status: "Em revisão", atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || "" };
+        await setStorage("app_questoes", qs);
+      }
+      await atualizarRelatoProblema(id, { status: "Em análise", resolucaoComentario: "Questão colocada em revisão pela equipe." });
+      renderizarPainelProblemasQuestoes(); atualizarBadgeProblemasQuestoes(); renderizarBancoQuestoes();
+    } catch (erro) { alert(`Erro ao colocar em revisão.\n\n${erro.message || erro}`); }
+  };
+  window.resolverRelatoProblemaQuestao = async function resolverRelatoProblemaQuestao(id) {
+    try {
+      const comentario = prompt("Comentário de resolução do problema:", "Problema analisado e resolvido.");
+      if (comentario === null) return;
+      await atualizarRelatoProblema(id, { status: "Resolvido", resolucaoComentario: comentario.trim(), resolvidoEm: Date.now(), resolvidoPorNome: usuarioLogado?.nome || "" });
+      renderizarPainelProblemasQuestoes(); atualizarBadgeProblemasQuestoes(); renderizarBancoQuestoes();
+    } catch (erro) { alert(`Erro ao resolver relato.\n\n${erro.message || erro}`); }
+  };
+  window.descartarRelatoProblemaQuestao = async function descartarRelatoProblemaQuestao(id) {
+    try {
+      const comentario = prompt("Motivo do descarte:", "Relato analisado, mas não procede.");
+      if (comentario === null) return;
+      await atualizarRelatoProblema(id, { status: "Descartado", resolucaoComentario: comentario.trim(), resolvidoEm: Date.now(), resolvidoPorNome: usuarioLogado?.nome || "" });
+      renderizarPainelProblemasQuestoes(); atualizarBadgeProblemasQuestoes(); renderizarBancoQuestoes();
+    } catch (erro) { alert(`Erro ao descartar relato.\n\n${erro.message || erro}`); }
+  };
+
+  // -------------------- Mini-lista aleatória --------------------
+  function inserirBotaoGeradorAleatorioMiniLista() {
+    const painel = document.getElementById("painelMiniListaQuestoes");
+    if (!painel || document.getElementById("btnMiniListaAleatoria")) return;
+    const areaBotoes = painel.querySelector(".flex.flex-wrap.gap-2");
+    if (!areaBotoes) return;
+    const btn = document.createElement("button");
+    btn.id = "btnMiniListaAleatoria";
+    btn.type = "button";
+    btn.onclick = () => abrirGeradorMiniListaAleatoria();
+    btn.className = "px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase";
+    btn.innerHTML = `<i class="fa-solid fa-shuffle mr-2"></i>Lista aleatória`;
+    areaBotoes.insertBefore(btn, areaBotoes.firstChild);
+  }
+  function valoresCampo(campo) { return unique(listaQuestoesPatch().map(q => q[campo])); }
+  function grupoCheckboxAleatorio(campo, label, valores) {
+    const chips = valores.length ? valores.map(v => `
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-gray-950 border border-gray-700 text-[11px] text-gray-200">
+        <input type="checkbox" class="bqRandCheck accent-purple-500" data-campo="${campo}" value="${esc(v)}">${esc(v)}
+      </label>`).join("") : `<p class="text-xs text-gray-500">Nenhuma opção encontrada.</p>`;
+    const chipsNao = valores.length ? valores.map(v => `
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-red-950/15 border border-red-900/40 text-[11px] text-red-100">
+        <input type="checkbox" class="bqRandBlock accent-red-500" data-campo="${campo}" value="${esc(v)}">${esc(v)}
+      </label>`).join("") : "";
+    return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3">
+      <summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(label)}</summary>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+        <div><p class="text-[10px] text-emerald-300 font-black uppercase mb-2">Quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${chips}</div></div>
+        <div><p class="text-[10px] text-red-300 font-black uppercase mb-2">Não quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${chipsNao || `<p class="text-xs text-gray-500">Nenhuma opção encontrada.</p>`}</div></div>
+      </div>
+    </details>`;
+  }
+  function garantirModalMiniListaAleatoria() {
+    if (document.getElementById("modalMiniListaAleatoria")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalMiniListaAleatoria";
+    modal.className = "hidden fixed inset-0 z-[95] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharGeradorMiniListaAleatoria()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-shuffle text-purple-400 mr-2"></i>Gerar mini-lista aleatória</h3><p class="text-xs text-gray-400 mt-1">Escolha o que deve aparecer e o que deve ficar fora. A seleção atual por questão continua funcionando normalmente.</p></div>
+          <button type="button" onclick="fecharGeradorMiniListaAleatoria()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 rounded-2xl border border-purple-900/40 bg-purple-950/15 p-4">
+          <div><label class="block text-[11px] font-bold text-purple-200 uppercase mb-1.5">Quantidade</label><input id="bqRandQtd" type="number" min="1" max="100" value="10" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white"></div>
+          <label class="md:col-span-2 flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandUsarFiltrosAtuais" type="checkbox" class="accent-purple-500">Usar filtros atuais como base inicial</label>
+          <label class="flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandSomenteAtivas" type="checkbox" checked class="accent-emerald-500">Somente questões ativas</label>
+          <label class="flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandSubstituirLista" type="checkbox" class="accent-red-500">Substituir minha lista atual</label>
+        </div>
+        <div id="bqRandGrupos" class="space-y-3"></div>
+        <div id="bqRandResumo" class="text-xs text-gray-400"></div>
+        <div class="flex flex-col md:flex-row justify-end gap-2">
+          <button type="button" onclick="fecharGeradorMiniListaAleatoria()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button>
+          <button type="button" onclick="gerarMiniListaAleatoriaQuestoes()" class="px-4 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar lista</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  window.abrirGeradorMiniListaAleatoria = function abrirGeradorMiniListaAleatoria() {
+    garantirModalMiniListaAleatoria();
+    const grupos = document.getElementById("bqRandGrupos");
+    if (grupos) {
+      grupos.innerHTML = [
+        grupoCheckboxAleatorio("disciplina", "Disciplina", valoresCampo("disciplina")),
+        grupoCheckboxAleatorio("nivel", "Nível", valoresCampo("nivel")),
+        grupoCheckboxAleatorio("area", "Área", valoresCampo("area")),
+        grupoCheckboxAleatorio("tema", "Tema", valoresCampo("tema")),
+        grupoCheckboxAleatorio("subtema", "Subtema", valoresCampo("subtema")),
+        grupoCheckboxAleatorio("dificuldade", "Dificuldade", valoresCampo("dificuldade")),
+        grupoCheckboxAleatorio("tipo", "Tipo", valoresCampo("tipo"))
+      ].join("");
+    }
+    document.getElementById("bqRandResumo").innerHTML = "";
+    const modal = document.getElementById("modalMiniListaAleatoria");
+    modal?.classList.remove("hidden"); modal?.classList.add("flex");
+  };
+  window.fecharGeradorMiniListaAleatoria = function fecharGeradorMiniListaAleatoria() {
+    const modal = document.getElementById("modalMiniListaAleatoria");
+    modal?.classList.add("hidden"); modal?.classList.remove("flex");
+  };
+  function lerCriteriosAleatorios(classe) {
+    const mapa = {};
+    document.querySelectorAll(`.${classe}:checked`).forEach(ch => {
+      const campo = ch.dataset.campo;
+      if (!mapa[campo]) mapa[campo] = new Set();
+      mapa[campo].add(ch.value);
+    });
+    return mapa;
+  }
+  function passaCriteriosAleatorios(q, inc, exc) {
+    for (const [campo, set] of Object.entries(inc)) {
+      if (set.size && !set.has(String(q[campo] || ""))) return false;
+    }
+    for (const [campo, set] of Object.entries(exc)) {
+      if (set.size && set.has(String(q[campo] || ""))) return false;
+    }
+    return true;
+  }
+  function embaralhar(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  window.gerarMiniListaAleatoriaQuestoes = function gerarMiniListaAleatoriaQuestoes() {
+    const qtd = Math.min(100, Math.max(1, Number(document.getElementById("bqRandQtd")?.value || 10)));
+    const usarFiltros = !!document.getElementById("bqRandUsarFiltrosAtuais")?.checked;
+    const somenteAtivas = !!document.getElementById("bqRandSomenteAtivas")?.checked;
+    const substituir = !!document.getElementById("bqRandSubstituirLista")?.checked;
+    const inc = lerCriteriosAleatorios("bqRandCheck");
+    const exc = lerCriteriosAleatorios("bqRandBlock");
+    let base = listaQuestoesPatch();
+    if (usarFiltros) base = base.filter(passaFiltrosQuestoesPatch);
+    if (somenteAtivas) base = base.filter(q => !q.status || q.status === "Ativa");
+    base = base.filter(q => passaCriteriosAleatorios(q, inc, exc));
+    const escolhidas = embaralhar(base).slice(0, qtd);
+    const resumo = document.getElementById("bqRandResumo");
+    if (!escolhidas.length) {
+      if (resumo) resumo.innerHTML = `<span class="text-red-300 font-bold">Nenhuma questão encontrada com esses critérios.</span>`;
+      return;
+    }
+    const atuais = substituir ? [] : getMiniListaIdsPatch();
+    setMiniListaIdsPatch([...atuais, ...escolhidas.map(q => q.id)]);
+    if (resumo) resumo.innerHTML = `<span class="text-emerald-300 font-bold">${escolhidas.length} questão(ões) adicionada(s) à mini-lista.</span>`;
+    atualizarResumoMiniListaQuestoesPatch();
+    renderizarBancoQuestoes();
+  };
+
+  // Hooks de inicialização e navegação
+  const navOriginalBQPatch = window.navegarAba;
+  if (typeof navOriginalBQPatch === "function" && !window.__bqNavPaginacaoPatchAplicado) {
+    window.__bqNavPaginacaoPatchAplicado = true;
+    window.navegarAba = function navegarAbaComBQPatch(abaId, botao) {
+      const r = navOriginalBQPatch.apply(this, arguments);
+      if (abaId === "questoes") {
+        setTimeout(() => {
+          inserirPainelPaginacaoQuestoes();
+          inserirBotaoGeradorAleatorioMiniLista();
+          inserirBotaoProblemasQuestoesHeader();
+          if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes();
+          renderizarBancoQuestoes();
+          atualizarBadgeProblemasQuestoes();
+        }, 120);
+      }
+      return r;
+    };
+  }
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
+    try {
+      inserirBotaoProblemasQuestoesHeader();
+      inserirPainelPaginacaoQuestoes();
+      inserirBotaoGeradorAleatorioMiniLista();
+      atualizarBadgeProblemasQuestoes();
+      if (document.getElementById("view-questoes") && !document.getElementById("view-questoes").classList.contains("hidden")) renderizarBancoQuestoes();
+    } catch (e) { console.warn(TAG, e); }
+  }, 3200));
+
+  // Atualização leve do badge a cada 2 min para ADM/Staff.
+  setInterval(() => { if (podeGerenciarRelatosQuestoes()) atualizarBadgeProblemasQuestoes(); }, 120000);
+
+  console.log(TAG, "carregado");
+})();
+
