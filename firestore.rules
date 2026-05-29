@@ -151,6 +151,16 @@ service cloud.firestore {
       allow read, update, delete: if ehAdm() || ehStaff() || ehGestor();
     }
 
+    match /anos/{ano}/sistema_questoes/{docId} {
+      allow read: if usuarioValido();
+      allow create, update, delete: if ehAdm() || ehStaff() || ehMonitor() || ehProfessor();
+    }
+
+    match /anos/{ano}/sistema_banco_questoes/{docId} {
+      allow read: if usuarioValido();
+      allow create, update, delete: if ehAdm() || ehStaff() || ehMonitor() || ehProfessor();
+    }
+
     match /anos/{ano}/{colecao}/{docId} {
       allow read: if usuarioValido();
       allow create, update, delete: if ehEquipePedagogica()
@@ -163,9 +173,7 @@ service cloud.firestore {
           "sistema_premiados",
           "sistema_plataforma",
           "sistema_materiais",
-          "sistema_aulas",
-          "sistema_questoes",
-          "sistema_banco_questoes"
+          "sistema_aulas"
         ];
     }
 
@@ -176,9 +184,7 @@ service cloud.firestore {
           "sistema_plataforma",
           "sistema_materiais",
           "sistema_aulas",
-          "sistema_simulados",
-          "sistema_questoes",
-          "sistema_banco_questoes"
+          "sistema_simulados"
         ];
       allow delete: if ehEquipePedagogica();
     }

@@ -14403,3 +14403,540 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "carregado");
 })();
+
+// ============================================================
+// BANCO DE QUESTÕES — edição completa, solução rica e mini-listas do aluno
+// Patch incremental sem mexer nos demais módulos.
+// ============================================================
+(function bancoQuestoesEdicaoMiniListasPatch(){
+  const TAG = "[BancoQuestoesEdicaoMiniListas]";
+  const MINI_LISTA_KEY_BASE = "avance_mini_lista_questoes_v1";
+  const DISC_PADRAO = ["Matemática", "Física", "Química", "Biologia", "Ciências", "Astronomia", "Geografia / Geopolítica", "História", "Linguagem", "Informática / Robótica", "Multidisciplinar"];
+  const NIVEL_PADRAO = ["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral"];
+  const DIFICULDADE_PADRAO = ["Muito fácil", "Fácil", "Médio", "Difícil", "Muito difícil", "Olímpica", "Vestibular", "ITA/IME"];
+  const TIPO_PADRAO = ["Múltipla escolha", "Dissertativa", "Aberta curta", "Verdadeiro/Falso", "Experimental", "Mista"];
+  const STATUS_PADRAO = ["Ativa", "Em revisão", "Inativa", "Descartada"];
+
+  function esc(v) { return typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
+  function norm(v) { return String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+  function limpaTexto(v) { return String(v ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); }
+  function listaQuestoes() { const v = getStorage("app_questoes", []); return Array.isArray(v) ? v : []; }
+  function setListaQuestoes(v) { return setStorage("app_questoes", Array.isArray(v) ? v : []); }
+  function nivelUsuario() { return String(usuarioLogado?.nivel || ""); }
+  function podeEditarQuestoesCompleto() { return !!usuarioLogado && ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(nivelUsuario()); }
+  function podeVerBancoQuestoes() { return !!usuarioLogado; }
+  function idSeguro(id) { return String(id || "").replace(/'/g, "&#39;"); }
+  function unique(arr) { return Array.from(new Set((arr || []).map(v => String(v || "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base", numeric:true})); }
+  function splitUrls(valor) { return String(valor || "").split(/[\n,;]+/).map(v => v.trim()).filter(v => /^https?:\/\//i.test(v)); }
+  function mimePorUrl(url) { if (/\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(url)) return "image/url"; if (/\.pdf(\?|#|$)/i.test(url)) return "application/pdf"; if (/\.(docx?|rtf)(\?|#|$)/i.test(url)) return "application/msword"; return "link/url"; }
+  function nomePorUrl(url, fallback="Arquivo") { try { return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || fallback); } catch (_) { return fallback; } }
+  function arquivosDeUrls(valor, origem="url") { return splitUrls(valor).map((url, i) => ({ url, nome: nomePorUrl(url, `${origem} ${i+1}`), mimeType: mimePorUrl(url), tamanho: 0, externo: true, origem })); }
+  function isImagemArquivo(a) { return /^image\//i.test(String(a?.mimeType || "")) || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(String(a?.url || "")); }
+  function isPdfArquivo(a) { return /pdf/i.test(String(a?.mimeType || "")) || /\.pdf(\?|#|$)/i.test(String(a?.url || "")); }
+  function textoHtmlSeguro(html) {
+    const div = document.createElement("div");
+    div.innerHTML = String(html || "");
+    div.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach(el => el.remove());
+    div.querySelectorAll("*").forEach(el => {
+      Array.from(el.attributes || []).forEach(attr => {
+        const n = attr.name.toLowerCase();
+        const val = String(attr.value || "");
+        if (n.startsWith("on")) el.removeAttribute(attr.name);
+        if (["href", "src"].includes(n) && !/^(https?:|data:image\/)/i.test(val)) el.removeAttribute(attr.name);
+        if (n === "style") el.removeAttribute(attr.name);
+      });
+    });
+    return div.innerHTML;
+  }
+  function htmlParaTexto(html) {
+    const div = document.createElement("div");
+    div.innerHTML = textoHtmlSeguro(html || "");
+    return (div.innerText || div.textContent || "").replace(/\s+/g, " ").trim();
+  }
+  function renderHtmlOuTexto(html, texto, classe="text-sm text-gray-300") {
+    const safe = textoHtmlSeguro(html || "");
+    if (safe.trim()) return `<div class="questao-corpo-html ${classe}">${safe}</div>`;
+    return `<p class="${classe} whitespace-pre-wrap">${esc(texto || "")}</p>`;
+  }
+  function renderArquivos(arquivos=[]) {
+    arquivos = Array.isArray(arquivos) ? arquivos : [];
+    if (!arquivos.length) return "";
+    return `<div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">${arquivos.map(a => {
+      const url = esc(a.url || ""); const nome = esc(a.nome || "Arquivo"); const mime = esc(a.mimeType || "");
+      if (isImagemArquivo(a)) return `<button type="button" onclick="abrirMidiaQuestaoPlataforma('${url}','${nome}','${mime}')" class="text-left rounded-xl border border-gray-700 bg-gray-950/60 p-2 hover:border-blue-700 transition"><img src="${url}" alt="${nome}" class="max-h-56 w-full object-contain rounded-lg bg-gray-900"><p class="text-[10px] text-gray-400 mt-1 truncate"><i class="fa-solid fa-image mr-1"></i>${nome}</p></button>`;
+      if (isPdfArquivo(a)) return `<button type="button" onclick="abrirMidiaQuestaoPlataforma('${url}','${nome}','${mime}')" class="rounded-xl border border-red-900/40 bg-red-950/20 p-3 text-left text-red-200 text-xs hover:bg-red-950/35"><i class="fa-solid fa-file-pdf mr-2"></i>${nome}</button>`;
+      return `<a href="${url}" target="_blank" rel="noopener" class="rounded-xl border border-gray-700 bg-gray-950/60 p-3 text-blue-300 text-xs hover:bg-gray-900"><i class="fa-solid fa-paperclip mr-2"></i>${nome}</a>`;
+    }).join("")}</div>`;
+  }
+  async function uploadArquivosInput(inputId, pasta) {
+    const input = document.getElementById(inputId);
+    const files = Array.from(input?.files || []);
+    const arr = [];
+    for (const file of files) {
+      const up = await enviarArquivoParaFirebaseStorage(file, pasta);
+      arr.push({ url: up.fileUrl, storagePath: up.storagePath, nome: up.fileName, mimeType: up.mimeType, tamanho: up.size, externo: false });
+    }
+    if (input) input.value = "";
+    return arr;
+  }
+  function selectOptions(valores, atual="", primeiro="") {
+    const vals = unique(valores);
+    const base = primeiro ? [`<option value="">${esc(primeiro)}</option>`] : [];
+    return base.concat(vals.map(v => `<option value="${esc(v)}" ${String(v)===String(atual)?"selected":""}>${esc(v)}</option>`)).join("");
+  }
+  function alternativasHtml(q, mostrarGabarito=false) {
+    const alts = q?.alternativas || {};
+    if (!Object.values(alts).some(Boolean)) return "";
+    return `<div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-2 text-sm">${["A","B","C","D","E"].map(letra => `<div class="rounded-xl border ${mostrarGabarito && String(q.alternativaCorreta||"").toUpperCase()===letra ? "border-emerald-800/60 bg-emerald-950/20" : "border-gray-700 bg-gray-950/50"} p-3"><b class="text-blue-300">${letra})</b> <span class="text-gray-200">${esc(alts[letra] || "—")}</span></div>`).join("")}</div>`;
+  }
+  function passaFiltros(q) {
+    const f = id => document.getElementById(id)?.value || "TODOS";
+    if (f("filtroQuestaoDisciplina") !== "TODOS" && q.disciplina !== f("filtroQuestaoDisciplina")) return false;
+    if (f("filtroQuestaoNivel") !== "TODOS" && q.nivel !== f("filtroQuestaoNivel")) return false;
+    if (f("filtroQuestaoArea") !== "TODOS" && q.area !== f("filtroQuestaoArea")) return false;
+    if (f("filtroQuestaoTema") !== "TODOS" && q.tema !== f("filtroQuestaoTema")) return false;
+    if (f("filtroQuestaoDificuldade") !== "TODOS" && q.dificuldade !== f("filtroQuestaoDificuldade")) return false;
+    if (f("filtroQuestaoTipo") !== "TODOS" && q.tipo !== f("filtroQuestaoTipo")) return false;
+    const busca = norm(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (busca) {
+      const texto = norm([q.codigo, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano, q.fase, q.enunciado, htmlParaTexto(q.enunciadoHtml), ...(q.tags || []), ...Object.values(q.alternativas || {})].join(" "));
+      if (!texto.includes(busca)) return false;
+    }
+    return true;
+  }
+  function miniListaKey() { return `${MINI_LISTA_KEY_BASE}_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${anoDadosAtivo || "2026"}`; }
+  function getMiniListaIds() { try { return JSON.parse(localStorage.getItem(miniListaKey()) || "[]").map(String); } catch (_) { return []; } }
+  function setMiniListaIds(ids) { try { localStorage.setItem(miniListaKey(), JSON.stringify(Array.from(new Set((ids||[]).map(String))))); } catch (_) {} }
+  function questoesMiniLista() { const ids = new Set(getMiniListaIds()); return listaQuestoes().filter(q => ids.has(String(q.id))); }
+  function estaNaMiniLista(id) { return getMiniListaIds().includes(String(id)); }
+
+  window.podeGerenciarQuestoes = podeEditarQuestoesCompleto;
+
+  function garantirEstilosMiniLista() {
+    if (document.getElementById("styleBancoQuestoesEdicaoMiniListas")) return;
+    const st = document.createElement("style");
+    st.id = "styleBancoQuestoesEdicaoMiniListas";
+    st.textContent = `
+      .bq-rich-editor { min-height: 150px; outline: none; white-space: pre-wrap; }
+      .bq-rich-editor:empty:before { content: attr(data-placeholder); color: #64748b; pointer-events: none; }
+      .bq-rich-editor img, .questao-corpo-html img { max-width: 100%; max-height: 560px; object-fit: contain; border-radius: .75rem; border: 1px solid #374151; background: #020617; padding: .25rem; margin: .75rem 0; display: block; cursor: zoom-in; }
+      .questao-corpo-html { line-height: 1.65; white-space: normal; }
+      .questao-corpo-html p, .questao-corpo-html div { margin: .35rem 0; }
+      .questao-corpo-html ul { list-style: disc; padding-left: 1.25rem; }
+      .questao-corpo-html ol { list-style: decimal; padding-left: 1.25rem; }
+      #printMiniListaQuestoes { display: none; }
+      @media print {
+        body.print-mini-lista * { visibility: hidden !important; }
+        body.print-mini-lista #printMiniListaQuestoes, body.print-mini-lista #printMiniListaQuestoes * { visibility: visible !important; }
+        body.print-mini-lista #printMiniListaQuestoes { display: block !important; position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 24px !important; background: white !important; color: #111827 !important; }
+        body.print-mini-lista #printMiniListaQuestoes .questao-print { page-break-inside: avoid; margin-bottom: 22px; }
+        body.print-mini-lista #printMiniListaQuestoes img { max-width: 100% !important; max-height: 520px !important; object-fit: contain !important; }
+      }`;
+    document.head.appendChild(st);
+  }
+
+  function inserirMiniListaPainel() {
+    if (document.getElementById("painelMiniListaQuestoes")) return;
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid) return;
+    const painel = document.createElement("div");
+    painel.id = "painelMiniListaQuestoes";
+    painel.className = "rounded-2xl border border-blue-900/40 bg-blue-950/20 p-5";
+    painel.innerHTML = `
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-black text-blue-200 uppercase tracking-wider"><i class="fa-solid fa-file-pdf mr-2"></i>Minha mini-lista de questões</h3>
+          <p class="text-xs text-blue-100/70 mt-1">Use os filtros do banco ou escolha questões específicas. Depois gere uma lista em PDF/impressão com enunciados, imagens e alternativas.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" onclick="adicionarQuestoesFiltradasMiniLista()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-filter mr-2"></i>Adicionar filtradas</button>
+          <button type="button" onclick="abrirMiniListaQuestoes()" class="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-eye mr-2"></i>Ver/Gerar PDF</button>
+          <button type="button" onclick="limparMiniListaQuestoes()" class="px-4 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 border border-gray-700 text-xs font-bold uppercase"><i class="fa-solid fa-broom mr-2"></i>Limpar</button>
+        </div>
+      </div>
+      <div id="miniListaQuestoesResumo" class="mt-3 text-xs text-blue-100/80">Nenhuma questão selecionada.</div>`;
+    grid.parentNode.insertBefore(painel, grid);
+  }
+
+  window.popularFiltrosQuestoes = function popularFiltrosQuestoesCompleto() {
+    const qs = listaQuestoes();
+    const canEdit = podeEditarQuestoesCompleto();
+    ["painelAddQuestao", "painelQuestoesLote"].forEach(id => document.getElementById(id)?.classList.toggle("hidden", !canEdit));
+    document.querySelectorAll('[onclick*="exportarQuestoesExcel"], [onclick*="alternarPainelExclusaoQuestoesLote"]').forEach(btn => btn.classList.toggle("hidden", !canEdit));
+    if (!canEdit) document.getElementById("painelExclusaoQuestoesLote")?.classList.add("hidden");
+    const fill = (id, valores, todos) => {
+      const sel = document.getElementById(id); if (!sel) return;
+      const atual = sel.value;
+      sel.innerHTML = `<option value="TODOS">${esc(todos)}</option>` + unique(valores).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+      if (Array.from(sel.options).some(o => o.value === atual)) sel.value = atual;
+    };
+    fill("filtroQuestaoDisciplina", qs.map(q=>q.disciplina), "Todas");
+    fill("filtroQuestaoNivel", qs.map(q=>q.nivel), "Todos");
+    fill("filtroQuestaoArea", qs.filter(passaFiltrosParcialSemArea).map(q=>q.area), "Todas");
+    fill("filtroQuestaoTema", qs.filter(passaFiltrosParcialSemTema).map(q=>q.tema), "Todos");
+    fill("filtroQuestaoDificuldade", qs.map(q=>q.dificuldade), "Todas");
+    fill("filtroQuestaoTipo", qs.map(q=>q.tipo), "Todos");
+    inserirMiniListaPainel();
+    atualizarResumoMiniListaQuestoes();
+  };
+  function passaFiltrosParcialSemArea(q) {
+    const d = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const n = document.getElementById("filtroQuestaoNivel")?.value || "TODOS";
+    return (d === "TODOS" || q.disciplina === d) && (n === "TODOS" || q.nivel === n);
+  }
+  function passaFiltrosParcialSemTema(q) {
+    const d = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const n = document.getElementById("filtroQuestaoNivel")?.value || "TODOS";
+    const a = document.getElementById("filtroQuestaoArea")?.value || "TODOS";
+    return (d === "TODOS" || q.disciplina === d) && (n === "TODOS" || q.nivel === n) && (a === "TODOS" || q.area === a);
+  }
+
+  function atualizarResumoMiniListaQuestoes() {
+    const el = document.getElementById("miniListaQuestoesResumo");
+    if (!el) return;
+    const qs = questoesMiniLista();
+    if (!qs.length) { el.innerHTML = "Nenhuma questão selecionada."; return; }
+    const porDisc = new Map();
+    qs.forEach(q => porDisc.set(q.disciplina || "Sem disciplina", (porDisc.get(q.disciplina || "Sem disciplina") || 0) + 1));
+    el.innerHTML = `<b class="text-blue-200">${qs.length}</b> questão(ões) selecionada(s). ${Array.from(porDisc.entries()).map(([d,n])=>`${esc(d)}: ${n}`).join(" · ")}`;
+  }
+  window.adicionarQuestaoMiniLista = function adicionarQuestaoMiniLista(id) {
+    const ids = getMiniListaIds();
+    if (!ids.includes(String(id))) ids.push(String(id));
+    setMiniListaIds(ids);
+    atualizarResumoMiniListaQuestoes();
+    renderizarBancoQuestoes();
+  };
+  window.removerQuestaoMiniLista = function removerQuestaoMiniLista(id) {
+    setMiniListaIds(getMiniListaIds().filter(x => String(x) !== String(id)));
+    atualizarResumoMiniListaQuestoes();
+    renderizarBancoQuestoes();
+  };
+  window.adicionarQuestoesFiltradasMiniLista = function adicionarQuestoesFiltradasMiniLista() {
+    const atuais = listaQuestoes().filter(passaFiltros).map(q => String(q.id));
+    if (!atuais.length) return alert("Nenhuma questão encontrada nos filtros atuais.");
+    setMiniListaIds([...getMiniListaIds(), ...atuais]);
+    atualizarResumoMiniListaQuestoes();
+    renderizarBancoQuestoes();
+  };
+  window.limparMiniListaQuestoes = async function limparMiniListaQuestoes() {
+    if (!getMiniListaIds().length) return;
+    const ok = await confirmarPlataforma("Limpar sua mini-lista atual?", "Limpar mini-lista", "Limpar", "Cancelar");
+    if (!ok) return;
+    setMiniListaIds([]);
+    atualizarResumoMiniListaQuestoes();
+    renderizarBancoQuestoes();
+  };
+
+  function renderSolucoesResumo(q) {
+    if (!podeEditarQuestoesCompleto()) return "";
+    const sols = Array.isArray(q?.solucoes) ? q.solucoes : [];
+    if (!sols.length) return `<p class="text-xs text-gray-500 mt-2">Nenhuma solução cadastrada ainda.</p>`;
+    return `<div class="space-y-2 mt-3">${sols.map(s => `<div class="rounded-xl bg-gray-950/60 border border-gray-700 p-3"><div class="flex flex-wrap justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-bold">${esc(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${esc(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${renderHtmlOuTexto(s.textoHtml, s.texto, "text-sm text-gray-300 mt-2")}${renderArquivos(s.arquivos || [])}</div>`).join("")}</div>`;
+  }
+
+  window.renderizarBancoQuestoes = function renderizarBancoQuestoesCompletoAluno() {
+    garantirEstilosMiniLista();
+    inserirMiniListaPainel();
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid) return;
+    if (!podeVerBancoQuestoes()) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Faça login para acessar.</p></div>`;
+      return;
+    }
+    const canEdit = podeEditarQuestoesCompleto();
+    const mostrarGabarito = canEdit;
+    const qs = listaQuestoes().filter(passaFiltros).sort((a,b)=>String(a.disciplina||"").localeCompare(String(b.disciplina||""),"pt-BR") || String(a.area||"").localeCompare(String(b.area||""),"pt-BR") || String(a.tema||"").localeCompare(String(b.tema||""),"pt-BR") || String(a.codigo||"").localeCompare(String(b.codigo||""),"pt-BR",{numeric:true}));
+    atualizarResumoMiniListaQuestoes();
+    if (!qs.length) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões, importe por Excel ou ajuste os filtros.</p></div>`;
+      return;
+    }
+    grid.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-3">${[
+      ["Questões filtradas", qs.length, "fa-database", "blue"],
+      ["Na mini-lista", questoesMiniLista().length, "fa-file-pdf", "emerald"],
+      ["Com imagem", qs.filter(q => /<img/i.test(String(q.enunciadoHtml||"")) || (q.arquivos||[]).some(isImagemArquivo)).length, "fa-image", "cyan"],
+      ["Objetivas", qs.filter(q=>norm(q.tipo).includes("multipla") || norm(q.tipo).includes("objetiva")).length, "fa-list-check", "amber"]
+    ].map(([t,v,ic,cor])=>`<div class="rounded-2xl border border-gray-700 bg-gray-800 p-4"><p class="text-[10px] uppercase font-bold text-gray-500">${t}</p><p class="text-2xl font-black text-white mt-1"><i class="fa-solid ${ic} text-${cor}-400 mr-2"></i>${v}</p></div>`).join("")}</div>` + qs.map(q => {
+      const inList = estaNaMiniLista(q.id);
+      return `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+          <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-[11px] text-blue-300 bg-blue-950/30 border border-blue-900/40 rounded-lg px-2 py-1">${esc(q.codigo || q.id)}</span><span class="px-2 py-1 rounded-lg ${q.status==='Ativa'?'bg-emerald-950/40 text-emerald-300':'bg-gray-900 text-gray-400'} text-[10px] font-bold">${esc(q.status || "Ativa")}</span>${inList ? `<span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-200 text-[10px] font-bold"><i class="fa-solid fa-check mr-1"></i>Na mini-lista</span>` : ""}</div><h4 class="text-base font-black text-white mt-2">${esc(q.titulo || "Questão sem título")}</h4>
+          <div class="flex flex-wrap gap-2 mt-2"><span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${esc(q.disciplina)}</span><span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${esc(q.nivel)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.area || "Sem área")}</span><span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${esc(q.dificuldade)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.tipo)}</span>${mostrarGabarito && q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-black">Gabarito ${esc(q.alternativaCorreta)}</span>` : ""}</div></div>
+          <div class="flex flex-wrap gap-2">
+            ${inList ? `<button onclick="removerQuestaoMiniLista('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-blue-950/40 hover:bg-blue-900/50 text-blue-200 text-xs font-bold border border-blue-800/50"><i class="fa-solid fa-minus mr-1"></i>Remover da lista</button>` : `<button onclick="adicionarQuestaoMiniLista('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-blue-700/30 hover:bg-blue-700/50 text-blue-300 text-xs font-bold border border-blue-800/50"><i class="fa-solid fa-plus mr-1"></i>Adicionar à lista</button>`}
+            ${canEdit ? `<button onclick="editarQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-amber-700/30 hover:bg-amber-700/50 text-amber-300 text-xs font-bold border border-amber-800/50"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar</button><button onclick="adicionarSolucaoQuestao('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 text-xs font-bold border border-emerald-800/50"><i class="fa-solid fa-lightbulb mr-1"></i>Solução</button><button onclick="duplicarQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700"><i class="fa-solid fa-copy mr-1"></i>Duplicar</button><button onclick="excluirQuestaoBanco('${idSeguro(q.id)}')" class="px-3 py-2 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-300 text-xs font-bold border border-red-900/50"><i class="fa-solid fa-trash mr-1"></i>Excluir</button>` : ""}
+          </div>
+        </div>
+        <div class="mt-3 text-xs text-gray-500">${esc([q.fonte, q.ano, q.fase].filter(Boolean).join(" · ") || "Fonte não informada")} · ${esc(q.tema || "Sem tema")}${q.subtema ? ` › ${esc(q.subtema)}` : ""}${q.tempoEstimadoMin ? ` · ${esc(q.tempoEstimadoMin)} min` : ""}</div>
+        <div class="mt-3">${renderHtmlOuTexto(q.enunciadoHtml, q.enunciado, "text-sm text-gray-300")}</div>
+        ${renderArquivos(q.arquivos || [])}
+        ${alternativasHtml(q, mostrarGabarito)}
+        ${(q.tags||[]).length ? `<div class="flex flex-wrap gap-1 mt-3">${q.tags.map(t=>`<span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-400 text-[10px]">#${esc(t)}</span>`).join("")}</div>` : ""}
+        ${canEdit ? `<details class="mt-3 rounded-xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-emerald-300 uppercase">Ver soluções e comentários</summary>${renderSolucoesResumo(q)}</details>` : ""}
+      </div>`;
+    }).join("");
+  };
+
+  function garantirModalEdicaoQuestao() {
+    if (document.getElementById("modalEditarQuestaoBanco")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalEditarQuestaoBanco";
+    modal.className = "hidden fixed inset-0 z-[90] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharModalEditarQuestaoBanco()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-pen-to-square text-amber-400 mr-2"></i>Editar questão</h3><p class="text-xs text-gray-400 mt-1">ADM, Staff, Professor/Orientador e Monitor podem ajustar taxonomia, enunciado, alternativas, anexos e metadados.</p></div>
+          <button type="button" onclick="fecharModalEditarQuestaoBanco()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <form id="formEditarQuestaoBanco" onsubmit="salvarEdicaoQuestaoBanco(event)" class="space-y-4">
+          <input type="hidden" id="editQuestaoId">
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Código</label><input id="editQuestaoCodigo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div class="lg:col-span-2"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Título / identificação</label><input id="editQuestaoTitulo" required class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Disciplina</label><input id="editQuestaoDisciplina" list="editListaDisc" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaDisc"></datalist></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nível</label><input id="editQuestaoNivel" list="editListaNivel" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaNivel"></datalist></div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Área</label><input id="editQuestaoArea" list="editListaArea" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaArea"></datalist></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tema</label><input id="editQuestaoTema" list="editListaTema" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaTema"></datalist></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Subtema</label><input id="editQuestaoSubtema" list="editListaSubtema" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaSubtema"></datalist></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Dificuldade</label><input id="editQuestaoDificuldade" list="editListaDificuldade" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaDificuldade"></datalist></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo</label><input id="editQuestaoTipo" list="editListaTipo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaTipo"></datalist></div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-6 gap-4">
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Fonte</label><input id="editQuestaoFonte" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Ano</label><input id="editQuestaoAno" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Fase</label><input id="editQuestaoFase" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tempo min</label><input id="editQuestaoTempo" type="number" min="0" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Gabarito</label><select id="editQuestaoGabarito" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300"><option value="">Não se aplica</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></div>
+            <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Status</label><input id="editQuestaoStatus" list="editListaStatus" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white"><datalist id="editListaStatus"></datalist></div>
+          </div>
+          <div class="rounded-2xl border border-gray-700 bg-gray-900/40 p-4"><div class="text-xs font-black text-gray-300 uppercase tracking-wider mb-3">Alternativas A–E</div><div class="grid grid-cols-1 lg:grid-cols-5 gap-3">${["A","B","C","D","E"].map(l => `<textarea id="editQuestaoAlt${l}" rows="2" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="${l})"></textarea>`).join("")}</div></div>
+          <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Enunciado com imagens no corpo</label><div id="editQuestaoEnunciadoHtml" contenteditable="true" data-placeholder="Digite o enunciado. Use Ctrl+V para colar imagens." class="bq-rich-editor w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"></div><p class="text-[10px] text-gray-500 mt-1">Imagens coladas aqui são enviadas ao Firebase Storage e ficam no corpo do texto.</p></div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4"><div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Adicionar anexos</label><input type="file" id="editQuestaoArquivo" multiple accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300"></div><div class="lg:col-span-2"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Adicionar URLs de anexos</label><textarea id="editQuestaoArquivoUrl" rows="2" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 resize-none" placeholder="Uma URL por linha"></textarea></div></div>
+          <div id="editQuestaoArquivosAtuais" class="text-xs text-gray-400"></div>
+          <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tags</label><input id="editQuestaoTags" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white" placeholder="separe por vírgula"></div>
+          <div class="flex flex-col md:flex-row gap-2 justify-end"><button type="button" onclick="fecharModalEditarQuestaoBanco()" class="px-5 py-3 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 font-bold text-xs uppercase">Cancelar</button><button type="submit" class="px-5 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs uppercase"><i class="fa-solid fa-floppy-disk mr-2"></i>Salvar edição</button></div>
+        </form>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById("editQuestaoEnunciadoHtml")?.addEventListener("paste", ev => handlePasteImagemRich(ev, ev.currentTarget, "banco_questoes_inline"));
+  }
+
+  function setDatalist(id, vals) { const dl = document.getElementById(id); if (dl) dl.innerHTML = unique(vals).map(v => `<option value="${esc(v)}"></option>`).join(""); }
+  function preencherDatalistsEdicao() {
+    const qs = listaQuestoes();
+    setDatalist("editListaDisc", [...DISC_PADRAO, ...qs.map(q=>q.disciplina)]);
+    setDatalist("editListaNivel", [...NIVEL_PADRAO, ...qs.map(q=>q.nivel)]);
+    setDatalist("editListaArea", qs.map(q=>q.area));
+    setDatalist("editListaTema", qs.map(q=>q.tema));
+    setDatalist("editListaSubtema", qs.map(q=>q.subtema));
+    setDatalist("editListaDificuldade", [...DIFICULDADE_PADRAO, ...qs.map(q=>q.dificuldade)]);
+    setDatalist("editListaTipo", [...TIPO_PADRAO, ...qs.map(q=>q.tipo)]);
+    setDatalist("editListaStatus", [...STATUS_PADRAO, ...qs.map(q=>q.status)]);
+  }
+
+  window.editarQuestaoBanco = function editarQuestaoBanco(id) {
+    if (!podeEditarQuestoesCompleto()) return alert("Sem permissão para editar questões.");
+    garantirModalEdicaoQuestao(); preencherDatalistsEdicao();
+    const q = listaQuestoes().find(x => String(x.id) === String(id));
+    if (!q) return alert("Questão não encontrada.");
+    const set = (idv, v) => { const el = document.getElementById(idv); if (el) el.value = v ?? ""; };
+    set("editQuestaoId", q.id); set("editQuestaoCodigo", q.codigo); set("editQuestaoTitulo", q.titulo); set("editQuestaoDisciplina", q.disciplina); set("editQuestaoNivel", q.nivel); set("editQuestaoArea", q.area); set("editQuestaoTema", q.tema); set("editQuestaoSubtema", q.subtema); set("editQuestaoDificuldade", q.dificuldade); set("editQuestaoTipo", q.tipo); set("editQuestaoFonte", q.fonte); set("editQuestaoAno", q.ano); set("editQuestaoFase", q.fase); set("editQuestaoTempo", q.tempoEstimadoMin); set("editQuestaoGabarito", q.alternativaCorreta); set("editQuestaoStatus", q.status || "Ativa"); set("editQuestaoTags", (q.tags || []).join(", "));
+    ["A","B","C","D","E"].forEach(l => set(`editQuestaoAlt${l}`, q.alternativas?.[l] || ""));
+    const ed = document.getElementById("editQuestaoEnunciadoHtml");
+    if (ed) ed.innerHTML = textoHtmlSeguro(q.enunciadoHtml || esc(q.enunciado || "").replace(/\n/g,"<br>"));
+    const arqBox = document.getElementById("editQuestaoArquivosAtuais");
+    if (arqBox) arqBox.innerHTML = `<h4 class="text-xs font-black text-gray-300 uppercase mb-2">Anexos atuais</h4>${renderArquivos(q.arquivos || [])}<p class="text-[10px] text-gray-500 mt-1">Para remover anexos antigos, use a edição avançada via exportação/importação. Aqui você pode acrescentar novos anexos.</p>`;
+    const modal = document.getElementById("modalEditarQuestaoBanco");
+    modal?.classList.remove("hidden"); modal?.classList.add("flex");
+  };
+  window.fecharModalEditarQuestaoBanco = function fecharModalEditarQuestaoBanco() { const modal = document.getElementById("modalEditarQuestaoBanco"); modal?.classList.add("hidden"); modal?.classList.remove("flex"); };
+  window.salvarEdicaoQuestaoBanco = async function salvarEdicaoQuestaoBanco(event) {
+    event?.preventDefault?.();
+    if (!podeEditarQuestoesCompleto()) return alert("Sem permissão para editar questões.");
+    const id = document.getElementById("editQuestaoId")?.value;
+    const lista = listaQuestoes();
+    const idx = lista.findIndex(q => String(q.id) === String(id));
+    if (idx < 0) return alert("Questão não encontrada.");
+    const html = textoHtmlSeguro(document.getElementById("editQuestaoEnunciadoHtml")?.innerHTML || "");
+    const texto = htmlParaTexto(html) || limpaTexto(lista[idx].enunciado || "");
+    const novosArquivos = [
+      ...await uploadArquivosInput("editQuestaoArquivo", "banco_questoes"),
+      ...arquivosDeUrls(document.getElementById("editQuestaoArquivoUrl")?.value || "", "questao")
+    ];
+    const codigo = document.getElementById("editQuestaoCodigo")?.value.trim() || lista[idx].codigo || "";
+    if (codigo && lista.some((q,i) => i !== idx && norm(q.codigo) === norm(codigo))) return alert(`Já existe uma questão com o código ${codigo}.`);
+    lista[idx] = {
+      ...lista[idx],
+      codigo,
+      titulo: document.getElementById("editQuestaoTitulo")?.value.trim() || "Questão sem título",
+      disciplina: document.getElementById("editQuestaoDisciplina")?.value.trim() || "Geral",
+      nivel: document.getElementById("editQuestaoNivel")?.value.trim() || "Geral",
+      area: document.getElementById("editQuestaoArea")?.value.trim() || "",
+      tema: document.getElementById("editQuestaoTema")?.value.trim() || "",
+      subtema: document.getElementById("editQuestaoSubtema")?.value.trim() || "",
+      dificuldade: document.getElementById("editQuestaoDificuldade")?.value.trim() || "Médio",
+      tipo: document.getElementById("editQuestaoTipo")?.value.trim() || "Múltipla escolha",
+      fonte: document.getElementById("editQuestaoFonte")?.value.trim() || "",
+      ano: document.getElementById("editQuestaoAno")?.value.trim() || "",
+      fase: document.getElementById("editQuestaoFase")?.value.trim() || "",
+      tempoEstimadoMin: Number(document.getElementById("editQuestaoTempo")?.value || 0) || "",
+      alternativaCorreta: String(document.getElementById("editQuestaoGabarito")?.value || "").toUpperCase(),
+      status: document.getElementById("editQuestaoStatus")?.value.trim() || "Ativa",
+      alternativas: Object.fromEntries(["A","B","C","D","E"].map(l => [l, document.getElementById(`editQuestaoAlt${l}`)?.value.trim() || ""])),
+      enunciado: texto,
+      enunciadoHtml: html,
+      arquivos: [...(Array.isArray(lista[idx].arquivos) ? lista[idx].arquivos : []), ...novosArquivos],
+      tags: String(document.getElementById("editQuestaoTags")?.value || "").split(",").map(v=>v.trim()).filter(Boolean),
+      atualizadoEm: Date.now(),
+      atualizadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+      atualizadoPorNome: usuarioLogado?.nome || ""
+    };
+    if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([lista[idx].titulo, lista[idx].enunciado, ...Object.values(lista[idx].alternativas || {})].join("\n"), "questão")) return;
+    await setListaQuestoes(lista);
+    fecharModalEditarQuestaoBanco();
+    popularFiltrosQuestoes();
+    renderizarBancoQuestoes();
+    alert("Questão atualizada.");
+  };
+
+  async function handlePasteImagemRich(event, editor, pasta) {
+    const items = Array.from(event.clipboardData?.items || []);
+    const imagens = items.map(item => item.kind === "file" ? item.getAsFile() : null).filter(file => file && /^image\//i.test(file.type));
+    if (!imagens.length) return;
+    event.preventDefault();
+    for (const file of imagens) {
+      try {
+        const up = await enviarArquivoParaFirebaseStorage(file, pasta);
+        const img = document.createElement("img");
+        img.src = up.fileUrl; img.alt = up.fileName || "Imagem colada"; img.className = "questao-inline-img";
+        inserirNoEditor(editor, img);
+      } catch (e) { console.error(TAG, e); alert(`Erro ao enviar imagem: ${e.message || e}`); }
+    }
+  }
+  function inserirNoEditor(editor, node) {
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) { editor.appendChild(node); return; }
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(node);
+    range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range);
+  }
+
+  function garantirModalSolucaoCompleta() {
+    if (document.getElementById("modalSolucaoQuestaoCompleta")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalSolucaoQuestaoCompleta";
+    modal.className = "hidden fixed inset-0 z-[91] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharModalSolucaoQuestaoCompleta()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-lightbulb text-emerald-400 mr-2"></i>Soluções e comentários da questão</h3><p id="solucaoQuestaoTitulo" class="text-xs text-gray-400 mt-1">—</p></div>
+          <button type="button" onclick="fecharModalSolucaoQuestaoCompleta()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <input type="hidden" id="solucaoQuestaoId">
+        <div id="solucoesAtuaisQuestaoCompleta" class="space-y-3"></div>
+        <div class="rounded-2xl border border-emerald-900/40 bg-emerald-950/10 p-4 space-y-3">
+          <h4 class="text-xs font-black text-emerald-300 uppercase tracking-wider">Adicionar nova solução/comentário</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Tipo</label><select id="solucaoTipoCompleta" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300"><option>Solução completa</option><option>Comentário pedagógico</option><option>Dica</option><option>Caminho alternativo</option><option>Correção sugerida</option></select></div><div class="md:col-span-2"><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">URLs de anexos</label><input id="solucaoUrlsCompleta" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white" placeholder="Opcional: cole URLs separadas por vírgula ou espaço"></div></div>
+          <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Texto rico da solução</label><div id="solucaoTextoHtmlCompleta" contenteditable="true" data-placeholder="Escreva a solução. Use Ctrl+V para colar imagens no ponto exato." class="bq-rich-editor w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"></div><p class="text-[10px] text-gray-500 mt-1">Aceita comentários longos, passos de resolução e imagens coladas.</p></div>
+          <div><label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Upload de anexos da solução</label><input type="file" id="solucaoArquivosCompleta" multiple accept="image/*,.pdf,.doc,.docx" class="w-full p-2 rounded-xl bg-gray-900 border border-gray-700 text-xs text-gray-300"></div>
+          <button type="button" onclick="salvarSolucaoQuestaoCompleta()" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider"><i class="fa-solid fa-floppy-disk mr-2"></i>Salvar solução/comentário</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById("solucaoTextoHtmlCompleta")?.addEventListener("paste", ev => handlePasteImagemRich(ev, ev.currentTarget, "banco_questoes_solucoes_inline"));
+  }
+  function renderSolucoesAtuaisNoModal(q) {
+    const box = document.getElementById("solucoesAtuaisQuestaoCompleta");
+    if (!box) return;
+    const sols = Array.isArray(q?.solucoes) ? q.solucoes : [];
+    if (!sols.length) { box.innerHTML = `<div class="rounded-xl border border-gray-700 bg-gray-900/50 p-4 text-sm text-gray-500">Nenhuma solução cadastrada ainda.</div>`; return; }
+    box.innerHTML = sols.map(s => `<div class="rounded-2xl border border-gray-700 bg-gray-900/50 p-4"><div class="flex flex-wrap justify-between gap-2"><span class="text-xs font-black text-emerald-300 uppercase">${esc(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${esc(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${renderHtmlOuTexto(s.textoHtml, s.texto, "text-sm text-gray-300 mt-3")}${renderArquivos(s.arquivos || [])}</div>`).join("");
+  }
+  window.adicionarSolucaoQuestao = function adicionarSolucaoQuestaoCompleta(questaoId) {
+    if (!podeEditarQuestoesCompleto()) return alert("Sem permissão para adicionar solução.");
+    garantirModalSolucaoCompleta();
+    const q = listaQuestoes().find(x => String(x.id) === String(questaoId));
+    if (!q) return alert("Questão não encontrada.");
+    document.getElementById("solucaoQuestaoId").value = q.id;
+    document.getElementById("solucaoQuestaoTitulo").textContent = `${q.codigo || q.id} — ${q.titulo || "Questão sem título"}`;
+    document.getElementById("solucaoTextoHtmlCompleta").innerHTML = "";
+    document.getElementById("solucaoUrlsCompleta").value = "";
+    document.getElementById("solucaoArquivosCompleta").value = "";
+    renderSolucoesAtuaisNoModal(q);
+    const modal = document.getElementById("modalSolucaoQuestaoCompleta");
+    modal?.classList.remove("hidden"); modal?.classList.add("flex");
+  };
+  window.fecharModalSolucaoQuestaoCompleta = function fecharModalSolucaoQuestaoCompleta() { const modal = document.getElementById("modalSolucaoQuestaoCompleta"); modal?.classList.add("hidden"); modal?.classList.remove("flex"); };
+  window.salvarSolucaoQuestaoCompleta = async function salvarSolucaoQuestaoCompleta() {
+    if (!podeEditarQuestoesCompleto()) return alert("Sem permissão para adicionar solução.");
+    const id = document.getElementById("solucaoQuestaoId")?.value;
+    const lista = listaQuestoes();
+    const idx = lista.findIndex(q => String(q.id) === String(id));
+    if (idx < 0) return alert("Questão não encontrada.");
+    const html = textoHtmlSeguro(document.getElementById("solucaoTextoHtmlCompleta")?.innerHTML || "");
+    const texto = htmlParaTexto(html);
+    const arquivos = [
+      ...await uploadArquivosInput("solucaoArquivosCompleta", "banco_questoes_solucoes"),
+      ...arquivosDeUrls(document.getElementById("solucaoUrlsCompleta")?.value || "", "solucao")
+    ];
+    if (!texto && !arquivos.length && !/<img/i.test(html)) return alert("Digite uma solução/comentário ou envie algum anexo.");
+    if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA(texto, "solução")) return;
+    lista[idx].solucoes = Array.isArray(lista[idx].solucoes) ? lista[idx].solucoes : [];
+    lista[idx].solucoes.push({ id: novoId(), tipo: document.getElementById("solucaoTipoCompleta")?.value || "Solução completa", texto, textoHtml: html, arquivos, criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+    lista[idx].atualizadoEm = Date.now(); lista[idx].atualizadoPorNome = usuarioLogado?.nome || "";
+    await setListaQuestoes(lista);
+    renderSolucoesAtuaisNoModal(lista[idx]);
+    document.getElementById("solucaoTextoHtmlCompleta").innerHTML = "";
+    document.getElementById("solucaoUrlsCompleta").value = "";
+    renderizarBancoQuestoes();
+    alert("Solução/comentário salvo.");
+  };
+
+  window.abrirMiniListaQuestoes = function abrirMiniListaQuestoes() {
+    const qs = questoesMiniLista();
+    if (!qs.length) return alert("Sua mini-lista ainda está vazia.");
+    garantirModalMiniLista();
+    const corpo = document.getElementById("miniListaQuestoesCorpo");
+    const print = document.getElementById("printMiniListaQuestoes");
+    const html = gerarHtmlMiniLista(qs, false);
+    if (corpo) corpo.innerHTML = html;
+    if (print) print.innerHTML = gerarHtmlMiniLista(qs, true);
+    document.getElementById("modalMiniListaQuestoes")?.classList.remove("hidden");
+    document.getElementById("modalMiniListaQuestoes")?.classList.add("flex");
+  };
+  function garantirModalMiniLista() {
+    if (document.getElementById("modalMiniListaQuestoes")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalMiniListaQuestoes";
+    modal.className = "hidden fixed inset-0 z-[92] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharMiniListaQuestoes()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-file-pdf text-red-400 mr-2"></i>Mini-lista de questões</h3><p class="text-xs text-gray-400 mt-1">Prévia da lista. Ao imprimir, escolha “Salvar como PDF”.</p></div><div class="flex flex-wrap gap-2"><button type="button" onclick="imprimirMiniListaQuestoes()" class="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-print mr-2"></i>Gerar PDF / Imprimir</button><button type="button" onclick="fecharMiniListaQuestoes()" class="px-4 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div><div id="miniListaQuestoesCorpo" class="space-y-4"></div></div>`;
+    document.body.appendChild(modal);
+    const print = document.createElement("div"); print.id = "printMiniListaQuestoes"; document.body.appendChild(print);
+  }
+  window.fecharMiniListaQuestoes = function fecharMiniListaQuestoes() { const modal = document.getElementById("modalMiniListaQuestoes"); modal?.classList.add("hidden"); modal?.classList.remove("flex"); };
+  function gerarHtmlMiniLista(qs, print=false) {
+    const titulo = `Mini-lista de questões — ${new Date().toLocaleDateString("pt-BR")}`;
+    const header = print ? `<div style="margin-bottom:18px;border-bottom:2px solid #111827;padding-bottom:8px"><h1 style="font-size:22px;margin:0">${esc(titulo)}</h1><p style="font-size:12px;margin:4px 0 0 0">${qs.length} questão(ões) selecionada(s)</p></div>` : `<div class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4"><h4 class="font-black text-white">${esc(titulo)}</h4><p class="text-xs text-gray-400 mt-1">${qs.length} questão(ões) selecionada(s)</p></div>`;
+    const body = qs.map((q, idx) => {
+      const meta = [q.codigo, q.disciplina, q.nivel, q.tema, q.subtema].filter(Boolean).join(" · ");
+      if (print) return `<div class="questao-print" style="font-family:Arial,sans-serif;color:#111827;border:1px solid #d1d5db;border-radius:10px;padding:14px;margin-bottom:16px"><div style="font-size:12px;color:#374151;margin-bottom:8px"><b>Questão ${idx+1}</b> — ${esc(meta)}</div><div>${textoHtmlSeguro(q.enunciadoHtml || esc(q.enunciado||"").replace(/\n/g,"<br>"))}</div>${Object.values(q.alternativas||{}).some(Boolean) ? `<div style="margin-top:10px">${["A","B","C","D","E"].map(l => `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;margin:5px 0"><b>${l})</b> ${esc(q.alternativas?.[l] || "")}</div>`).join("")}</div>` : ""}${(q.arquivos||[]).filter(isImagemArquivo).map(a => `<img src="${esc(a.url)}" style="display:block;max-width:100%;max-height:420px;margin:8px auto;border:1px solid #e5e7eb;border-radius:8px">`).join("")}</div>`;
+      return `<article class="rounded-2xl border border-gray-700 bg-gray-900/60 p-4"><div class="text-xs text-gray-500 mb-2"><b class="text-gray-300">Questão ${idx+1}</b> — ${esc(meta)}</div>${renderHtmlOuTexto(q.enunciadoHtml, q.enunciado, "text-sm text-gray-200")}${renderArquivos((q.arquivos||[]).filter(isImagemArquivo))}${alternativasHtml(q, false)}</article>`;
+    }).join("");
+    return header + body;
+  }
+  window.imprimirMiniListaQuestoes = function imprimirMiniListaQuestoes() {
+    document.body.classList.add("print-mini-lista");
+    setTimeout(() => { window.print(); setTimeout(()=>document.body.classList.remove("print-mini-lista"), 500); }, 150);
+  };
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { try { garantirEstilosMiniLista(); inserirMiniListaPainel(); popularFiltrosQuestoes(); renderizarBancoQuestoes(); } catch(e) { console.warn(TAG, e); } }, 1900));
+  setTimeout(() => { try { garantirEstilosMiniLista(); inserirMiniListaPainel(); if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes(); } catch(e) { console.warn(TAG, e); } }, 2600);
+  console.log(TAG, "carregado");
+})();
