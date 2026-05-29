@@ -13726,3 +13726,448 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     return r;
   };
 })();
+
+// ============================================================
+// BANCO DE QUESTÕES — imagens no corpo do texto + visualizador interno
+// Permite Ctrl+V de imagens no enunciado/solução e abre anexos no contexto da plataforma.
+// ============================================================
+(function bancoQuestoesInlineMediaPatch(){
+  const TAG = "[BancoQuestoesInlineMedia]";
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function normLocal(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+  function getListaQuestoesInline() {
+    const qs = getStorage("app_questoes", []);
+    return Array.isArray(qs) ? qs : [];
+  }
+  function isUrlSegura(url) {
+    return /^https?:\/\//i.test(String(url || ""));
+  }
+  function isImagemArquivo(a) {
+    const alvo = `${a?.mimeType || ""} ${a?.nome || ""} ${a?.url || ""}`.toLowerCase();
+    return alvo.includes("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(alvo);
+  }
+  function isPdfArquivo(a) {
+    const alvo = `${a?.mimeType || ""} ${a?.nome || ""} ${a?.url || ""}`.toLowerCase();
+    return alvo.includes("pdf") || /\.pdf(\?|#|$)/i.test(alvo);
+  }
+  function textoDeHtml(html) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = String(html || "");
+    return (tmp.innerText || tmp.textContent || "").trim();
+  }
+  function temImagemNoHtml(html) {
+    return /<img\b/i.test(String(html || ""));
+  }
+
+  function sanitizarHtmlEducacional(html) {
+    const entrada = String(html || "").trim();
+    if (!entrada) return "";
+    const template = document.createElement("template");
+    template.innerHTML = entrada;
+    const allowed = new Set(["DIV","P","BR","B","STRONG","I","EM","U","SUB","SUP","SPAN","UL","OL","LI","TABLE","THEAD","TBODY","TR","TD","TH","IMG","BLOCKQUOTE"]);
+    const inlineTextTags = new Set(["B","STRONG","I","EM","U","SUB","SUP","SPAN"]);
+
+    const cleanNode = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
+      if (node.nodeType !== Node.ELEMENT_NODE) return document.createTextNode("");
+      const tag = node.tagName.toUpperCase();
+      if (!allowed.has(tag)) {
+        const frag = document.createDocumentFragment();
+        Array.from(node.childNodes).forEach(child => frag.appendChild(cleanNode(child)));
+        return frag;
+      }
+      if (tag === "IMG") {
+        const src = node.getAttribute("src") || "";
+        if (!isUrlSegura(src)) return document.createTextNode("");
+        const img = document.createElement("img");
+        img.setAttribute("src", src);
+        img.setAttribute("alt", node.getAttribute("alt") || "Imagem da questão");
+        img.setAttribute("data-media-url", src);
+        img.setAttribute("data-media-nome", node.getAttribute("alt") || "Imagem da questão");
+        img.setAttribute("data-media-mime", "image/url");
+        img.className = "questao-inline-img max-w-full max-h-[520px] object-contain rounded-xl border border-gray-700 bg-gray-950 p-1 my-3 cursor-zoom-in";
+        return img;
+      }
+      const el = document.createElement(tag.toLowerCase());
+      if (inlineTextTags.has(tag)) el.className = node.className || "";
+      if (["TD","TH"].includes(tag)) el.className = "border border-gray-700 px-2 py-1 align-top";
+      if (tag === "TABLE") el.className = "border-collapse border border-gray-700 my-3 text-sm";
+      if (tag === "BLOCKQUOTE") el.className = "border-l-4 border-blue-800 pl-3 text-gray-300 my-2";
+      Array.from(node.childNodes).forEach(child => el.appendChild(cleanNode(child)));
+      return el;
+    };
+    const frag = document.createDocumentFragment();
+    Array.from(template.content.childNodes).forEach(n => frag.appendChild(cleanNode(n)));
+    const out = document.createElement("div");
+    out.appendChild(frag);
+    return out.innerHTML;
+  }
+
+  function renderHtmlOuTexto(html, texto, classeExtra = "") {
+    const safeHtml = sanitizarHtmlEducacional(html || "");
+    if (safeHtml && (textoDeHtml(safeHtml) || temImagemNoHtml(safeHtml))) {
+      return `<div class="questao-corpo-html prose-prose ${classeExtra}">${safeHtml}</div>`;
+    }
+    return `<p class="${classeExtra} whitespace-pre-wrap">${esc(texto || "")}</p>`;
+  }
+
+  function garantirEstilosInlineBancoQuestoes() {
+    if (document.getElementById("styleBancoQuestoesInlineMedia")) return;
+    const st = document.createElement("style");
+    st.id = "styleBancoQuestoesInlineMedia";
+    st.textContent = `
+      .questao-rich-editor { min-height: 150px; outline: none; white-space: pre-wrap; }
+      .questao-rich-editor:empty:before { content: attr(data-placeholder); color: #64748b; pointer-events: none; }
+      .questao-rich-editor img { max-width: 100%; max-height: 520px; object-fit: contain; border-radius: .75rem; border: 1px solid #374151; background: #020617; padding: .25rem; margin: .75rem 0; display: block; cursor: zoom-in; }
+      .questao-corpo-html { color: #d1d5db; font-size: .875rem; line-height: 1.65; white-space: normal; }
+      .questao-corpo-html p, .questao-corpo-html div { margin: .35rem 0; }
+      .questao-corpo-html ul { list-style: disc; padding-left: 1.25rem; }
+      .questao-corpo-html ol { list-style: decimal; padding-left: 1.25rem; }
+      .questao-corpo-html img { display: block; max-width: 100%; max-height: 520px; object-fit: contain; border-radius: .75rem; border: 1px solid #374151; background: #020617; padding: .25rem; margin: .75rem 0; cursor: zoom-in; }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function garantirModalMidiaQuestao() {
+    let modal = document.getElementById("modalMidiaQuestaoPlataforma");
+    if (modal) return modal;
+    modal = document.createElement("div");
+    modal.id = "modalMidiaQuestaoPlataforma";
+    modal.className = "fixed inset-0 z-[99998] hidden items-center justify-center bg-black/85 backdrop-blur-sm p-4";
+    modal.innerHTML = `
+      <div class="absolute inset-0" data-fechar-midia-questao></div>
+      <div class="relative w-full max-w-6xl max-h-[92vh] rounded-2xl border border-gray-700 bg-gray-950 shadow-2xl overflow-hidden flex flex-col">
+        <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <h3 id="modalMidiaQuestaoTitulo" class="text-sm font-black text-white truncate">Mídia da questão</h3>
+            <p class="text-[10px] text-gray-500 uppercase font-bold">Visualização interna da plataforma</p>
+          </div>
+          <button type="button" data-fechar-midia-questao class="shrink-0 px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button>
+        </div>
+        <div id="modalMidiaQuestaoConteudo" class="p-4 overflow-auto flex-1 bg-black/35"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelectorAll("[data-fechar-midia-questao]").forEach(el => el.addEventListener("click", fecharMidiaQuestao));
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") fecharMidiaQuestao();
+    });
+    return modal;
+  }
+
+  window.abrirMidiaQuestaoPlataforma = function abrirMidiaQuestaoPlataforma(url, nome = "Mídia da questão", mime = "") {
+    if (!url) return;
+    const modal = garantirModalMidiaQuestao();
+    const titulo = document.getElementById("modalMidiaQuestaoTitulo");
+    const box = document.getElementById("modalMidiaQuestaoConteudo");
+    if (titulo) titulo.textContent = nome || "Mídia da questão";
+    const arquivo = { url, nome, mimeType: mime };
+    let html;
+    if (isImagemArquivo(arquivo)) {
+      html = `<div class="flex items-center justify-center min-h-[65vh]"><img src="${esc(url)}" alt="${esc(nome)}" class="max-w-full max-h-[82vh] object-contain rounded-xl border border-gray-800 bg-gray-950"></div>`;
+    } else if (isPdfArquivo(arquivo)) {
+      html = `<iframe src="${esc(url)}#toolbar=1&navpanes=0&scrollbar=1" class="w-full min-h-[78vh] rounded-xl border border-gray-800 bg-white"></iframe>`;
+    } else {
+      html = `<div class="rounded-2xl border border-gray-800 bg-gray-950 p-6 text-center"><i class="fa-solid fa-paperclip text-3xl text-blue-300 mb-3"></i><p class="text-gray-200 font-bold">${esc(nome || "Arquivo")}</p><p class="text-xs text-gray-500 mt-2">Este tipo de arquivo pode não ter prévia no navegador.</p><a href="${esc(url)}" target="_blank" class="inline-flex mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase">Abrir arquivo</a></div>`;
+    }
+    if (box) box.innerHTML = html;
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+  };
+
+  function fecharMidiaQuestao() {
+    const modal = document.getElementById("modalMidiaQuestaoPlataforma");
+    if (!modal) return;
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+    const box = document.getElementById("modalMidiaQuestaoConteudo");
+    if (box) box.innerHTML = "";
+  }
+  window.fecharMidiaQuestao = fecharMidiaQuestao;
+
+  function abrirMidiaAttrs(a) {
+    return `onclick="abrirMidiaQuestaoPlataforma('${esc(String(a.url || "")).replace(/'/g, "&#39;")}', '${esc(String(a.nome || "Mídia da questão")).replace(/'/g, "&#39;")}', '${esc(String(a.mimeType || "")).replace(/'/g, "&#39;")}')"`;
+  }
+
+  function renderArquivosInternos(arquivos = []) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    const imgs = arquivos.filter(isImagemArquivo);
+    const outros = arquivos.filter(a => !isImagemArquivo(a));
+    return `<div class="mt-3 space-y-2">
+      ${imgs.length ? `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">${imgs.map((a, i) => `<button type="button" ${abrirMidiaAttrs(a)} class="text-left rounded-xl border border-gray-700 bg-gray-950/70 p-2 hover:border-blue-500 transition"><img src="${esc(a.url)}" alt="${esc(a.nome || `Imagem ${i+1}`)}" class="w-full max-h-64 object-contain rounded-lg"><p class="text-[10px] text-gray-500 mt-2 truncate"><i class="fa-solid fa-magnifying-glass-plus mr-1"></i>${esc(a.nome || `Imagem ${i+1}`)}</p></button>`).join("")}</div>` : ""}
+      ${outros.length ? `<div class="flex flex-wrap gap-2">${outros.map((a,i)=>`<button type="button" ${abrirMidiaAttrs(a)} class="px-3 py-1.5 rounded-lg bg-blue-950/40 text-blue-300 border border-blue-900/40 text-[11px] font-bold hover:bg-blue-900/40"><i class="fa-solid fa-paperclip mr-1"></i>${esc(a.nome || `Arquivo ${i+1}`)}</button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
+  // Compatibilidade: funções antigas passam a abrir mídia/anexo no contexto da plataforma.
+  window.renderArquivoLinks = function renderArquivoLinksInlineContexto(arquivos) {
+    return renderArquivosInternos(arquivos || []);
+  };
+  window.renderArquivosQuestaoInline = function renderArquivosQuestaoInlineContexto(arquivos) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    return `<div class="mt-3 grid grid-cols-1 gap-3">${arquivos.map((a, i) => `<div class="rounded-xl border border-gray-700 bg-gray-900/60 p-3"><div class="flex items-center justify-between gap-2 mb-2"><p class="text-[10px] text-gray-500 uppercase font-bold truncate">${esc(a.nome || `Mídia ${i+1}`)}</p><button type="button" ${abrirMidiaAttrs(a)} class="text-[10px] text-blue-300 font-bold uppercase">Abrir</button></div>${isImagemArquivo(a) ? `<button type="button" ${abrirMidiaAttrs(a)} class="w-full"><img src="${esc(a.url)}" class="max-w-full max-h-[520px] object-contain rounded-xl border border-gray-700 bg-gray-950 mx-auto"></button>` : (isPdfArquivo(a) ? `<iframe src="${esc(a.url)}#toolbar=0&navpanes=0" class="w-full min-h-[60vh] rounded-xl border border-gray-700 bg-white"></iframe>` : `<button type="button" ${abrirMidiaAttrs(a)} class="w-full p-4 rounded-xl bg-gray-950 border border-gray-700 text-blue-300 text-xs font-bold"><i class="fa-solid fa-paperclip mr-1"></i>${esc(a.nome || "Arquivo")}</button>`)}</div>`).join("")}</div>`;
+  };
+
+  function syncRichEditor(textarea) {
+    if (!textarea) return;
+    const editor = document.querySelector(`[data-rich-target="${textarea.id}"]`);
+    if (!editor) return;
+    textarea.value = (editor.innerText || editor.textContent || "").trim();
+  }
+  function getEditorHtml(id) {
+    const editor = document.querySelector(`[data-rich-target="${id}"]`);
+    return sanitizarHtmlEducacional(editor?.innerHTML || "");
+  }
+  function limparEditor(id) {
+    const editor = document.querySelector(`[data-rich-target="${id}"]`);
+    if (editor) editor.innerHTML = "";
+    const textarea = document.getElementById(id);
+    if (textarea) textarea.value = "";
+  }
+
+  function inserirNoCursor(editor, node) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && editor.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      editor.appendChild(node);
+    }
+  }
+
+  async function handlePasteImagemEditor(event, editor) {
+    const itens = Array.from(event.clipboardData?.items || []);
+    const item = itens.find(i => i.type && i.type.startsWith("image/"));
+    if (!item) return;
+    event.preventDefault();
+    const file = item.getAsFile();
+    if (!file) return;
+    const textareaId = editor.dataset.richTarget || "questaoEnunciado";
+    const status = document.querySelector(`[data-rich-status="${textareaId}"]`);
+    const placeholder = document.createElement("span");
+    placeholder.textContent = " Enviando imagem colada... ";
+    placeholder.className = "inline-block px-2 py-1 rounded bg-blue-950 text-blue-200 text-xs my-2";
+    inserirNoCursor(editor, placeholder);
+    try {
+      if (status) status.textContent = "Enviando imagem colada para o Firebase Storage...";
+      const nome = `imagem-colada-${textareaId}-${Date.now()}.png`;
+      const arquivo = new File([file], nome, { type: file.type || "image/png" });
+      const up = await enviarArquivoParaFirebaseStorage(arquivo, "banco_questoes_inline");
+      const img = document.createElement("img");
+      img.src = up.fileUrl;
+      img.alt = up.fileName || "Imagem colada na questão";
+      img.dataset.inlineImage = "true";
+      img.dataset.mediaUrl = up.fileUrl;
+      img.dataset.mediaNome = up.fileName || "Imagem colada na questão";
+      img.dataset.mediaMime = up.mimeType || "image/png";
+      img.className = "questao-inline-img";
+      img.addEventListener("click", () => abrirMidiaQuestaoPlataforma(up.fileUrl, up.fileName || "Imagem colada", up.mimeType || "image/png"));
+      placeholder.replaceWith(img);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      if (status) status.textContent = "Imagem colada no corpo do texto.";
+    } catch (erro) {
+      console.error(TAG, erro);
+      placeholder.remove();
+      if (status) status.textContent = "Erro ao enviar imagem colada.";
+      alert(`Erro ao colar imagem no corpo do texto.\n\n${erro.message || erro}`);
+    }
+  }
+
+  function ativarEditorRicoParaTextarea(textareaId, rotulo, placeholder) {
+    const textarea = document.getElementById(textareaId);
+    if (!textarea || textarea.dataset.richReady === "true") return;
+    garantirEstilosInlineBancoQuestoes();
+    textarea.dataset.richReady = "true";
+    textarea.dataset.wasRequired = textarea.required ? "true" : "false";
+    textarea.required = false;
+    textarea.classList.add("hidden");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "rounded-2xl border border-gray-700 bg-gray-900/50 overflow-hidden";
+    wrapper.innerHTML = `
+      <div class="px-3 py-2 border-b border-gray-700 flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+        <span class="text-[11px] font-black uppercase tracking-wider text-gray-300">${esc(rotulo)}</span>
+        <span data-rich-status="${esc(textareaId)}" class="text-[10px] text-blue-200/70">Cole imagens com Ctrl+V diretamente aqui.</span>
+      </div>
+      <div data-rich-target="${esc(textareaId)}" contenteditable="true" data-placeholder="${esc(placeholder)}" class="questao-rich-editor w-full p-3 bg-gray-950 text-sm text-gray-200"></div>`;
+    textarea.insertAdjacentElement("beforebegin", wrapper);
+    const editor = wrapper.querySelector("[data-rich-target]");
+    editor.innerHTML = textarea.value ? esc(textarea.value).replace(/\n/g, "<br>") : "";
+    editor.addEventListener("paste", (ev) => handlePasteImagemEditor(ev, editor));
+    editor.addEventListener("input", () => syncRichEditor(textarea));
+    editor.addEventListener("click", (ev) => {
+      const img = ev.target.closest?.("img");
+      if (img?.src) abrirMidiaQuestaoPlataforma(img.src, img.alt || "Imagem da questão", "image/url");
+    });
+    syncRichEditor(textarea);
+  }
+
+  function ativarEditoresBancoQuestoes() {
+    ativarEditorRicoParaTextarea("questaoEnunciado", "Enunciado com imagens no corpo", "Digite o enunciado. Use Ctrl+V para colar imagens no ponto exato do texto.");
+    ativarEditorRicoParaTextarea("questaoSolucaoTexto", "Solução inicial com imagens no corpo", "Digite a solução. Use Ctrl+V para colar imagens no ponto exato da resolução.");
+    const form = document.getElementById("formCadQuestao");
+    if (form && form.dataset.richSubmitReady !== "true") {
+      form.dataset.richSubmitReady = "true";
+      form.addEventListener("submit", () => {
+        syncRichEditor(document.getElementById("questaoEnunciado"));
+        syncRichEditor(document.getElementById("questaoSolucaoTexto"));
+      }, true);
+    }
+  }
+
+  function htmlTemConteudoRelevante(html) {
+    return !!(temImagemNoHtml(html) || textoDeHtml(html));
+  }
+
+  const salvarBase = window.salvarNovaQuestao;
+  window.salvarNovaQuestao = async function salvarNovaQuestaoComHtmlInline(event) {
+    ativarEditoresBancoQuestoes();
+    syncRichEditor(document.getElementById("questaoEnunciado"));
+    syncRichEditor(document.getElementById("questaoSolucaoTexto"));
+    const htmlEnunciado = getEditorHtml("questaoEnunciado");
+    const htmlSolucao = getEditorHtml("questaoSolucaoTexto");
+    const antes = getListaQuestoesInline().length;
+    const retorno = await salvarBase?.apply(this, arguments);
+    const lista = getListaQuestoesInline();
+    if (lista.length > antes) {
+      const idx = lista.length - 1;
+      if (htmlTemConteudoRelevante(htmlEnunciado)) lista[idx].enunciadoHtml = htmlEnunciado;
+      if (htmlTemConteudoRelevante(htmlSolucao) && Array.isArray(lista[idx].solucoes) && lista[idx].solucoes.length) {
+        lista[idx].solucoes[0].textoHtml = htmlSolucao;
+      }
+      lista[idx].temImagemNoCorpo = temImagemNoHtml(htmlEnunciado) || temImagemNoHtml(htmlSolucao);
+      lista[idx].atualizadoEm = Date.now();
+      await setStorage("app_questoes", lista);
+      limparEditor("questaoEnunciado");
+      limparEditor("questaoSolucaoTexto");
+      if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes();
+      if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes();
+    }
+    return retorno;
+  };
+
+  function alternativasHtml(q) {
+    const alts = q?.alternativas || {};
+    if (!Object.values(alts).some(Boolean)) return "";
+    return `<div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-2 text-xs">${["A","B","C","D","E"].map(letra => `<div class="rounded-xl border ${String(q.alternativaCorreta||"").toUpperCase()===letra ? "border-emerald-800/60 bg-emerald-950/20" : "border-gray-700 bg-gray-950/40"} p-2"><b class="text-gray-300">${letra})</b> <span class="text-gray-300">${esc(alts[letra] || "—")}</span></div>`).join("")}</div>`;
+  }
+  function solucoesHtml(q) {
+    const sols = Array.isArray(q?.solucoes) ? q.solucoes : [];
+    if (!sols.length) return `<p class="text-xs text-gray-500 mt-2">Nenhuma solução cadastrada ainda.</p>`;
+    return `<div class="space-y-2 mt-3">${sols.map(s => `<div class="rounded-xl bg-gray-950/60 border border-gray-700 p-3"><div class="flex flex-wrap justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-bold">${esc(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${esc(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${renderHtmlOuTexto(s.textoHtml, s.texto, "text-sm text-gray-300 mt-2")}${renderArquivosInternos(s.arquivos || [])}</div>`).join("")}</div>`;
+  }
+  function passaFiltros(q) {
+    const f = id => document.getElementById(id)?.value || "TODOS";
+    const busca = normLocal(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (f("filtroQuestaoDisciplina") !== "TODOS" && q.disciplina !== f("filtroQuestaoDisciplina")) return false;
+    if (f("filtroQuestaoNivel") !== "TODOS" && q.nivel !== f("filtroQuestaoNivel")) return false;
+    if (f("filtroQuestaoArea") !== "TODOS" && q.area !== f("filtroQuestaoArea")) return false;
+    if (f("filtroQuestaoTema") !== "TODOS" && q.tema !== f("filtroQuestaoTema")) return false;
+    if (f("filtroQuestaoDificuldade") !== "TODOS" && q.dificuldade !== f("filtroQuestaoDificuldade")) return false;
+    if (f("filtroQuestaoTipo") !== "TODOS" && q.tipo !== f("filtroQuestaoTipo")) return false;
+    if (busca) {
+      const texto = normLocal([q.codigo, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano, q.fase, q.enunciado, textoDeHtml(q.enunciadoHtml), ...(q.tags || []), ...Object.values(q.alternativas || {})].join(" "));
+      if (!texto.includes(busca)) return false;
+    }
+    return true;
+  }
+  function ehMultiplaEscolhaLocal(tipo) {
+    const n = normLocal(tipo);
+    return n.includes("multipla escolha") || n.includes("múltipla escolha") || n.includes("objetiva");
+  }
+
+  window.renderizarBancoQuestoes = function renderizarBancoQuestoesInlineMedia() {
+    const grid = document.getElementById("gridQuestoes");
+    if (!grid) return;
+    if (typeof podeGerenciarQuestoes === "function" && !podeGerenciarQuestoes()) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Acesso exclusivo para ADM, Monitor e Professor/Orientador.</p></div>`;
+      return;
+    }
+    const questoes = getListaQuestoesInline().filter(passaFiltros).sort((a,b) => String(a.disciplina||"").localeCompare(String(b.disciplina||""),"pt-BR") || String(a.area||"").localeCompare(String(b.area||""),"pt-BR") || String(a.tema||"").localeCompare(String(b.tema||""),"pt-BR") || String(a.titulo||"").localeCompare(String(b.titulo||""),"pt-BR"));
+    if (!questoes.length) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões, importe por Excel ou ajuste os filtros.</p></div>`;
+      return;
+    }
+    const totalImgsAnexo = questoes.reduce((acc,q)=>acc+(q.arquivos||[]).filter(isImagemArquivo).length,0);
+    const totalImgsCorpo = questoes.filter(q => temImagemNoHtml(q.enunciadoHtml) || (q.solucoes || []).some(s => temImagemNoHtml(s.textoHtml))).length;
+    grid.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-3">${[
+      ["Questões", questoes.length, "fa-database", "blue"],
+      ["Img. anexas", totalImgsAnexo, "fa-image", "emerald"],
+      ["Img. no corpo", totalImgsCorpo, "fa-object-group", "cyan"],
+      ["Objetivas", questoes.filter(q=>ehMultiplaEscolhaLocal(q.tipo)).length, "fa-list-check", "amber"]
+    ].map(([t,v,ic,cor])=>`<div class="rounded-2xl border border-gray-700 bg-gray-800 p-4"><p class="text-[10px] uppercase font-bold text-gray-500">${t}</p><p class="text-2xl font-black text-white mt-1"><i class="fa-solid ${ic} text-${cor}-400 mr-2"></i>${v}</p></div>`).join("")}</div>` + questoes.map(q => `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-[11px] text-blue-300 bg-blue-950/30 border border-blue-900/40 rounded-lg px-2 py-1">${esc(q.codigo || q.id)}</span><span class="px-2 py-1 rounded-lg ${q.status==='Ativa'?'bg-emerald-950/40 text-emerald-300':'bg-gray-900 text-gray-400'} text-[10px] font-bold">${esc(q.status || "Ativa")}</span>${temImagemNoHtml(q.enunciadoHtml) ? `<span class="px-2 py-1 rounded-lg bg-cyan-950/40 text-cyan-300 text-[10px] font-bold"><i class="fa-solid fa-object-group mr-1"></i>Imagem no corpo</span>` : ""}</div><h4 class="text-base font-black text-white mt-2">${esc(q.titulo)}</h4>
+        <div class="flex flex-wrap gap-2 mt-2"><span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${esc(q.disciplina)}</span><span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${esc(q.nivel)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.area || "Sem área")}</span><span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${esc(q.dificuldade)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${esc(q.tipo)}</span>${q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-black">Gabarito ${esc(q.alternativaCorreta)}</span>` : ""}</div></div>
+        <div class="flex flex-wrap gap-2"><button onclick="adicionarSolucaoQuestao('${esc(q.id).replace(/'/g,"&#39;")}')" class="px-3 py-2 rounded-xl bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 text-xs font-bold border border-emerald-800/50"><i class="fa-solid fa-lightbulb mr-1"></i>Solução</button><button onclick="duplicarQuestaoBanco('${esc(q.id).replace(/'/g,"&#39;")}')" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700"><i class="fa-solid fa-copy mr-1"></i>Duplicar</button><button onclick="excluirQuestaoBanco('${esc(q.id).replace(/'/g,"&#39;")}')" class="px-3 py-2 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-300 text-xs font-bold border border-red-900/50"><i class="fa-solid fa-trash mr-1"></i>Excluir</button></div>
+      </div>
+      <div class="mt-3 text-xs text-gray-500">${esc([q.fonte, q.ano, q.fase].filter(Boolean).join(" · ") || "Fonte não informada")} · ${esc(q.tema || "Sem tema")}${q.subtema ? ` › ${esc(q.subtema)}` : ""}${q.tempoEstimadoMin ? ` · ${esc(q.tempoEstimadoMin)} min` : ""}</div>
+      <div class="mt-3">${renderHtmlOuTexto(q.enunciadoHtml, q.enunciado, "text-sm text-gray-300")}</div>
+      ${renderArquivosInternos(q.arquivos || [])}
+      ${alternativasHtml(q)}
+      ${(q.tags||[]).length ? `<div class="flex flex-wrap gap-1 mt-3">${q.tags.map(t=>`<span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-400 text-[10px]">#${esc(t)}</span>`).join("")}</div>` : ""}
+      <details class="mt-3 rounded-xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-emerald-300 uppercase">Ver soluções e comentários</summary>${solucoesHtml(q)}</details>
+    </div>`).join("");
+  };
+
+  const renderSimuladoBase = window.renderizarQuestoesDoSimuladoSeguro;
+  window.renderizarQuestoesDoSimuladoSeguro = function renderizarQuestoesDoSimuladoComHtmlInline(sim) {
+    const qs = Array.isArray(sim?.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return renderSimuladoBase ? renderSimuladoBase(sim) : "";
+    const banco = getListaQuestoesInline();
+    const mapa = new Map(banco.map(q => [String(q.id), q]));
+    return `<div class="space-y-4">${qs.map(q => {
+      const original = mapa.get(String(q.questaoId)) || {};
+      const arquivos = Array.isArray(q.arquivos) && q.arquivos.length ? q.arquivos : (original.arquivos || []);
+      const html = q.enunciadoHtml || original.enunciadoHtml || "";
+      const texto = q.enunciado || original.enunciado || q.titulo || original.titulo || "";
+      const meta = [q.tipo || original.tipo, q.tema || original.tema, q.dificuldade || original.dificuldade].filter(Boolean).join(" · ");
+      const alts = q.alternativas || original.alternativas || {};
+      return `<article class="rounded-2xl bg-gray-950/60 border border-gray-700 p-5"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-base font-black text-white">Questão ${esc(q.numero || "")}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${esc(meta)}</span></div><div class="mt-4">${renderHtmlOuTexto(html, texto, "text-base text-gray-200")}</div>${window.renderArquivosQuestaoInline(arquivos)}${alternativasHtml({ ...q, alternativas: alts })}</article>`;
+    }).join("")}</div>`;
+  };
+
+  const gerarSimuladoBase = window.gerarSimuladoPeloBancoQuestoes;
+  window.gerarSimuladoPeloBancoQuestoes = async function gerarSimuladoComHtmlInline() {
+    const antes = Array.isArray(getStorage("app_simulados", [])) ? getStorage("app_simulados", []).length : 0;
+    const r = await gerarSimuladoBase?.apply(this, arguments);
+    const sims = Array.isArray(getStorage("app_simulados", [])) ? getStorage("app_simulados", []) : [];
+    if (sims.length > antes) {
+      const mapa = new Map(getListaQuestoesInline().map(q => [String(q.id), q]));
+      for (let i = antes; i < sims.length; i++) {
+        if (!Array.isArray(sims[i].questoesBanco)) continue;
+        sims[i].questoesBanco = sims[i].questoesBanco.map(q => {
+          const original = mapa.get(String(q.questaoId)) || {};
+          return { ...q, enunciadoHtml: q.enunciadoHtml || original.enunciadoHtml || "", alternativas: q.alternativas || original.alternativas || {} };
+        });
+      }
+      await setStorage("app_simulados", sims);
+    }
+    return r;
+  };
+
+  document.addEventListener("click", (ev) => {
+    const img = ev.target.closest?.(".questao-corpo-html img, .questao-inline-img");
+    if (!img?.src) return;
+    ev.preventDefault();
+    abrirMidiaQuestaoPlataforma(img.dataset.mediaUrl || img.src, img.dataset.mediaNome || img.alt || "Imagem da questão", img.dataset.mediaMime || "image/url");
+  }, true);
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
+    try { ativarEditoresBancoQuestoes(); garantirModalMidiaQuestao(); if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes(); }
+    catch (e) { console.warn(TAG, e); }
+  }, 1500));
+  setTimeout(() => { try { ativarEditoresBancoQuestoes(); garantirModalMidiaQuestao(); } catch(e) { console.warn(TAG, e); } }, 2200);
+  console.log(TAG, "carregado");
+})();
