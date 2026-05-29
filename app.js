@@ -12864,3 +12864,865 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   setTimeout(() => { try { popularFiltrosGeradorSimulado(); } catch(e) { console.warn(TAG, e); } }, 1600);
   console.log(TAG, "carregado");
 })();
+
+// ============================================================
+// BANCO DE QUESTÕES PRO — cadastro manual completo + importação Excel
+// Patch cirúrgico: melhora apenas o módulo de questões, mantendo o restante do app.
+// ============================================================
+(function bancoQuestoesProPatch(){
+  const TAG = "[BancoQuestoesPro]";
+
+  const DISCIPLINAS_QUESTOES_PADRAO = [
+    "Matemática", "Física", "Química", "Biologia", "Ciências", "Astronomia",
+    "Geografia / Geopolítica", "História", "Linguagem", "Informática / Robótica", "Multidisciplinar"
+  ];
+  const NIVEIS_QUESTOES_PADRAO = [
+    "Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral"
+  ];
+  const DIFICULDADES_QUESTOES_PADRAO = ["Muito fácil", "Fácil", "Médio", "Difícil", "Muito difícil", "Olímpica", "Vestibular", "ITA/IME"];
+  const TIPOS_QUESTOES_PADRAO = ["Múltipla escolha", "Dissertativa", "Aberta curta", "Verdadeiro/Falso", "Experimental", "Mista"];
+  const STATUS_QUESTOES_PADRAO = ["Ativa", "Em revisão", "Inativa", "Descartada"];
+
+  const TAXONOMIA_QUESTOES_OFICIAL = {
+    "Matemática": {
+      "Aritmética": {
+        "Números naturais": ["Operações", "Sistema de numeração", "Valor posicional", "Estimativas"],
+        "Inteiros": ["Reta numérica", "Operações com inteiros", "Problemas com sinais"],
+        "Divisibilidade": ["Critérios de divisibilidade", "Múltiplos e divisores", "MDC", "MMC", "Números primos", "Fatoração", "Restos"],
+        "Frações": ["Comparação", "Operações", "Frações equivalentes", "Problemas contextualizados"],
+        "Porcentagem": ["Aumentos e descontos", "Porcentagem sucessiva", "Razão percentual", "Problemas comerciais"],
+        "Razões e proporções": ["Regra de três", "Escalas", "Grandezas diretamente proporcionais", "Grandezas inversamente proporcionais"]
+      },
+      "Álgebra": {
+        "Expressões algébricas": ["Simplificação", "Valor numérico", "Produtos notáveis"],
+        "Equações": ["1º grau", "2º grau", "Equações fracionárias", "Problemas"],
+        "Sistemas": ["Sistemas lineares", "Método da substituição", "Método da adição"],
+        "Funções": ["Função afim", "Função quadrática", "Gráficos", "Modelagem"],
+        "Sequências": ["PA", "PG", "Padrões", "Recorrências simples"]
+      },
+      "Geometria Plana": {
+        "Ângulos": ["Ângulos opostos", "Paralelas cortadas por transversal", "Soma dos ângulos"],
+        "Triângulos": ["Classificação", "Congruência", "Semelhança", "Teorema de Pitágoras", "Pontos notáveis"],
+        "Quadriláteros": ["Paralelogramos", "Trapézios", "Losangos", "Retângulos e quadrados"],
+        "Circunferência": ["Arcos e cordas", "Ângulos na circunferência", "Tangência"],
+        "Áreas": ["Triângulos", "Quadriláteros", "Círculo", "Figuras compostas"]
+      },
+      "Geometria Espacial": {
+        "Sólidos geométricos": ["Prismas", "Pirâmides", "Cilindros", "Cones", "Esferas"],
+        "Volume": ["Prismas", "Cilindros", "Pirâmides", "Cones", "Problemas"],
+        "Área superficial": ["Planificação", "Área total", "Área lateral"]
+      },
+      "Combinatória e Probabilidade": {
+        "Contagem": ["Princípio multiplicativo", "Princípio aditivo", "Permutações", "Arranjos", "Combinações"],
+        "Estratégias olímpicas": ["Casas de pombo", "Invariantes", "Paridade", "Coloração", "Contagem dupla"],
+        "Probabilidade": ["Espaço amostral", "Eventos", "Probabilidade simples", "Probabilidade condicional"]
+      },
+      "Estatística": {
+        "Leitura de dados": ["Tabelas", "Gráficos", "Infográficos"],
+        "Medidas de tendência central": ["Média", "Mediana", "Moda"],
+        "Dispersão": ["Amplitude", "Interpretação de variação"]
+      }
+    },
+    "Física": {
+      "Mecânica": {
+        "Cinemática": ["Movimento uniforme", "Movimento uniformemente variado", "Gráficos", "Queda livre"],
+        "Dinâmica": ["Leis de Newton", "Força resultante", "Atrito", "Plano inclinado"],
+        "Energia": ["Trabalho", "Energia cinética", "Energia potencial", "Conservação de energia"],
+        "Quantidade de movimento": ["Impulso", "Colisões", "Conservação"]
+      },
+      "Termologia": {
+        "Temperatura e calor": ["Escalas termométricas", "Calor sensível", "Calor latente", "Trocas de calor"],
+        "Dilatação": ["Linear", "Superficial", "Volumétrica"],
+        "Gases": ["Transformações gasosas", "Equação geral"]
+      },
+      "Ondulatória e Óptica": {
+        "Ondas": ["Frequência", "Comprimento de onda", "Velocidade", "Fenômenos ondulatórios"],
+        "Som": ["Eco", "Efeito Doppler", "Intensidade"],
+        "Óptica geométrica": ["Reflexão", "Refração", "Espelhos", "Lentes"]
+      },
+      "Eletricidade e Magnetismo": {
+        "Eletrostática": ["Carga elétrica", "Força elétrica", "Campo elétrico"],
+        "Circuitos": ["Corrente", "Tensão", "Resistência", "Associação de resistores", "Potência elétrica"],
+        "Magnetismo": ["Ímãs", "Campo magnético", "Indução eletromagnética"]
+      }
+    },
+    "Química": {
+      "Química Geral": {
+        "Matéria e propriedades": ["Estados físicos", "Mudanças de estado", "Densidade", "Misturas"],
+        "Separação de misturas": ["Filtração", "Decantação", "Destilação", "Cromatografia"],
+        "Estrutura atômica": ["Modelos atômicos", "Prótons, nêutrons e elétrons", "Íons", "Isótopos"],
+        "Tabela periódica": ["Famílias", "Períodos", "Propriedades periódicas"]
+      },
+      "Química Inorgânica": {
+        "Ligações químicas": ["Iônica", "Covalente", "Metálica", "Polaridade"],
+        "Funções inorgânicas": ["Ácidos", "Bases", "Sais", "Óxidos"],
+        "Reações químicas": ["Tipos de reação", "Balanceamento", "Oxirredução básica"]
+      },
+      "Físico-química": {
+        "Estequiometria": ["Mol", "Massa molar", "Relações de massa", "Rendimento"],
+        "Soluções": ["Concentração", "Diluição", "Mistura de soluções"],
+        "Termoquímica": ["Entalpia", "Calor de reação"],
+        "Cinética e equilíbrio": ["Velocidade", "Catalisador", "Equilíbrio químico"]
+      },
+      "Química Orgânica": {
+        "Cadeias carbônicas": ["Classificação", "Hidrocarbonetos"],
+        "Funções orgânicas": ["Álcoois", "Ácidos carboxílicos", "Ésteres", "Aminas"],
+        "Reações orgânicas": ["Combustão", "Adição", "Substituição"]
+      }
+    },
+    "Biologia": {
+      "Citologia": {
+        "Célula": ["Procariontes e eucariontes", "Organelas", "Membrana plasmática"],
+        "Metabolismo celular": ["Fotossíntese", "Respiração celular", "Fermentação"],
+        "Divisão celular": ["Mitose", "Meiose", "Ciclo celular"]
+      },
+      "Genética e Evolução": {
+        "Genética clássica": ["Leis de Mendel", "Cruzamentos", "Heredogramas"],
+        "Genética molecular": ["DNA", "RNA", "Síntese proteica", "Mutação"],
+        "Evolução": ["Seleção natural", "Adaptação", "Especiação", "Evidências evolutivas"]
+      },
+      "Ecologia": {
+        "Ecossistemas": ["Cadeias alimentares", "Teias alimentares", "Pirâmides ecológicas"],
+        "Ciclos biogeoquímicos": ["Água", "Carbono", "Nitrogênio"],
+        "Relações ecológicas": ["Predação", "Mutualismo", "Competição", "Parasitismo"],
+        "Impactos ambientais": ["Poluição", "Desmatamento", "Aquecimento global"]
+      },
+      "Fisiologia e diversidade": {
+        "Fisiologia humana": ["Digestório", "Respiratório", "Circulatório", "Nervoso", "Endócrino"],
+        "Botânica": ["Tecidos vegetais", "Reprodução vegetal", "Fisiologia vegetal"],
+        "Zoologia": ["Invertebrados", "Vertebrados", "Sistemas animais"],
+        "Microbiologia": ["Vírus", "Bactérias", "Fungos", "Protozoários"]
+      }
+    },
+    "Ciências": {
+      "Vida e evolução": {
+        "Seres vivos": ["Classificação", "Ecossistemas", "Cadeias alimentares"],
+        "Corpo humano": ["Sistemas do corpo", "Saúde", "Alimentação"],
+        "Reprodução e hereditariedade": ["Reprodução", "Genética básica", "Puberdade"]
+      },
+      "Matéria e energia": {
+        "Materiais": ["Propriedades", "Misturas", "Transformações"],
+        "Energia": ["Fontes", "Transformações", "Consumo consciente"],
+        "Forças e movimento": ["Movimento", "Máquinas simples", "Pressão"]
+      },
+      "Terra e Universo": {
+        "Planeta Terra": ["Camadas da Terra", "Rochas", "Solo"],
+        "Clima e ambiente": ["Tempo e clima", "Ciclo da água", "Sustentabilidade"],
+        "Sistema Solar": ["Sol", "Planetas", "Lua", "Eclipses"]
+      }
+    },
+    "Astronomia": {
+      "Sistema Solar": {
+        "Sol e planetas": ["Planetas rochosos", "Planetas gasosos", "Asteroides", "Cometas"],
+        "Terra e Lua": ["Rotação", "Translação", "Fases da Lua", "Eclipses", "Marés"],
+        "Órbitas": ["Gravitação", "Leis de Kepler", "Satélites"]
+      },
+      "Esfera celeste e observação": {
+        "Céu aparente": ["Constelações", "Movimento aparente", "Coordenadas celestes"],
+        "Instrumentos": ["Telescópios", "Mapas celestes", "Observação a olho nu"],
+        "Medidas astronômicas": ["Magnitude", "Ano-luz", "Unidade astronômica"]
+      },
+      "Astrofísica e cosmologia": {
+        "Estrelas": ["Formação", "Evolução", "Brilho", "Temperatura"],
+        "Galáxias": ["Via Láctea", "Tipos de galáxias"],
+        "Universo": ["Big Bang", "Expansão", "Cosmologia básica"]
+      },
+      "Astronáutica": {
+        "Foguetes": ["Ação e reação", "Estágios", "Propulsão"],
+        "Missões espaciais": ["Satélites", "Sondas", "Estações espaciais"],
+        "Tecnologia espacial": ["GPS", "Comunicação", "Sensoriamento remoto"]
+      }
+    },
+    "Geografia / Geopolítica": {
+      "Cartografia": {
+        "Representação do espaço": ["Mapas", "Escala", "Coordenadas geográficas", "Fusos horários"],
+        "Geotecnologias": ["Sensoriamento remoto", "GPS", "SIG"]
+      },
+      "Geografia Física": {
+        "Relevo": ["Agentes internos", "Agentes externos", "Geomorfologia"],
+        "Clima": ["Fatores climáticos", "Tipos climáticos", "Mudanças climáticas"],
+        "Hidrografia": ["Bacias hidrográficas", "Rios", "Águas subterrâneas"],
+        "Biomas": ["Biomas brasileiros", "Domínios morfoclimáticos", "Conservação"]
+      },
+      "Geografia Humana": {
+        "População": ["Demografia", "Migrações", "Urbanização"],
+        "Economia": ["Globalização", "Indústria", "Agropecuária", "Comércio"],
+        "Brasil": ["Regionalização", "Território", "Economia brasileira"]
+      },
+      "Geopolítica": {
+        "Poder global": ["Blocos econômicos", "Organizações internacionais", "Multipolaridade"],
+        "Conflitos": ["Fronteiras", "Recursos naturais", "Guerras e tensões"],
+        "Atualidades": ["Economia mundial", "Meio ambiente", "Relações internacionais"]
+      }
+    },
+    "História": {
+      "História Geral": {
+        "Antiguidade": ["Egito", "Grécia", "Roma", "Mesopotâmia"],
+        "Idade Média": ["Feudalismo", "Igreja medieval", "Cruzadas"],
+        "Idade Moderna": ["Renascimento", "Reformas religiosas", "Absolutismo", "Expansão marítima"],
+        "Idade Contemporânea": ["Revoluções", "Guerras mundiais", "Guerra Fria", "Globalização"]
+      },
+      "História do Brasil": {
+        "Brasil Colônia": ["Povos originários", "Colonização", "Escravidão", "Economia colonial"],
+        "Brasil Império": ["Independência", "Primeiro Reinado", "Segundo Reinado", "Abolição"],
+        "Brasil República": ["República Velha", "Era Vargas", "Ditadura militar", "Nova República"]
+      }
+    },
+    "Linguagem": {
+      "Leitura e interpretação": {
+        "Compreensão textual": ["Ideia central", "Inferência", "Intencionalidade", "Gênero textual"],
+        "Argumentação": ["Tese", "Argumentos", "Coesão", "Coerência"],
+        "Linguagem verbal e não verbal": ["Charges", "Tirinhas", "Infográficos"]
+      },
+      "Gramática": {
+        "Morfologia": ["Classes de palavras", "Flexões", "Formação de palavras"],
+        "Sintaxe": ["Termos da oração", "Período composto", "Pontuação"],
+        "Norma padrão": ["Concordância", "Regência", "Crase", "Colocação pronominal"]
+      },
+      "Literatura e produção textual": {
+        "Literatura": ["Gêneros literários", "Escolas literárias", "Análise de poemas"],
+        "Produção textual": ["Redação", "Resumo", "Resenha", "Artigo de opinião"],
+        "Semântica": ["Figuras de linguagem", "Ambiguidade", "Sentido e contexto"]
+      }
+    },
+    "Informática / Robótica": {
+      "Pensamento computacional": {
+        "Algoritmos": ["Sequência", "Condição", "Repetição", "Decomposição"],
+        "Lógica": ["Booleanos", "Padrões", "Abstração", "Fluxogramas"],
+        "Programação": ["Variáveis", "Funções", "Listas", "Estruturas de dados"]
+      },
+      "Robótica": {
+        "Mecânica e montagem": ["Engrenagens", "Estruturas", "Movimento"],
+        "Eletrônica básica": ["Circuitos", "Resistores", "LEDs", "Motores"],
+        "Sensores e atuadores": ["Sensores", "Servomotores", "Controle"]
+      },
+      "Tecnologia": {
+        "Internet e dados": ["Redes", "Segurança digital", "Dados"],
+        "Inteligência artificial": ["Classificação", "Reconhecimento de padrões", "Ética"]
+      }
+    },
+    "Multidisciplinar": {
+      "Raciocínio lógico": {
+        "Problemas interdisciplinares": ["Leitura de gráficos", "Estimativas", "Modelagem", "Tomada de decisão"],
+        "Atualidades científicas": ["Saúde", "Ambiente", "Tecnologia", "Sociedade"]
+      }
+    }
+  };
+
+  window.TAXONOMIA_QUESTOES_OFICIAL = TAXONOMIA_QUESTOES_OFICIAL;
+  window.__questoesLotePendentes = [];
+  window.__questoesLoteErros = [];
+  window.__questoesLoteAvisos = [];
+
+  function seguro(v) { return typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
+  function norm(v) { return String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase(); }
+  function unicaOrdenada(arr) { return Array.from(new Set((arr || []).map(v => String(v ?? "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base",numeric:true})); }
+  function getQuestoesBanco() { const v = getStorage("app_questoes", []); return Array.isArray(v) ? v : []; }
+  function setSelectOptions(id, valores, primeiro = null) {
+    const sel = document.getElementById(id); if (!sel) return;
+    const atual = sel.value;
+    const opts = [];
+    if (primeiro) opts.push(`<option value="${seguro(primeiro.value)}">${seguro(primeiro.text)}</option>`);
+    opts.push(...unicaOrdenada(valores).map(v => `<option value="${seguro(v)}">${seguro(v)}</option>`));
+    sel.innerHTML = opts.join("");
+    if (Array.from(sel.options).some(o => o.value === atual)) sel.value = atual;
+  }
+  function todosDisciplinas() { return unicaOrdenada([...DISCIPLINAS_QUESTOES_PADRAO, ...getQuestoesBanco().map(q=>q.disciplina)]); }
+  function todasAreas(disc = "") {
+    const tax = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    return unicaOrdenada([...Object.keys(tax), ...getQuestoesBanco().filter(q => !disc || q.disciplina === disc).map(q=>q.area)]);
+  }
+  function todosTemas(disc = "", area = "") {
+    const vals = [];
+    const taxDisc = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    Object.entries(taxDisc).forEach(([a, temas]) => { if (!area || area === a) vals.push(...Object.keys(temas || {})); });
+    getQuestoesBanco().forEach(q => { if ((!disc || q.disciplina === disc) && (!area || q.area === area)) vals.push(q.tema); });
+    return unicaOrdenada(vals);
+  }
+  function todosSubtemas(disc = "", area = "", tema = "") {
+    const vals = [];
+    const taxDisc = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    Object.entries(taxDisc).forEach(([a, temas]) => {
+      if (area && area !== a) return;
+      Object.entries(temas || {}).forEach(([t, subs]) => { if (!tema || tema === t) vals.push(...(subs || [])); });
+    });
+    getQuestoesBanco().forEach(q => { if ((!disc || q.disciplina === disc) && (!area || q.area === area) && (!tema || q.tema === tema)) vals.push(q.subtema); });
+    return unicaOrdenada(vals);
+  }
+  function acharAreaPorTema(disc, tema) {
+    const taxDisc = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    for (const [area, temas] of Object.entries(taxDisc)) if (Object.keys(temas || {}).some(t => norm(t) === norm(tema))) return area;
+    return "";
+  }
+  function temaExisteNaTaxonomia(disc, area, tema) {
+    if (!tema) return false;
+    const taxDisc = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    if (area && taxDisc[area]) return Object.keys(taxDisc[area]).some(t => norm(t) === norm(tema));
+    return Object.values(taxDisc).some(temas => Object.keys(temas || {}).some(t => norm(t) === norm(tema)));
+  }
+  function subtemaExisteNaTaxonomia(disc, area, tema, subtema) {
+    if (!subtema) return false;
+    const taxDisc = TAXONOMIA_QUESTOES_OFICIAL[disc] || {};
+    const areas = area ? [area] : Object.keys(taxDisc);
+    return areas.some(a => {
+      const temas = taxDisc[a] || {};
+      const nomesTemas = tema ? Object.keys(temas).filter(t => norm(t) === norm(tema)) : Object.keys(temas);
+      return nomesTemas.some(t => (temas[t] || []).some(s => norm(s) === norm(subtema)));
+    });
+  }
+  function codigoDisciplina(disc) {
+    const map = {"Matemática":"MAT","Física":"FIS","Química":"QUI","Biologia":"BIO","Ciências":"CIE","Astronomia":"AST","Geografia / Geopolítica":"GEO","História":"HIS","Linguagem":"LIN","Informática / Robótica":"INF","Multidisciplinar":"MUL"};
+    return map[disc] || String(disc || "GER").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z]/g, "").slice(0,3).toUpperCase() || "GER";
+  }
+  function codigoNivel(nivel) {
+    const s = norm(nivel);
+    if (s.includes("6") || s.includes("7") || s.includes("nivel 1")) return "N1";
+    if (s.includes("8") || s.includes("9") || s.includes("nivel 2")) return "N2";
+    if (s.includes("medio") || s.includes("ensino medio")) return "EM";
+    if (s.includes("ita") || s.includes("ime")) return "ITA";
+    return "GER";
+  }
+  function abreviar(v, n=3) {
+    return String(v || "GER").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]/g, "").slice(0,n).toUpperCase() || "GER";
+  }
+  function gerarCodigoQuestao(q) {
+    const prefixo = [codigoDisciplina(q.disciplina), codigoNivel(q.nivel), abreviar(q.area), abreviar(q.tema)].join("-");
+    const existentes = getQuestoesBanco().map(x => String(x.codigo || ""));
+    let seq = existentes.filter(c => c.startsWith(prefixo)).length + 1;
+    let codigo = `${prefixo}-${String(seq).padStart(4,"0")}`;
+    while (existentes.includes(codigo)) codigo = `${prefixo}-${String(++seq).padStart(4,"0")}`;
+    return codigo;
+  }
+  function splitUrls(valor) {
+    return String(valor || "").split(/[\n,;]+/).map(v => v.trim()).filter(v => /^https?:\/\//i.test(v));
+  }
+  function mimePorUrl(url) {
+    if (/\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(url)) return "image/url";
+    if (/\.pdf(\?|#|$)/i.test(url)) return "application/pdf";
+    if (/\.(docx?|rtf)(\?|#|$)/i.test(url)) return "application/msword";
+    return "link/url";
+  }
+  function nomePorUrl(url, fallback="Arquivo") {
+    try { return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || fallback); } catch (_) { return fallback; }
+  }
+  function arquivosDeUrls(valor, origem="url") {
+    return splitUrls(valor).map((url, i) => ({ url, nome: nomePorUrl(url, `${origem} ${i+1}`), mimeType: mimePorUrl(url), tamanho: 0, externo: true, origem }));
+  }
+  function alternativasDaTela() {
+    return {
+      A: document.getElementById("questaoAltA")?.value.trim() || "",
+      B: document.getElementById("questaoAltB")?.value.trim() || "",
+      C: document.getElementById("questaoAltC")?.value.trim() || "",
+      D: document.getElementById("questaoAltD")?.value.trim() || "",
+      E: document.getElementById("questaoAltE")?.value.trim() || ""
+    };
+  }
+  function ehMultiplaEscolha(tipo) { return ["multipla escolha", "múltipla escolha", "objetiva"].includes(norm(tipo)); }
+  function validarQuestao(q, linha = null, modo = "manual") {
+    const erros = [], avisos = [];
+    const pref = linha ? `Linha ${linha}: ` : "";
+    if (!q.titulo) erros.push(`${pref}Título/identificação é obrigatório.`);
+    if (!q.enunciado) erros.push(`${pref}Enunciado é obrigatório.`);
+    if (!q.disciplina) erros.push(`${pref}Disciplina é obrigatória.`);
+    if (!q.nivel) erros.push(`${pref}Nível é obrigatório.`);
+    if (!q.tema) erros.push(`${pref}Tema é obrigatório.`);
+    if (!q.dificuldade) erros.push(`${pref}Dificuldade é obrigatória.`);
+    if (!q.tipo) erros.push(`${pref}Tipo é obrigatório.`);
+    if (q.disciplina && !todosDisciplinas().some(d => norm(d) === norm(q.disciplina))) avisos.push(`${pref}Disciplina fora da lista padrão: ${q.disciplina}.`);
+    if (q.nivel && !NIVEIS_QUESTOES_PADRAO.some(n => norm(n) === norm(q.nivel))) avisos.push(`${pref}Nível fora da lista padrão: ${q.nivel}.`);
+    if (q.dificuldade && !DIFICULDADES_QUESTOES_PADRAO.some(d => norm(d) === norm(q.dificuldade))) avisos.push(`${pref}Dificuldade fora da lista padrão: ${q.dificuldade}.`);
+    if (q.tipo && !TIPOS_QUESTOES_PADRAO.some(t => norm(t) === norm(q.tipo))) avisos.push(`${pref}Tipo fora da lista padrão: ${q.tipo}.`);
+    if (q.tema && q.disciplina && !temaExisteNaTaxonomia(q.disciplina, q.area, q.tema)) avisos.push(`${pref}Tema ainda não está na taxonomia oficial: ${q.tema}.`);
+    if (q.subtema && q.disciplina && !subtemaExisteNaTaxonomia(q.disciplina, q.area, q.tema, q.subtema)) avisos.push(`${pref}Subtema ainda não está na taxonomia oficial: ${q.subtema}.`);
+    if (ehMultiplaEscolha(q.tipo)) {
+      const alts = q.alternativas || {};
+      ["A","B","C","D","E"].forEach(letra => { if (!String(alts[letra] || "").trim()) erros.push(`${pref}Alternativa ${letra} é obrigatória para múltipla escolha.`); });
+      if (!["A","B","C","D","E"].includes(String(q.alternativaCorreta || "").toUpperCase())) erros.push(`${pref}Gabarito A–E é obrigatório para múltipla escolha.`);
+    }
+    if (q.codigo) {
+      const duplicado = getQuestoesBanco().some(x => String(x.codigo || "").trim() && norm(x.codigo) === norm(q.codigo) && String(x.id) !== String(q.id || ""));
+      if (duplicado) erros.push(`${pref}Código já existe no banco: ${q.codigo}.`);
+    }
+    if (typeof validarConteudoEducacionalIA === "function" && modo === "manual") {
+      const ok = validarConteudoEducacionalIA([q.titulo, q.tema, q.subtema, q.enunciado, ...(Object.values(q.alternativas || {})), ...(q.solucoes || []).map(s=>s.texto)].join("\n"), "questão/solução");
+      if (!ok) erros.push(`${pref}Conteúdo barrado pela validação educacional.`);
+    }
+    return { erros, avisos };
+  }
+  async function uploadArquivosInput(inputId, pasta) {
+    const input = document.getElementById(inputId);
+    const files = Array.from(input?.files || []);
+    const arr = [];
+    for (const file of files) {
+      const up = await enviarArquivoParaFirebaseStorage(file, pasta);
+      arr.push({ url: up.fileUrl, storagePath: up.storagePath, nome: up.fileName, mimeType: up.mimeType, tamanho: up.size, externo: false });
+    }
+    return arr;
+  }
+
+  window.popularFormularioBancoQuestoesPro = function popularFormularioBancoQuestoesPro() {
+    setSelectOptions("questaoDisciplina", todosDisciplinas());
+    setSelectOptions("questaoNivel", NIVEIS_QUESTOES_PADRAO);
+    setSelectOptions("questaoDificuldade", DIFICULDADES_QUESTOES_PADRAO);
+    setSelectOptions("questaoTipo", TIPOS_QUESTOES_PADRAO);
+    setSelectOptions("questaoStatus", STATUS_QUESTOES_PADRAO);
+    const disc = document.getElementById("questaoDisciplina")?.value || "Matemática";
+    const areaAtual = document.getElementById("questaoArea")?.value || "";
+    setSelectOptions("questaoArea", todasAreas(disc), { value: "", text: "Selecione" });
+    if (areaAtual && Array.from(document.getElementById("questaoArea")?.options || []).some(o => o.value === areaAtual)) document.getElementById("questaoArea").value = areaAtual;
+    const area = document.getElementById("questaoArea")?.value || "";
+    const tema = document.getElementById("questaoTema")?.value || "";
+    const dlTemas = document.getElementById("listaTemasQuestoes");
+    const dlSubtemas = document.getElementById("listaSubtemasQuestoes");
+    if (dlTemas) dlTemas.innerHTML = todosTemas(disc, area).map(v => `<option value="${seguro(v)}"></option>`).join("");
+    if (dlSubtemas) dlSubtemas.innerHTML = todosSubtemas(disc, area, tema).map(v => `<option value="${seguro(v)}"></option>`).join("");
+    atualizarBlocoAlternativasQuestao();
+  };
+
+  window.atualizarBlocoAlternativasQuestao = function atualizarBlocoAlternativasQuestao() {
+    const tipo = document.getElementById("questaoTipo")?.value || "";
+    const bloco = document.getElementById("blocoAlternativasQuestao");
+    if (!bloco) return;
+    bloco.classList.toggle("opacity-60", !ehMultiplaEscolha(tipo));
+  };
+
+  window.salvarNovaQuestao = async function salvarNovaQuestaoPro(event) {
+    event?.preventDefault?.();
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Monitor e Professor/Orientador podem cadastrar questões.");
+    const btn = event?.submitter || document.querySelector('#formCadQuestao button[type="submit"]');
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Salvando...'; }
+      const disc = document.getElementById("questaoDisciplina")?.value || "Matemática";
+      let area = document.getElementById("questaoArea")?.value || "";
+      const tema = document.getElementById("questaoTema")?.value.trim() || "";
+      if (!area && tema) area = acharAreaPorTema(disc, tema);
+      const arquivos = [
+        ...await uploadArquivosInput("questaoArquivo", "banco_questoes"),
+        ...arquivosDeUrls(document.getElementById("questaoArquivoUrl")?.value || "", "questao")
+      ];
+      const arquivosSolucao = [
+        ...await uploadArquivosInput("questaoSolucaoArquivo", "banco_questoes_solucoes"),
+        ...arquivosDeUrls(document.getElementById("questaoSolucaoArquivoUrl")?.value || "", "solucao")
+      ];
+      const alternativas = alternativasDaTela();
+      const solucaoTexto = document.getElementById("questaoSolucaoTexto")?.value.trim() || "";
+      const questao = {
+        id: novoId(),
+        codigo: document.getElementById("questaoCodigo")?.value.trim() || "",
+        titulo: document.getElementById("questaoTitulo")?.value.trim() || "",
+        disciplina: disc,
+        nivel: document.getElementById("questaoNivel")?.value || "Geral",
+        area,
+        tema,
+        subtema: document.getElementById("questaoSubtema")?.value.trim() || "",
+        dificuldade: document.getElementById("questaoDificuldade")?.value || "Médio",
+        tipo: document.getElementById("questaoTipo")?.value || "Múltipla escolha",
+        fonte: document.getElementById("questaoFonte")?.value.trim() || "",
+        ano: document.getElementById("questaoAno")?.value || "Não informado",
+        fase: document.getElementById("questaoFase")?.value.trim() || "",
+        tempoEstimadoMin: Number(document.getElementById("questaoTempo")?.value || 0) || "",
+        alternativaCorreta: String(document.getElementById("questaoAlternativa")?.value || "").toUpperCase(),
+        alternativas,
+        tags: tagsComoLista(document.getElementById("questaoTags")?.value || ""),
+        enunciado: document.getElementById("questaoEnunciado")?.value.trim() || "",
+        arquivos,
+        solucoes: [],
+        status: document.getElementById("questaoStatus")?.value || "Ativa",
+        origemCadastro: "manual",
+        criadaEm: Date.now(), atualizadoEm: Date.now(),
+        criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+        criadaPorNome: usuarioLogado?.nome || "",
+        criadaPorNivel: usuarioLogado?.nivel || ""
+      };
+      if (!questao.codigo) questao.codigo = gerarCodigoQuestao(questao);
+      if (solucaoTexto || arquivosSolucao.length) questao.solucoes.push({ id: novoId(), texto: solucaoTexto, arquivos: arquivosSolucao, tipo: "Solução inicial", criadaEm: Date.now(), criadaPorId: questao.criadaPorId, criadaPorNome: questao.criadaPorNome, criadaPorNivel: questao.criadaPorNivel });
+      const valid = validarQuestao(questao, null, "manual");
+      if (valid.erros.length) return alert(valid.erros.join("\n"));
+      if (valid.avisos.length) {
+        const ok = await confirmarPlataforma(`A questão possui avisos de taxonomia:\n\n${valid.avisos.slice(0,8).join("\n")}\n\nSalvar mesmo assim?`, "Avisos de taxonomia", "Salvar", "Voltar");
+        if (!ok) return;
+      }
+      const lista = getQuestoesBanco();
+      lista.push(questao);
+      await setStorage("app_questoes", lista);
+      document.getElementById("formCadQuestao")?.reset();
+      popularFormularioBancoQuestoesPro();
+      popularFiltrosQuestoes();
+      renderizarBancoQuestoes();
+      alert("Questão salva no banco com sucesso.");
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao salvar questão.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar questão'; }
+    }
+  };
+
+  function normalizarChaveCabecalho(v) { return norm(v).replace(/[^a-z0-9]+/g, ""); }
+  function valorLinha(row, aliases, padrao="") {
+    const mapa = {};
+    Object.keys(row || {}).forEach(k => mapa[normalizarChaveCabecalho(k)] = row[k]);
+    for (const a of aliases) {
+      const key = normalizarChaveCabecalho(a);
+      if (Object.prototype.hasOwnProperty.call(mapa, key)) return String(mapa[key] ?? "").trim();
+    }
+    return padrao;
+  }
+  function valorOpcaoMaisProxima(valor, opcoes, padrao="") {
+    if (!valor) return padrao;
+    const n = norm(valor);
+    const achou = (opcoes || []).find(o => norm(o) === n);
+    return achou || String(valor).trim();
+  }
+  function montarQuestaoDaLinha(row, numeroLinha) {
+    const disciplina = valorOpcaoMaisProxima(valorLinha(row, ["Disciplina"]), todosDisciplinas(), "Matemática");
+    let area = valorLinha(row, ["Área", "Area", "Unidade temática", "Unidade tematica"], "");
+    const tema = valorLinha(row, ["Tema"], "");
+    if (!area && tema) area = acharAreaPorTema(disciplina, tema);
+    const alternativas = {
+      A: valorLinha(row, ["Alternativa A", "A"], ""),
+      B: valorLinha(row, ["Alternativa B", "B"], ""),
+      C: valorLinha(row, ["Alternativa C", "C"], ""),
+      D: valorLinha(row, ["Alternativa D", "D"], ""),
+      E: valorLinha(row, ["Alternativa E", "E"], "")
+    };
+    const arquivos = [
+      ...arquivosDeUrls(valorLinha(row, ["Arquivo URLs", "Arquivos URLs", "Imagem URLs", "Imagens URLs"]), "questao"),
+      ...arquivosDeUrls([valorLinha(row, ["Arquivo URL 1", "Imagem URL 1"]), valorLinha(row, ["Arquivo URL 2", "Imagem URL 2"]), valorLinha(row, ["Arquivo URL 3", "Imagem URL 3"])].filter(Boolean).join("\n"), "questao")
+    ];
+    const solucaoArquivos = [
+      ...arquivosDeUrls(valorLinha(row, ["Solução Arquivo URLs", "Solucao Arquivo URLs", "Solução URLs", "Solucao URLs"]), "solucao"),
+      ...arquivosDeUrls([valorLinha(row, ["Solução URL 1", "Solucao URL 1"]), valorLinha(row, ["Solução URL 2", "Solucao URL 2"])].filter(Boolean).join("\n"), "solucao")
+    ];
+    const solucaoTexto = valorLinha(row, ["Resolução", "Resolucao", "Solução", "Solucao", "Texto da solução", "Texto da solucao"], "");
+    const q = {
+      id: novoId(),
+      codigo: valorLinha(row, ["Código", "Codigo", "ID"], ""),
+      titulo: valorLinha(row, ["Título", "Titulo", "Identificação", "Identificacao"], ""),
+      disciplina,
+      nivel: valorOpcaoMaisProxima(valorLinha(row, ["Nível", "Nivel"]), NIVEIS_QUESTOES_PADRAO, "Geral"),
+      area,
+      tema,
+      subtema: valorLinha(row, ["Subtema", "Sub-tema"], ""),
+      dificuldade: valorOpcaoMaisProxima(valorLinha(row, ["Dificuldade"]), DIFICULDADES_QUESTOES_PADRAO, "Médio"),
+      tipo: valorOpcaoMaisProxima(valorLinha(row, ["Tipo", "Tipo de questão", "Tipo de questao"]), TIPOS_QUESTOES_PADRAO, "Múltipla escolha"),
+      fonte: valorLinha(row, ["Fonte", "Olimpíada", "Olimpiada", "Origem"], ""),
+      ano: valorLinha(row, ["Ano", "Ano origem", "Ano de origem"], "Não informado"),
+      fase: valorLinha(row, ["Fase", "Fase origem", "Fase de origem"], ""),
+      tempoEstimadoMin: Number(valorLinha(row, ["Tempo estimado", "Tempo estimado min", "Tempo"], "")) || "",
+      alternativaCorreta: String(valorLinha(row, ["Gabarito", "Alternativa correta", "Resposta"], "")).trim().toUpperCase(),
+      alternativas,
+      enunciado: valorLinha(row, ["Enunciado", "Questão", "Questao", "Texto da questão", "Texto da questao"], ""),
+      tags: tagsComoLista(valorLinha(row, ["Tags", "Palavras-chave", "Palavras chave"], "")),
+      arquivos,
+      solucoes: [],
+      status: valorOpcaoMaisProxima(valorLinha(row, ["Status"], "Ativa"), STATUS_QUESTOES_PADRAO, "Ativa"),
+      origemCadastro: "importacao_xlsx",
+      linhaImportacao: numeroLinha,
+      criadaEm: Date.now(), atualizadoEm: Date.now(),
+      criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+      criadaPorNome: usuarioLogado?.nome || "",
+      criadaPorNivel: usuarioLogado?.nivel || ""
+    };
+    if (!q.codigo) q.codigo = gerarCodigoQuestao(q);
+    if (solucaoTexto || solucaoArquivos.length) q.solucoes.push({ id: novoId(), texto: solucaoTexto, arquivos: solucaoArquivos, tipo: "Solução importada", criadaEm: Date.now(), criadaPorId: q.criadaPorId, criadaPorNome: q.criadaPorNome, criadaPorNivel: q.criadaPorNivel });
+    return q;
+  }
+
+  window.processarPlanilhaQuestoesLote = function processarPlanilhaQuestoesLote(arquivo) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para importar questões.");
+    if (typeof XLSX === "undefined") return alert("Biblioteca XLSX não carregou. Atualize a página e tente novamente.");
+    const leitor = new FileReader();
+    leitor.onload = (e) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+        const nomeAba = wb.SheetNames.find(n => norm(n) === "questoes") || wb.SheetNames[0];
+        const ws = wb.Sheets[nomeAba];
+        const linhas = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+        const validas = [], erros = [], avisos = [];
+        if (!linhas.length) erros.push("A planilha não possui linhas de questões na aba QUESTOES.");
+        linhas.forEach((row, idx) => {
+          const linha = idx + 2;
+          if (!Object.values(row).some(v => String(v || "").trim())) return;
+          const q = montarQuestaoDaLinha(row, linha);
+          const val = validarQuestao(q, linha, "lote");
+          if (val.erros.length) erros.push(...val.erros);
+          else validas.push(q);
+          avisos.push(...val.avisos);
+        });
+        window.__questoesLotePendentes = validas;
+        window.__questoesLoteErros = erros;
+        window.__questoesLoteAvisos = avisos;
+        renderizarPreviewQuestoesLote();
+        if (document.getElementById("fileInputQuestoesLote")) document.getElementById("fileInputQuestoesLote").value = "";
+      } catch (err) {
+        console.error(TAG, err);
+        alert(`Erro ao processar planilha de questões.\n\n${err.message || err}`);
+      }
+    };
+    leitor.readAsArrayBuffer(arquivo);
+  };
+
+  window.renderizarPreviewQuestoesLote = function renderizarPreviewQuestoesLote() {
+    const box = document.getElementById("questoesLotePreview"); if (!box) return;
+    const validas = window.__questoesLotePendentes || [], erros = window.__questoesLoteErros || [], avisos = window.__questoesLoteAvisos || [];
+    const linhas = validas.slice(0, 20).map(q => `<tr class="border-t border-gray-800"><td class="p-2 font-mono text-[11px] text-blue-300">${seguro(q.codigo)}</td><td class="p-2 font-bold text-white">${seguro(q.titulo)}</td><td class="p-2 text-gray-300">${seguro(q.disciplina)}</td><td class="p-2 text-gray-300">${seguro(q.area || "—")}</td><td class="p-2 text-gray-300">${seguro(q.tema)}</td><td class="p-2 text-gray-300">${seguro(q.tipo)}</td><td class="p-2 text-gray-300">${seguro((q.arquivos || []).length)} anexo(s)</td></tr>`).join("");
+    box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-900/50 overflow-hidden">
+      <div class="p-4 border-b border-gray-700 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="px-3 py-1.5 rounded-xl bg-emerald-950/40 text-emerald-300 border border-emerald-900/50 font-bold">${validas.length} válida(s)</span>
+          <span class="px-3 py-1.5 rounded-xl bg-red-950/40 text-red-300 border border-red-900/50 font-bold">${erros.length} erro(s)</span>
+          <span class="px-3 py-1.5 rounded-xl bg-amber-950/40 text-amber-300 border border-amber-900/50 font-bold">${avisos.length} aviso(s)</span>
+        </div>
+        <button type="button" onclick="confirmarImportacaoQuestoesLote()" ${!validas.length ? "disabled" : ""} class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black uppercase"><i class="fa-solid fa-check mr-2"></i>Confirmar importação</button>
+      </div>
+      ${erros.length ? `<div class="p-4 border-b border-gray-800 bg-red-950/20"><h4 class="text-xs font-black text-red-300 uppercase mb-2">Erros que impedem importação</h4><div class="max-h-44 overflow-y-auto space-y-1 text-xs text-red-100/80">${erros.slice(0,80).map(e=>`<p>• ${seguro(e)}</p>`).join("")}</div></div>` : ""}
+      ${avisos.length ? `<div class="p-4 border-b border-gray-800 bg-amber-950/20"><h4 class="text-xs font-black text-amber-300 uppercase mb-2">Avisos de taxonomia</h4><div class="max-h-32 overflow-y-auto space-y-1 text-xs text-amber-100/80">${avisos.slice(0,80).map(e=>`<p>• ${seguro(e)}</p>`).join("")}</div></div>` : ""}
+      <div class="overflow-x-auto"><table class="w-full text-xs"><thead class="bg-gray-950 text-gray-400 uppercase"><tr><th class="p-2 text-left">Código</th><th class="p-2 text-left">Título</th><th class="p-2 text-left">Disciplina</th><th class="p-2 text-left">Área</th><th class="p-2 text-left">Tema</th><th class="p-2 text-left">Tipo</th><th class="p-2 text-left">Anexos</th></tr></thead><tbody>${linhas || `<tr><td colspan="7" class="p-6 text-center text-gray-500">Nenhuma questão válida para pré-visualizar.</td></tr>`}</tbody></table></div>
+    </div>`;
+  };
+
+  window.confirmarImportacaoQuestoesLote = async function confirmarImportacaoQuestoesLote() {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para importar questões.");
+    const validas = window.__questoesLotePendentes || [];
+    if (!validas.length) return alert("Não há questões válidas para importar.");
+    const ok = await confirmarPlataforma(`Importar ${validas.length} questão(ões) para o banco?\n\nOs anexos em lote serão salvos como URLs externas. Upload local continua disponível no cadastro manual.`, "Confirmar importação", "Importar", "Voltar");
+    if (!ok) return;
+    const existentes = getQuestoesBanco();
+    const codigos = new Set(existentes.map(q => norm(q.codigo)).filter(Boolean));
+    const novas = [];
+    const puladas = [];
+    validas.forEach(q => {
+      if (q.codigo && codigos.has(norm(q.codigo))) puladas.push(q.codigo);
+      else { novas.push(q); if (q.codigo) codigos.add(norm(q.codigo)); }
+    });
+    if (!novas.length) return alert("Todas as questões foram puladas por código duplicado.");
+    await setStorage("app_questoes", [...existentes, ...novas]);
+    limparPreviewQuestoesLote();
+    popularFiltrosQuestoes();
+    renderizarBancoQuestoes();
+    alert(`Importação concluída.\n\nImportadas: ${novas.length}\nPuladas por código duplicado: ${puladas.length}`);
+  };
+
+  window.limparPreviewQuestoesLote = function limparPreviewQuestoesLote() {
+    window.__questoesLotePendentes = [];
+    window.__questoesLoteErros = [];
+    window.__questoesLoteAvisos = [];
+    const box = document.getElementById("questoesLotePreview"); if (box) box.innerHTML = "";
+    const input = document.getElementById("fileInputQuestoesLote"); if (input) input.value = "";
+  };
+
+  window.downloadTemplateQuestoes = async function downloadTemplateQuestoes() {
+    if (typeof ExcelJS === "undefined") return alert("Biblioteca ExcelJS não carregou. Atualize a página e tente novamente.");
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Avance Olímpico";
+    wb.created = new Date();
+    const ws = wb.addWorksheet("QUESTOES");
+    const tax = wb.addWorksheet("TAXONOMIA");
+    const inst = wb.addWorksheet("INSTRUCOES");
+    const listas = wb.addWorksheet("LISTAS"); listas.state = "veryHidden";
+    const headers = ["Código","Título","Disciplina","Nível","Área","Tema","Subtema","Dificuldade","Tipo","Enunciado","Alternativa A","Alternativa B","Alternativa C","Alternativa D","Alternativa E","Gabarito","Resolução","Fonte","Ano","Fase","Tempo estimado min","Tags","Status","Arquivo URL 1","Arquivo URL 2","Arquivo URL 3","Solução URL 1","Solução URL 2"];
+    ws.columns = headers.map(h => ({ header: h, key: h, width: ["Enunciado","Resolução"].includes(h) ? 46 : 22 }));
+    ws.addRow({"Código":"","Título":"Exemplo — OBMEP — Nível 1 — Questão 01","Disciplina":"Matemática","Nível":"Nível 1 — 6º/7º Ano","Área":"Aritmética","Tema":"Divisibilidade","Subtema":"Critérios de divisibilidade","Dificuldade":"Médio","Tipo":"Múltipla escolha","Enunciado":"Cole aqui o enunciado completo. Se houver figura, coloque o link em Arquivo URL 1.","Alternativa A":"Alternativa A","Alternativa B":"Alternativa B","Alternativa C":"Alternativa C","Alternativa D":"Alternativa D","Alternativa E":"Alternativa E","Gabarito":"A","Resolução":"Explique o caminho completo da solução.","Fonte":"OBMEP","Ano":"2024","Fase":"1ª fase","Tempo estimado min":"5","Tags":"divisibilidade, resto","Status":"Ativa","Arquivo URL 1":"","Arquivo URL 2":"","Arquivo URL 3":"","Solução URL 1":"","Solução URL 2":""});
+    ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+    ["A1:AB1"].forEach(r => { ws.getCell("A1").alignment = { vertical: "middle", horizontal: "center" }; });
+    ws.eachRow(row => row.eachCell(cell => { cell.border = { top:{style:"thin", color:{argb:"FF374151"}}, left:{style:"thin", color:{argb:"FF374151"}}, bottom:{style:"thin", color:{argb:"FF374151"}}, right:{style:"thin", color:{argb:"FF374151"}} }; cell.alignment = { vertical: "top", wrapText: true }; }));
+
+    const escreverLista = (col, titulo, valores) => { listas.getCell(`${col}1`).value = titulo; unicaOrdenada(valores).forEach((v,i)=>listas.getCell(`${col}${i+2}`).value = v); return `LISTAS!$${col}$2:$${col}$${Math.max(2, valores.length+1)}`; };
+    const rDisc = escreverLista("A", "Disciplinas", todosDisciplinas());
+    const rNivel = escreverLista("B", "Níveis", NIVEIS_QUESTOES_PADRAO);
+    const rDif = escreverLista("C", "Dificuldades", DIFICULDADES_QUESTOES_PADRAO);
+    const rTipo = escreverLista("D", "Tipos", TIPOS_QUESTOES_PADRAO);
+    const rStatus = escreverLista("E", "Status", STATUS_QUESTOES_PADRAO);
+    const rGab = escreverLista("F", "Gabarito", ["A","B","C","D","E"]);
+    const aplicarValidacao = (col, formula, allowBlank=false) => { for (let row=2; row<=501; row++) ws.getCell(`${col}${row}`).dataValidation = { type: "list", allowBlank, formulae: [formula], showErrorMessage: true, errorStyle: "stop", errorTitle: "Valor inválido", error: "Escolha um valor da lista oficial." }; };
+    aplicarValidacao("C", rDisc); aplicarValidacao("D", rNivel); aplicarValidacao("H", rDif); aplicarValidacao("I", rTipo); aplicarValidacao("P", rGab, true); aplicarValidacao("W", rStatus);
+
+    tax.columns = [{header:"Disciplina",width:26},{header:"Área",width:28},{header:"Tema",width:32},{header:"Subtema",width:44}];
+    const linhasTax = [];
+    Object.entries(TAXONOMIA_QUESTOES_OFICIAL).forEach(([disc, areas]) => Object.entries(areas).forEach(([area, temas]) => Object.entries(temas).forEach(([tema, subs]) => (subs || [""]).forEach(sub => linhasTax.push([disc, area, tema, sub])))));
+    tax.addRows(linhasTax);
+    tax.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    tax.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+    tax.views = [{ state: "frozen", ySplit: 1 }];
+    tax.autoFilter = { from: { row:1, column:1 }, to: { row:1, column:4 } };
+
+    inst.columns = [{width:34},{width:88}];
+    inst.addRows([
+      ["Como preencher", "Use a aba QUESTOES. Cada linha é uma questão. Campos obrigatórios: Título, Disciplina, Nível, Tema, Dificuldade, Tipo e Enunciado."],
+      ["Código", "Pode ficar vazio. A plataforma gera um código automático no padrão DISC-NIV-AREA-TEMA-0001."],
+      ["Imagens/anexos em lote", "Coloque links públicos nas colunas Arquivo URL 1/2/3. O Excel não envia arquivos locais para o Firebase. Upload local deve ser feito no cadastro manual."],
+      ["Múltipla escolha", "Preencha as alternativas A–E e o Gabarito. O sistema bloqueia questão objetiva sem alternativa ou sem gabarito."],
+      ["Taxonomia", "Consulte a aba TAXONOMIA e use sempre os mesmos nomes para disciplina, área, tema e subtema."],
+      ["Soluções", "Use Resolução para texto e Solução URL 1/2 para imagens/PDFs da resolução."],
+      ["Importação", "A plataforma mostra prévia, erros e avisos antes de gravar no banco."],
+    ]);
+    inst.getColumn(2).alignment = { wrapText: true, vertical: "top" };
+    inst.getRow(1).font = { bold: true };
+    const baixar = typeof baixarWorkbookExcelJS === "function" ? baixarWorkbookExcelJS : async (workbook, nomeArquivo) => { const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = nomeArquivo; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+    await baixar(wb, `modelo_banco_questoes_${anoDadosAtivo || "2026"}.xlsx`);
+  };
+
+  window.popularFiltrosQuestoes = function popularFiltrosQuestoesPro() {
+    const pode = podeGerenciarQuestoes();
+    document.getElementById("painelAddQuestao")?.classList.toggle("hidden", !pode);
+    document.getElementById("painelQuestoesLote")?.classList.toggle("hidden", !pode);
+    if (!pode) return;
+    popularFormularioBancoQuestoesPro();
+    const qs = getQuestoesBanco();
+    const discAtual = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    setSelectOptions("filtroQuestaoDisciplina", [...DISCIPLINAS_QUESTOES_PADRAO, ...qs.map(q=>q.disciplina)], { value: "TODOS", text: "Todas" });
+    if (document.getElementById("filtroQuestaoDisciplina")) document.getElementById("filtroQuestaoDisciplina").value = Array.from(document.getElementById("filtroQuestaoDisciplina").options).some(o=>o.value===discAtual) ? discAtual : "TODOS";
+    const disc = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const qsDisc = disc === "TODOS" ? qs : qs.filter(q => q.disciplina === disc);
+    setSelectOptions("filtroQuestaoNivel", [...NIVEIS_QUESTOES_PADRAO, ...qsDisc.map(q=>q.nivel)], { value: "TODOS", text: "Todos" });
+    setSelectOptions("filtroQuestaoArea", [...todasAreas(disc === "TODOS" ? "" : disc), ...qsDisc.map(q=>q.area)], { value: "TODOS", text: "Todas" });
+    setSelectOptions("filtroQuestaoTema", [...todosTemas(disc === "TODOS" ? "" : disc), ...qsDisc.map(q=>q.tema)], { value: "TODOS", text: "Todos" });
+    setSelectOptions("filtroQuestaoDificuldade", [...DIFICULDADES_QUESTOES_PADRAO, ...qsDisc.map(q=>q.dificuldade)], { value: "TODOS", text: "Todas" });
+    setSelectOptions("filtroQuestaoTipo", [...TIPOS_QUESTOES_PADRAO, ...qsDisc.map(q=>q.tipo)], { value: "TODOS", text: "Todos" });
+  };
+
+  function passaFiltrosQuestaoPro(q) {
+    const f = id => document.getElementById(id)?.value || "TODOS";
+    const busca = norm(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (f("filtroQuestaoDisciplina") !== "TODOS" && q.disciplina !== f("filtroQuestaoDisciplina")) return false;
+    if (f("filtroQuestaoNivel") !== "TODOS" && q.nivel !== f("filtroQuestaoNivel")) return false;
+    if (f("filtroQuestaoArea") !== "TODOS" && q.area !== f("filtroQuestaoArea")) return false;
+    if (f("filtroQuestaoTema") !== "TODOS" && q.tema !== f("filtroQuestaoTema")) return false;
+    if (f("filtroQuestaoDificuldade") !== "TODOS" && q.dificuldade !== f("filtroQuestaoDificuldade")) return false;
+    if (f("filtroQuestaoTipo") !== "TODOS" && q.tipo !== f("filtroQuestaoTipo")) return false;
+    if (busca) {
+      const texto = norm([q.codigo, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano, q.fase, q.enunciado, ...(q.tags || []), ...Object.values(q.alternativas || {})].join(" "));
+      if (!texto.includes(busca)) return false;
+    }
+    return true;
+  }
+  function isImagemArquivo(a) { return String(a?.mimeType || "").startsWith("image") || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(String(a?.url || "")); }
+  function renderArquivosQuestaoPro(arquivos=[]) {
+    if (!Array.isArray(arquivos) || !arquivos.length) return "";
+    const imgs = arquivos.filter(isImagemArquivo);
+    const outros = arquivos.filter(a => !isImagemArquivo(a));
+    return `<div class="mt-3 space-y-2">${imgs.length ? `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">${imgs.map(a=>`<a href="${seguro(a.url)}" target="_blank"><img src="${seguro(a.url)}" class="w-full max-h-64 object-contain rounded-xl border border-gray-700 bg-gray-950 p-1"></a>`).join("")}</div>` : ""}${outros.length ? `<div class="flex flex-wrap gap-2">${outros.map((a,i)=>`<a href="${seguro(a.url)}" target="_blank" class="px-3 py-1 rounded-lg bg-blue-950/40 text-blue-300 border border-blue-900/40 text-[11px] font-bold"><i class="fa-solid fa-paperclip mr-1"></i>${seguro(a.nome || `Arquivo ${i+1}`)}</a>`).join("")}</div>` : ""}</div>`;
+  }
+  function renderAlternativasQuestao(q) {
+    const a = q.alternativas || {};
+    if (!Object.values(a).some(Boolean)) return "";
+    return `<div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-2 text-xs">${["A","B","C","D","E"].map(letra=>`<div class="rounded-xl border ${q.alternativaCorreta===letra?'border-emerald-800/60 bg-emerald-950/20':'border-gray-700 bg-gray-950/40'} p-2"><b class="text-gray-300">${letra})</b> <span class="text-gray-300">${seguro(a[letra] || "—")}</span></div>`).join("")}</div>`;
+  }
+  function renderSolucoesQuestaoPro(q) {
+    const sols = Array.isArray(q.solucoes) ? q.solucoes : [];
+    if (!sols.length) return `<p class="text-xs text-gray-500 mt-2">Nenhuma solução cadastrada ainda.</p>`;
+    return `<div class="space-y-2 mt-3">${sols.map(s => `<div class="rounded-xl bg-gray-950/60 border border-gray-700 p-3"><div class="flex flex-wrap justify-between gap-2"><span class="text-[10px] text-emerald-300 uppercase font-bold">${seguro(s.tipo || "Solução")}</span><span class="text-[10px] text-gray-500">${seguro(s.criadaPorNome || "Equipe")} · ${s.criadaEm ? new Date(s.criadaEm).toLocaleString("pt-BR") : ""}</span></div>${s.texto ? `<p class="text-sm text-gray-300 whitespace-pre-wrap mt-2">${seguro(s.texto)}</p>` : ""}${renderArquivosQuestaoPro(s.arquivos || [])}</div>`).join("")}</div>`;
+  }
+  window.renderizarBancoQuestoes = function renderizarBancoQuestoesPro() {
+    const grid = document.getElementById("gridQuestoes"); if (!grid) return;
+    if (!podeGerenciarQuestoes()) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400"><i class="fa-solid fa-lock text-3xl mb-3 text-gray-600"></i><p class="font-bold">Banco de Questões restrito.</p><p class="text-xs mt-1">Acesso exclusivo para ADM, Monitor e Professor/Orientador.</p></div>`;
+      return;
+    }
+    const questoes = getQuestoesBanco().filter(passaFiltrosQuestaoPro).sort((a,b) => String(a.disciplina||"").localeCompare(String(b.disciplina||""),"pt-BR") || String(a.area||"").localeCompare(String(b.area||""),"pt-BR") || String(a.tema||"").localeCompare(String(b.tema||""),"pt-BR") || String(a.titulo||"").localeCompare(String(b.titulo||""),"pt-BR"));
+    if (!questoes.length) { grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Cadastre questões, importe por Excel ou ajuste os filtros.</p></div>`; return; }
+    const totalImgs = questoes.reduce((acc,q)=>acc+(q.arquivos||[]).filter(isImagemArquivo).length,0);
+    grid.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-3">${[
+      ["Questões", questoes.length, "fa-database", "blue"],
+      ["Com imagem", totalImgs, "fa-image", "emerald"],
+      ["Objetivas", questoes.filter(q=>ehMultiplaEscolha(q.tipo)).length, "fa-list-check", "amber"],
+      ["Dissertativas", questoes.filter(q=>!ehMultiplaEscolha(q.tipo)).length, "fa-pen", "purple"]
+    ].map(([t,v,ic,cor])=>`<div class="rounded-2xl border border-gray-700 bg-gray-800 p-4"><p class="text-[10px] uppercase font-bold text-gray-500">${t}</p><p class="text-2xl font-black text-white mt-1"><i class="fa-solid ${ic} text-${cor}-400 mr-2"></i>${v}</p></div>`).join("")}</div>` + questoes.map(q => `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-sm">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-[11px] text-blue-300 bg-blue-950/30 border border-blue-900/40 rounded-lg px-2 py-1">${seguro(q.codigo || q.id)}</span><span class="px-2 py-1 rounded-lg ${q.status==='Ativa'?'bg-emerald-950/40 text-emerald-300':'bg-gray-900 text-gray-400'} text-[10px] font-bold">${seguro(q.status || "Ativa")}</span></div><h4 class="text-base font-black text-white mt-2">${seguro(q.titulo)}</h4>
+        <div class="flex flex-wrap gap-2 mt-2"><span class="px-2 py-1 rounded-lg bg-blue-950/40 text-blue-300 text-[10px] font-bold">${seguro(q.disciplina)}</span><span class="px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 text-[10px] font-bold">${seguro(q.nivel)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${seguro(q.area || "Sem área")}</span><span class="px-2 py-1 rounded-lg bg-amber-950/40 text-amber-300 text-[10px] font-bold">${seguro(q.dificuldade)}</span><span class="px-2 py-1 rounded-lg bg-gray-900 text-gray-300 text-[10px] font-bold">${seguro(q.tipo)}</span>${q.alternativaCorreta ? `<span class="px-2 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 text-[10px] font-black">Gabarito ${seguro(q.alternativaCorreta)}</span>` : ""}</div></div>
+        <div class="flex flex-wrap gap-2"><button onclick="adicionarSolucaoQuestao('${seguro(q.id)}')" class="px-3 py-2 rounded-xl bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-300 text-xs font-bold border border-emerald-800/50"><i class="fa-solid fa-lightbulb mr-1"></i>Solução</button><button onclick="duplicarQuestaoBanco('${seguro(q.id)}')" class="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700"><i class="fa-solid fa-copy mr-1"></i>Duplicar</button><button onclick="excluirQuestaoBanco('${seguro(q.id)}')" class="px-3 py-2 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-red-300 text-xs font-bold border border-red-900/50"><i class="fa-solid fa-trash mr-1"></i>Excluir</button></div>
+      </div>
+      <div class="mt-3 text-xs text-gray-500">${seguro([q.fonte, q.ano, q.fase].filter(Boolean).join(" · ") || "Fonte não informada")} · ${seguro(q.tema || "Sem tema")}${q.subtema ? ` › ${seguro(q.subtema)}` : ""}${q.tempoEstimadoMin ? ` · ${seguro(q.tempoEstimadoMin)} min` : ""}</div>
+      <p class="text-sm text-gray-300 whitespace-pre-wrap mt-3">${seguro(q.enunciado)}</p>
+      ${renderArquivosQuestaoPro(q.arquivos || [])}
+      ${renderAlternativasQuestao(q)}
+      ${(q.tags||[]).length ? `<div class="flex flex-wrap gap-1 mt-3">${q.tags.map(t=>`<span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-400 text-[10px]">#${seguro(t)}</span>`).join("")}</div>` : ""}
+      <details class="mt-3 rounded-xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-emerald-300 uppercase">Ver soluções e comentários</summary>${renderSolucoesQuestaoPro(q)}</details>
+    </div>`).join("");
+  };
+
+  window.duplicarQuestaoBanco = async function duplicarQuestaoBanco(id) {
+    const lista = getQuestoesBanco(); const q = lista.find(x => String(x.id) === String(id));
+    if (!q) return alert("Questão não encontrada.");
+    const copia = { ...q, id: novoId(), codigo: "", titulo: `${q.titulo || "Questão"} (cópia)`, criadaEm: Date.now(), atualizadoEm: Date.now(), origemCadastro: "duplicada" };
+    copia.codigo = gerarCodigoQuestao(copia);
+    lista.push(copia); await setStorage("app_questoes", lista); popularFiltrosQuestoes(); renderizarBancoQuestoes(); alert("Questão duplicada.");
+  };
+  window.excluirQuestaoBanco = async function excluirQuestaoBanco(id) {
+    const lista = getQuestoesBanco(); const q = lista.find(x => String(x.id) === String(id));
+    if (!q) return alert("Questão não encontrada.");
+    const ok = await confirmarPlataforma(`Excluir a questão “${q.titulo || q.codigo || q.id}”?\n\nIsso não apaga arquivos já enviados ao Storage, apenas remove o registro do banco.`, "Excluir questão", "Excluir", "Cancelar");
+    if (!ok) return;
+    await setStorage("app_questoes", lista.filter(x => String(x.id) !== String(id)));
+    popularFiltrosQuestoes(); renderizarBancoQuestoes();
+  };
+
+  const __adicionarSolucaoQuestaoBancoProBase = window.adicionarSolucaoQuestao;
+  window.adicionarSolucaoQuestao = async function adicionarSolucaoQuestaoBancoPro(questaoId) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para adicionar solução.");
+    const texto = prompt("Digite a solução/comentário pedagógico. Para anexos, cole uma ou mais URLs no final do texto.");
+    if (texto === null) return;
+    if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA(texto, "solução")) return;
+    const urls = splitUrls(texto);
+    const lista = getQuestoesBanco(); const idx = lista.findIndex(q => String(q.id) === String(questaoId));
+    if (idx < 0) return alert("Questão não encontrada.");
+    lista[idx].solucoes = Array.isArray(lista[idx].solucoes) ? lista[idx].solucoes : [];
+    lista[idx].solucoes.push({ id: novoId(), texto: texto.trim(), arquivos: arquivosDeUrls(urls.join("\n"), "solucao"), tipo: urls.length ? "Solução em texto/anexo" : "Solução complementar", criadaEm: Date.now(), criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "", criadaPorNome: usuarioLogado?.nome || "", criadaPorNivel: usuarioLogado?.nivel || "" });
+    await setStorage("app_questoes", lista); renderizarBancoQuestoes();
+  };
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { try { popularFormularioBancoQuestoesPro(); popularFiltrosQuestoes(); } catch(e) { console.warn(TAG, e); } }, 1200));
+  setTimeout(() => { try { popularFormularioBancoQuestoesPro(); } catch(e) { console.warn(TAG, e); } }, 1800);
+  console.log(TAG, "carregado");
+})();
+
+// ============================================================
+// BANCO DE QUESTÕES PRO — compatibilidade com simulados gerados
+// Garante que alternativas A–E também apareçam no ambiente do aluno.
+// ============================================================
+(function bancoQuestoesProSimuladosPatch(){
+  function seguroBQ(v) { return typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
+  function getQuestaoBancoPorId(id) { return (Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []) : []).find(q => String(q.id) === String(id)); }
+  function alternativasQuestaoSim(q) {
+    const base = q?.alternativas || getQuestaoBancoPorId(q?.questaoId)?.alternativas || {};
+    if (!Object.values(base).some(Boolean)) return "";
+    return `<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">${["A","B","C","D","E"].map(letra => `<div class="rounded-xl border border-gray-700 bg-gray-900/60 p-3"><b class="text-blue-300 mr-1">${letra})</b><span class="text-gray-200">${seguroBQ(base[letra] || "—")}</span></div>`).join("")}</div>`;
+  }
+  const __renderizarQuestoesDoSimuladoSeguroBQ = window.renderizarQuestoesDoSimuladoSeguro;
+  window.renderizarQuestoesDoSimuladoSeguro = function renderizarQuestoesDoSimuladoSeguroComAlternativas(sim) {
+    const qs = Array.isArray(sim?.questoesBanco) ? sim.questoesBanco : [];
+    if (!qs.length) return __renderizarQuestoesDoSimuladoSeguroBQ ? __renderizarQuestoesDoSimuladoSeguroBQ(sim) : "";
+    return `<div class="space-y-4">${qs.map(q => {
+      const banco = getQuestaoBancoPorId(q.questaoId) || {};
+      const arquivos = Array.isArray(q.arquivos) && q.arquivos.length ? q.arquivos : (banco.arquivos || []);
+      const enunciado = q.enunciado || banco.enunciado || q.titulo || banco.titulo || "";
+      const meta = [q.tipo || banco.tipo, q.tema || banco.tema, q.dificuldade || banco.dificuldade].filter(Boolean).join(" · ");
+      const midias = typeof renderArquivosQuestaoInline === "function" ? renderArquivosQuestaoInline(arquivos) : "";
+      return `<article class="rounded-2xl bg-gray-950/60 border border-gray-700 p-5"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="text-base font-black text-white">Questão ${seguroBQ(q.numero || "")}</h4><span class="text-[10px] text-gray-500 uppercase font-bold">${seguroBQ(meta)}</span></div><p class="text-base text-gray-200 whitespace-pre-wrap mt-4 leading-relaxed">${seguroBQ(enunciado)}</p>${midias}${alternativasQuestaoSim({...banco, ...q, alternativas: q.alternativas || banco.alternativas})}</article>`;
+    }).join("")}</div>`;
+  };
+  const __gerarSimuladoPeloBancoQuestoesBQ = window.gerarSimuladoPeloBancoQuestoes;
+  window.gerarSimuladoPeloBancoQuestoes = async function gerarSimuladoPeloBancoQuestoesComAlternativas() {
+    const antes = Array.isArray(getStorage("app_simulados", [])) ? getStorage("app_simulados", []).length : 0;
+    const r = await __gerarSimuladoPeloBancoQuestoesBQ?.apply(this, arguments);
+    const sims = Array.isArray(getStorage("app_simulados", [])) ? getStorage("app_simulados", []) : [];
+    if (sims.length > antes) {
+      const banco = Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []) : [];
+      const mapa = new Map(banco.map(q => [String(q.id), q]));
+      for (let i = antes; i < sims.length; i++) {
+        if (!Array.isArray(sims[i].questoesBanco)) continue;
+        sims[i].questoesBanco = sims[i].questoesBanco.map(q => {
+          const original = mapa.get(String(q.questaoId)) || {};
+          return { ...q, alternativas: q.alternativas || original.alternativas || {}, area: q.area || original.area || "", status: q.status || original.status || "Ativa" };
+        });
+      }
+      await setStorage("app_simulados", sims);
+    }
+    return r;
+  };
+})();
