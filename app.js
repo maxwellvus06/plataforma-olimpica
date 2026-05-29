@@ -12228,3 +12228,373 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   document.addEventListener("DOMContentLoaded", () => setTimeout(() => { garantirFiltrosSimuladosAvancados(); if (typeof abrirSimuladoPublico === "function") abrirSimuladoPublico(); }, 900));
   setTimeout(() => { garantirFiltrosSimuladosAvancados(); }, 1200);
 })();
+
+// ============================================================================
+// FIX SIMULADOS — AVISO DE PENDÊNCIAS NO ALUNO + BLOQUEIO PÚBLICO POR E-MAIL/WHATSAPP
+// ============================================================================
+(function(){
+  const TAG = "simulados-pendencias-bloqueio-publico-v1";
+
+  function modalAvisoSeguro(titulo, msg, tipo = "aviso") {
+    if (typeof avisarSimuladoInterno === "function") return avisarSimuladoInterno(titulo, msg, tipo);
+    if (typeof mostrarModalAvisoPlataforma === "function") return mostrarModalAvisoPlataforma(titulo, msg, tipo);
+    alert(`${titulo}\n\n${msg}`);
+    return Promise.resolve();
+  }
+
+  function modalConfirmacaoSeguro(titulo, msg, detalhes = "", textoOk = "Concluir mesmo assim", textoCancelar = "Voltar") {
+    if (typeof modalInternoSimulado === "function") {
+      return modalInternoSimulado({
+        titulo,
+        texto: msg,
+        tipo: "pergunta",
+        detalhes,
+        botoes: [
+          { texto: textoCancelar, valor: false, classe: "bg-gray-700 hover:bg-gray-600 text-gray-100" },
+          { texto: textoOk, valor: true, classe: "bg-emerald-600 hover:bg-emerald-500 text-white" }
+        ]
+      });
+    }
+    return Promise.resolve(confirm(`${titulo}\n\n${msg}`));
+  }
+
+  function normalizarEmailPublico(v) {
+    return String(v || "").trim().toLowerCase();
+  }
+
+  function normalizarWhatsappPublico(v) {
+    return String(v || "").replace(/\D+/g, "");
+  }
+
+  async function sha256Curto(texto) {
+    try {
+      const enc = new TextEncoder().encode(String(texto || ""));
+      const buf = await crypto.subtle.digest("SHA-256", enc);
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
+    } catch (_) {
+      return btoa(unescape(encodeURIComponent(String(texto || "")))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
+    }
+  }
+
+  async function chavePublicaTentativa(simuladoId, dados) {
+    const email = normalizarEmailPublico(dados?.email);
+    const zap = normalizarWhatsappPublico(dados?.whatsapp);
+    const base = `${String(simuladoId || "")}|${email}|${zap}`;
+    return await sha256Curto(base);
+  }
+
+  async function docTentativaPublicaRef(simuladoId, ano, dados) {
+    initFirebase?.();
+    if (!firebaseFirestore) throw new Error("Cloud Firestore não inicializado");
+    const token = await chavePublicaTentativa(simuladoId, dados);
+    return {
+      token,
+      ref: firebaseFirestore.collection(`anos/${ano}/sistema_simulados_tentativas_publicas`).doc(token)
+    };
+  }
+
+  async function tentativaPublicaJaExiste(simuladoId, ano, dados) {
+    const { ref } = await docTentativaPublicaRef(simuladoId, ano, dados);
+    const snap = await ref.get();
+    return snap.exists ? snap.data() : null;
+  }
+
+  async function registrarInicioTentativaPublica(sim, ano, dados) {
+    const { token, ref } = await docTentativaPublicaRef(sim.id, ano, dados);
+    const existente = await ref.get();
+    if (existente.exists) return { ok: false, token, existente: existente.data() };
+    const agora = Date.now();
+    const dispositivoId = typeof obterDispositivoPublicoSimulado === "function" ? obterDispositivoPublicoSimulado() : `disp_${agora}`;
+    await ref.set({
+      id: token,
+      token,
+      simuladoId: String(sim.id),
+      simuladoTitulo: sim.titulo || "",
+      ano: String(ano),
+      publico: true,
+      status: "iniciado",
+      nome: dados.nome || "",
+      escolaOrigem: dados.escolaOrigem || "",
+      cidade: dados.cidade || "",
+      emailNormalizado: normalizarEmailPublico(dados.email),
+      whatsappNormalizado: normalizarWhatsappPublico(dados.whatsapp),
+      dispositivoId,
+      criadoEm: agora,
+      atualizadoEm: agora
+    });
+    return { ok: true, token, dispositivoId };
+  }
+
+  function renderizarBloqueioTentativaPublica(sim, titulo = "Tentativa já registrada", detalhe = "Já existe uma tentativa vinculada a este e-mail/WhatsApp para este simulado.") {
+    const box = document.getElementById("simuladoPublicoConteudo");
+    if (!box) return;
+    box.innerHTML = `<div class="min-h-[90vh] flex items-center justify-center p-4 bg-gray-950 text-gray-100"><div class="max-w-2xl w-full rounded-3xl border border-amber-800/50 bg-gray-900 p-8 text-center shadow-2xl"><div class="w-16 h-16 mx-auto rounded-3xl bg-amber-500/10 text-amber-300 flex items-center justify-center text-3xl mb-4"><i class="fa-solid fa-circle-exclamation"></i></div><h1 class="text-2xl font-black text-white">${textoSeguro(titulo)}</h1><p class="text-gray-400 mt-3 leading-relaxed">${textoSeguro(detalhe)}</p><div class="mt-5 rounded-2xl border border-gray-700 bg-gray-950 p-4 text-left"><p class="text-[10px] text-gray-500 font-bold uppercase">Simulado</p><p class="text-sm text-gray-200 font-bold mt-1">${textoSeguro(sim?.titulo || "Simulado")}</p></div><p class="text-xs text-gray-500 mt-5">Caso isso tenha sido um erro, procure a equipe responsável pelo simulado.</p></div></div>`;
+  }
+
+  function listarPendenciasAmbienteAluno(sim) {
+    const faltas = [];
+    const respostasObjetivas = typeof lerRespostaObjetivaAmbiente === "function" ? lerRespostaObjetivaAmbiente() : [];
+    const totalObj = typeof numeroQuestoesObjetivasSimulado === "function"
+      ? Number(numeroQuestoesObjetivasSimulado(sim) || 0)
+      : Number(sim?.gabaritoObjetivo?.length || 0);
+
+    const envioAnterior = typeof envioSimuladoUsuario === "function" ? envioSimuladoUsuario(sim) : null;
+    const respostasDissertativas = typeof lerRespostasDissertativasAmbiente === "function"
+      ? lerRespostasDissertativasAmbiente(envioAnterior)
+      : [];
+
+    const camposDisc = Array.from(document.querySelectorAll("#simuladoAmbienteOverlay .simAmbDiscTexto[data-q]"));
+    const totalDisc = camposDisc.length || (typeof numeroQuestoesDissertativasSimulado === "function" ? Number(numeroQuestoesDissertativasSimulado(sim) || 0) : 0);
+    let discRespondidas = 0;
+
+    if (camposDisc.length) {
+      camposDisc.forEach(campo => {
+        const numero = Number(campo.dataset.q);
+        const antigo = respostasDissertativas.find(r => Number(r.numero) === numero) || {};
+        const arquivoNovo = document.querySelector(`#simuladoAmbienteOverlay .simAmbDiscArquivo[data-q="${numero}"]`)?.files?.[0] || null;
+        if (String(campo.value || "").trim() || antigo.texto || antigo.arquivoUrl || arquivoNovo) discRespondidas++;
+      });
+    } else if (totalDisc) {
+      const texto = String(document.getElementById("simAmbTexto")?.value || "").trim();
+      const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+      if (texto || arquivo || envioAnterior?.arquivoUrl) discRespondidas = totalDisc;
+    }
+
+    if (totalObj && respostasObjetivas.length < totalObj) faltas.push(`${totalObj - respostasObjetivas.length} questão(ões) objetiva(s)`);
+    if (totalDisc && discRespondidas < totalDisc) faltas.push(`${totalDisc - discRespondidas} questão(ões) dissertativa(s)`);
+
+    return { faltas, respostasObjetivas, respostasDissertativas, totalObj, totalDisc, discRespondidas };
+  }
+
+  window.finalizarSimuladoPodeProsseguirInterno = async function finalizarSimuladoPodeProsseguirInternoFix(sim, automatico) {
+    if (automatico || simuladoSessaoAtual?.preview) return true;
+    const pend = listarPendenciasAmbienteAluno(sim);
+    if (!pend.faltas.length) return true;
+    return await modalConfirmacaoSeguro(
+      "Respostas pendentes",
+      "Ainda existem questões sem resposta. Deseja concluir mesmo assim?",
+      `<div class="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4"><p class="font-bold text-amber-200 mb-2">Pendências encontradas:</p><ul class="list-disc pl-5 space-y-1">${pend.faltas.map(f => `<li>${textoSeguro(f)}</li>`).join("")}</ul></div>`,
+      "Concluir mesmo assim",
+      "Voltar para a prova"
+    );
+  };
+
+  // Reescreve a finalização do aluno logado para manter o aviso e salvar dissertativas por questão.
+  window.finalizarSimuladoAmbiente = async function finalizarSimuladoAmbienteFixPendencias(automatico = false, motivo = "finalizado") {
+    if (!simuladoSessaoAtual || simuladoEnvioEmAndamento) return;
+    const sim = (getStorage("app_simulados", []) || []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId));
+    if (!sim) return;
+    if (simuladoSessaoAtual.preview) {
+      simuladoSaidaPermitida = true;
+      if (typeof limparAmbienteSimulado === "function") limparAmbienteSimulado();
+      await modalAvisoSeguro("Pré-visualização encerrada", "Nenhum envio foi registrado.", "sucesso");
+      return;
+    }
+    const podeProsseguir = await finalizarSimuladoPodeProsseguirInterno(sim, automatico);
+    if (!podeProsseguir) return;
+
+    simuladoEnvioEmAndamento = true;
+    simuladoSaidaPermitida = true;
+    try {
+      const uid = String(usuarioLogado.authUid || usuarioLogado.id);
+      const respostasObjetivas = typeof lerRespostaObjetivaAmbiente === "function" ? lerRespostaObjetivaAmbiente() : [];
+      const envioAnterior = typeof envioSimuladoUsuario === "function" ? envioSimuladoUsuario(sim) : null;
+      let respostasDissertativas = typeof lerRespostasDissertativasAmbiente === "function" ? lerRespostasDissertativasAmbiente(envioAnterior) : [];
+      if (typeof anexarArquivosDissertativosAmbiente === "function") respostasDissertativas = await anexarArquivosDissertativosAmbiente(respostasDissertativas);
+      const texto = document.getElementById("simAmbTexto")?.value?.trim() || "";
+      const arquivo = document.getElementById("simAmbArquivo")?.files?.[0] || null;
+      const correcao = typeof corrigirRespostaObjetiva === "function" ? corrigirRespostaObjetiva(sim.gabaritoObjetivo, respostasObjetivas) : { acertos: 0, total: 0, respondidas: respostasObjetivas.length, percentual: 0 };
+      const alunoAtual = typeof alunoDoUsuarioLogado === "function" ? alunoDoUsuarioLogado() : null;
+      const inicio = simuladoSessaoAtual.inicio || Date.now();
+      const agora = Date.now();
+      const envio = {
+        id: `${sim.id}_${uid}`,
+        simuladoId: sim.id,
+        simuladoTitulo: sim.titulo || "",
+        publico: false,
+        visitante: false,
+        usuarioId: uid,
+        usuarioNome: usuarioLogado.nome,
+        usuarioNivel: usuarioLogado.nivel,
+        alunoId: usuarioLogado.alunoId || alunoAtual?.id || "",
+        alunoNome: alunoAtual?.nome || usuarioLogado.nome || "",
+        escolaId: alunoAtual?.escolaId || usuarioLogado.vinculoId || "",
+        escolaNome: alunoAtual?.escola || (typeof getEscolaVinculadaUsuario === "function" ? getEscolaVinculadaUsuario()?.nome : "") || "",
+        cidade: alunoAtual?.cidade || "",
+        email: usuarioLogado.emailAuth || usuarioLogado.email || alunoAtual?.emailInstitucional || alunoAtual?.emailPessoal || "",
+        whatsapp: alunoAtual?.contato || alunoAtual?.telefone || "",
+        respostasObjetivas,
+        respostasDissertativas: respostasDissertativas.filter(r => r.texto || r.arquivoUrl),
+        texto,
+        acertos: correcao.acertos,
+        totalObjetivas: correcao.total,
+        respondidasObjetivas: correcao.respondidas,
+        percentual: correcao.percentual,
+        iniciadoEm: envioAnterior?.iniciadoEm || inicio,
+        enviadoEm: agora,
+        encerradoEm: agora,
+        tempoGastoSegundos: Math.max(0, Math.round((agora - inicio) / 1000)),
+        tempoGastoTexto: typeof formatarTempoMs === "function" ? formatarTempoMs(Math.max(0, agora - inicio)) : `${Math.max(0, Math.round((agora - inicio) / 1000))}s`,
+        status: "encerrado",
+        motivoEncerramento: motivo,
+        automatico: !!automatico,
+        statusCorrecao: typeof simuladoPrecisaCorrecaoManual === "function" && simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica"
+      };
+      if (arquivo) {
+        const up = await enviarArquivoParaFirebaseStorage(arquivo, "simulados_respostas");
+        Object.assign(envio, { arquivoUrl: up.fileUrl, arquivoStoragePath: up.storagePath, arquivoNome: up.fileName, arquivoMimeType: up.mimeType });
+      } else if (envioAnterior?.arquivoUrl) {
+        Object.assign(envio, { arquivoUrl: envioAnterior.arquivoUrl, arquivoStoragePath: envioAnterior.arquivoStoragePath || "", arquivoNome: envioAnterior.arquivoNome || "", arquivoMimeType: envioAnterior.arquivoMimeType || "" });
+      }
+      await salvarEnvioSimuladoFirestore(envio);
+      if (typeof limparAmbienteSimulado === "function") limparAmbienteSimulado();
+      if (typeof renderizarSimulados === "function") renderizarSimulados();
+      await modalAvisoSeguro(
+        automatico ? "Simulado encerrado" : "Envio registrado",
+        automatico ? "O simulado foi encerrado automaticamente e suas respostas preenchidas foram salvas." : "Simulado enviado com sucesso. Obrigado pela participação.",
+        automatico ? "aviso" : "sucesso"
+      );
+    } catch (erro) {
+      console.error(TAG, erro);
+      await modalAvisoSeguro("Erro ao enviar simulado", String(erro.message || erro), "erro");
+    } finally {
+      simuladoEnvioEmAndamento = false;
+      simuladoTelaCheiaAtiva = false;
+      try { if (typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim) && typeof sairTelaCheiaSimuladoSeguro === "function") await sairTelaCheiaSimuladoSeguro(); } catch(_) {}
+    }
+  };
+
+  // Bloqueio público persistente por e-mail/WhatsApp. Isso funciona mesmo em aba anônima,
+  // desde que o candidato use o mesmo e-mail ou WhatsApp.
+  const iniciarPublicoAnterior = typeof window.iniciarSimuladoPublicoTelaCheia === "function" ? window.iniciarSimuladoPublicoTelaCheia : null;
+  window.iniciarSimuladoPublicoTelaCheia = async function iniciarSimuladoPublicoComBloqueioPersistente(simuladoId, ano) {
+    const dados = typeof lerDadosPublicosSimulado === "function" ? lerDadosPublicosSimulado() : {};
+    if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+      await modalAvisoSeguro("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp antes de iniciar.", "aviso");
+      return;
+    }
+    const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+    try {
+      const existente = await tentativaPublicaJaExiste(simuladoId, ano, dados);
+      if (existente) {
+        renderizarBloqueioTentativaPublica(sim, "Simulado já iniciado", "Já existe uma tentativa vinculada a este e-mail/WhatsApp. Por segurança, este simulado público só permite uma tentativa por participante.");
+        return;
+      }
+      const registro = await registrarInicioTentativaPublica(sim, ano, dados);
+      if (!registro.ok) {
+        renderizarBloqueioTentativaPublica(sim, "Simulado já iniciado", "Já existe uma tentativa vinculada a este e-mail/WhatsApp. Por segurança, este simulado público só permite uma tentativa por participante.");
+        return;
+      }
+      window.__tokenTentativaPublicaAtual = registro.token;
+      if (iniciarPublicoAnterior) return await iniciarPublicoAnterior(simuladoId, ano);
+    } catch (erro) {
+      console.warn(TAG, "bloqueio persistente indisponível; seguindo apenas com bloqueio local", erro);
+      await modalAvisoSeguro("Aviso de segurança", "Não foi possível verificar tentativa anterior no servidor. O sistema seguirá com o bloqueio local deste dispositivo.", "aviso");
+      if (iniciarPublicoAnterior) return await iniciarPublicoAnterior(simuladoId, ano);
+    }
+  };
+
+  // Finalização pública com ID determinístico por e-mail/WhatsApp, para evitar novo envio em aba anônima.
+  window.enviarSimuladoPublico = async function enviarSimuladoPublicoComBloqueioPersistente(simuladoId, ano, automatico = false, motivo = "finalizado") {
+    if (simuladoPublicoEnvioEmAndamento) return;
+    if (typeof simuladoPublicoJaFeitoNesteDispositivo === "function" && simuladoPublicoJaFeitoNesteDispositivo(simuladoId, ano)) {
+      const sim = await carregarSimuladoPublicoPorId(simuladoId, ano);
+      renderizarBloqueioSimuladoPublico(sim);
+      return;
+    }
+    const sessao = window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual;
+    const dados = sessao?.dados || (typeof lerDadosPublicosSimulado === "function" ? lerDadosPublicosSimulado() : {});
+    if (!dados.nome || !dados.escolaOrigem || !dados.cidade || !dados.email || !dados.whatsapp) {
+      await modalAvisoSeguro("Dados incompletos", "Informe nome completo, escola de origem, cidade, e-mail e WhatsApp.", "aviso");
+      return;
+    }
+    const sim = sessao?.sim || await carregarSimuladoPublicoPorId(simuladoId, ano);
+    const pend = typeof pendenciasPublicas === "function" ? pendenciasPublicas(sim) : { faltas: [], respostasObj: [], respostasDisc: [] };
+    if (!automatico && pend.faltas.length) {
+      const ok = await modalConfirmacaoSeguro(
+        "Respostas pendentes",
+        "Ainda existem questões sem resposta. Deseja concluir mesmo assim?",
+        `<div class="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4"><p class="font-bold text-amber-200 mb-2">Pendências:</p><ul class="list-disc pl-5 space-y-1">${pend.faltas.map(f=>`<li>${textoSeguro(f)}</li>`).join("")}</ul></div>`,
+        "Concluir mesmo assim",
+        "Voltar para a prova"
+      );
+      if (!ok) return;
+    }
+    const btn = document.getElementById("btnEnviarSimuladoPublico");
+    try {
+      simuladoPublicoEnvioEmAndamento = true;
+      simuladoPublicoSaidaPermitida = true;
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+      if (typeof validarConteudoEducacionalIA === "function" && !validarConteudoEducacionalIA([dados.nome, dados.escolaOrigem, dados.cidade, dados.email, dados.whatsapp, document.getElementById("pubTexto")?.value, ...(pend.respostasDisc || []).map(r=>r.texto)], "envio público")) {
+        simuladoPublicoEnvioEmAndamento = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+        return;
+      }
+      const correcao = typeof corrigirRespostaObjetiva === "function" ? corrigirRespostaObjetiva(sim.gabaritoObjetivo, pend.respostasObj) : { acertos: 0, total: 0, respondidas: (pend.respostasObj || []).length, percentual: 0 };
+      const dispositivoId = typeof obterDispositivoPublicoSimulado === "function" ? obterDispositivoPublicoSimulado() : `disp_${Date.now()}`;
+      const agora = Date.now();
+      const inicio = Number(sessao?.inicio || sessao?.iniciadoEm || agora);
+      const tempoGastoSegundos = Math.max(0, Math.round((agora - inicio) / 1000));
+      const token = window.__tokenTentativaPublicaAtual || await chavePublicaTentativa(simuladoId, dados);
+      const docId = `${simuladoId}_publico_${token}`;
+      const doc = {
+        id: docId,
+        tokenTentativa: token,
+        simuladoId,
+        simuladoTitulo: sim.titulo || "",
+        publico: true,
+        visitante: true,
+        dispositivoId,
+        alunoNome: dados.nome,
+        nome: dados.nome,
+        escolaOrigem: dados.escolaOrigem,
+        escolaNome: dados.escolaOrigem,
+        cidade: dados.cidade,
+        email: dados.email,
+        whatsapp: dados.whatsapp,
+        emailNormalizado: normalizarEmailPublico(dados.email),
+        whatsappNormalizado: normalizarWhatsappPublico(dados.whatsapp),
+        respostasObjetivas: pend.respostasObj || [],
+        respostasDissertativas: (pend.respostasDisc || []).filter(r=>r.texto),
+        texto: document.getElementById("pubTexto")?.value.trim() || "",
+        acertos: correcao.acertos,
+        totalObjetivas: correcao.total,
+        respondidasObjetivas: correcao.respondidas,
+        percentual: correcao.percentual,
+        iniciadoEm: inicio,
+        enviadoEm: agora,
+        encerradoEm: agora,
+        tempoGastoSegundos,
+        tempoGastoTexto: typeof formatarTempoMs === "function" ? formatarTempoMs(tempoGastoSegundos * 1000) : `${tempoGastoSegundos}s`,
+        status: "encerrado",
+        motivoEncerramento: motivo,
+        automatico: !!automatico,
+        statusCorrecao: typeof simuladoPrecisaCorrecaoManual === "function" && simuladoPrecisaCorrecaoManual(sim) ? "pendente" : "automatica"
+      };
+      await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_envios`).doc(docId).set(doc);
+      await firebaseFirestore.collection(`anos/${ano}/sistema_simulados_leads`).doc(docId).set(doc);
+      if (typeof marcarSimuladoPublicoFeitoNesteDispositivo === "function") marcarSimuladoPublicoFeitoNesteDispositivo(simuladoId, ano);
+      if (simuladoPublicoTimerInterval) clearInterval(simuladoPublicoTimerInterval);
+      simuladoPublicoTimerInterval = null;
+      simuladoPublicoSessaoAtual = null;
+      window.simuladoPublicoSessaoAtual = null;
+      simuladoPublicoTelaCheiaAtiva = false;
+      try { if (typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim) && typeof sairTelaCheiaSimuladoSeguro === "function") await sairTelaCheiaSimuladoSeguro(); } catch(_) {}
+      if (typeof renderizarPaginaAgradecimentoSimuladoPublico === "function") renderizarPaginaAgradecimentoSimuladoPublico(sim, automatico ? `O simulado foi encerrado automaticamente. Tempo registrado: ${doc.tempoGastoTexto}. As respostas marcadas foram salvas.` : `Suas respostas foram registradas. Tempo de prova registrado: ${doc.tempoGastoTexto}.`);
+      else await modalAvisoSeguro("Simulado enviado", `Obrigado pela participação. Tempo registrado: ${doc.tempoGastoTexto}.`, "sucesso");
+    } catch(e) {
+      console.error(TAG, e);
+      const msg = String(e.message || e);
+      if (/permission|PERMISSION_DENIED|Missing or insufficient permissions/i.test(msg)) {
+        renderizarBloqueioTentativaPublica(sim, "Tentativa já registrada", "Este e-mail/WhatsApp já possui envio ou tentativa registrada para este simulado.");
+      } else {
+        await modalAvisoSeguro("Erro ao enviar simulado público", msg, "erro");
+        if (btn) { btn.disabled = false; btn.innerHTML = "Finalizar e enviar"; }
+      }
+    } finally {
+      simuladoPublicoEnvioEmAndamento = false;
+    }
+  };
+
+  console.log(TAG, "carregado");
+})();
