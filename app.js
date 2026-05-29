@@ -15143,16 +15143,22 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   }
   function layoutsPadraoMiniLista() {
     const logo = layoutVisualAtual?.logoUrl || "";
+    const cabAluno = "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______";
+    const cabSimulado = "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______\nProfessor(a): _____________________________________    Nota: ____________________";
     return [
       {
-        id: "lista_padrao_avance",
-        nome: "Avance Olímpico — Lista timbrada",
+        id: "avance_lista_classica",
+        nome: "Avance — Lista clássica",
         tipo: "lista",
+        estiloVisual: "classico",
         titulo: "Avance Olímpico",
         subtitulo: "Lista de Exercícios",
         logoUrl: logo,
-        cabecalhoTexto: "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______",
+        cabecalhoTexto: cabAluno,
         rodapeTexto: "",
+        marcaDaguaTexto: "AVANCE OLÍMPICO",
+        mostrarMarcaDagua: true,
+        mostrarAssinatura: false,
         mostrarMetadados: true,
         mostrarAlternativas: true,
         alternativasDuasColunas: false,
@@ -15160,22 +15166,84 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         questaoPorPagina: false
       },
       {
-        id: "simulado_padrao_avance",
-        nome: "Avance Olímpico — Simulado timbrado",
-        tipo: "simulado",
+        id: "avance_lista_estudo",
+        nome: "Avance — Lista comentada / estudo",
+        tipo: "lista",
+        estiloVisual: "estudo",
         titulo: "Avance Olímpico",
-        subtitulo: "Caderno de Questões / Simulado",
+        subtitulo: "Lista de Estudo Orientado",
         logoUrl: logo,
-        cabecalhoTexto: "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______\nProfessor(a): _____________________________________    Nota: ____________________",
+        cabecalhoTexto: cabAluno + "\nTema/Trilha: ______________________________________",
         rodapeTexto: "",
+        marcaDaguaTexto: "ESTUDO",
+        mostrarMarcaDagua: true,
+        mostrarAssinatura: false,
+        mostrarMetadados: true,
+        mostrarAlternativas: true,
+        alternativasDuasColunas: false,
+        linhasResposta: false,
+        questaoPorPagina: false
+      },
+      {
+        id: "avance_lista_resposta",
+        nome: "Avance — Lista com espaço para resposta",
+        tipo: "lista",
+        estiloVisual: "resposta",
+        titulo: "Avance Olímpico",
+        subtitulo: "Lista de Exercícios com Resolução",
+        logoUrl: logo,
+        cabecalhoTexto: cabAluno,
+        rodapeTexto: "",
+        marcaDaguaTexto: "AVANCE",
+        mostrarMarcaDagua: true,
+        mostrarAssinatura: true,
         mostrarMetadados: false,
         mostrarAlternativas: true,
         alternativasDuasColunas: false,
         linhasResposta: true,
         questaoPorPagina: false
+      },
+      {
+        id: "avance_simulado_formal",
+        nome: "Avance — Simulado formal",
+        tipo: "simulado",
+        estiloVisual: "formal",
+        titulo: "Avance Olímpico",
+        subtitulo: "Caderno de Questões / Simulado",
+        logoUrl: logo,
+        cabecalhoTexto: cabSimulado,
+        rodapeTexto: "",
+        marcaDaguaTexto: "SIMULADO",
+        mostrarMarcaDagua: true,
+        mostrarAssinatura: true,
+        mostrarMetadados: false,
+        mostrarAlternativas: true,
+        alternativasDuasColunas: false,
+        linhasResposta: true,
+        questaoPorPagina: false
+      },
+      {
+        id: "avance_simulado_caderno",
+        nome: "Avance — Simulado caderno enxuto",
+        tipo: "simulado",
+        estiloVisual: "caderno",
+        titulo: "Avance Olímpico",
+        subtitulo: "Caderno de Questões",
+        logoUrl: logo,
+        cabecalhoTexto: cabSimulado + "\nInstruções: leia cada questão com atenção e responda no espaço indicado.",
+        rodapeTexto: "",
+        marcaDaguaTexto: "AVANCE",
+        mostrarMarcaDagua: false,
+        mostrarAssinatura: false,
+        mostrarMetadados: false,
+        mostrarAlternativas: true,
+        alternativasDuasColunas: true,
+        linhasResposta: false,
+        questaoPorPagina: true
       }
     ];
   }
+
   function normalizarLayoutLista(layout) {
     const l = { ...(layout || {}) };
     l.id = String(l.id || `layout_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -15186,6 +15254,10 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     l.logoUrl = String(l.logoUrl || "").trim();
     l.cabecalhoTexto = String(l.cabecalhoTexto || "").trim();
     l.rodapeTexto = String(l.rodapeTexto || "").trim();
+    l.estiloVisual = String(l.estiloVisual || "classico").trim();
+    l.marcaDaguaTexto = String(l.marcaDaguaTexto || "").trim();
+    l.mostrarMarcaDagua = l.mostrarMarcaDagua !== false && !!l.marcaDaguaTexto;
+    l.mostrarAssinatura = !!l.mostrarAssinatura;
     l.mostrarMetadados = l.mostrarMetadados !== false;
     l.mostrarAlternativas = l.mostrarAlternativas !== false;
     l.alternativasDuasColunas = !!l.alternativasDuasColunas;
@@ -15202,7 +15274,15 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         const snap = await firebaseFirestore.collection("sistema_layout").doc(DOC_LAYOUT_LISTAS).get();
         if (snap.exists) {
           const dados = snap.data() || {};
-          if (Array.isArray(dados.layouts) && dados.layouts.length) layouts = dados.layouts;
+          if (Array.isArray(dados.layouts) && dados.layouts.length) {
+            const padroes = layoutsPadraoMiniLista();
+            const salvos = dados.layouts;
+            const idsSalvos = new Set(salvos.map(l => String(l?.id || "")));
+            layouts = [
+              ...padroes.filter(l => !idsSalvos.has(String(l.id))),
+              ...salvos
+            ];
+          }
         }
       }
     } catch (erro) {
@@ -15258,6 +15338,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       return cab + body + (rodape ? `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-3 text-xs text-gray-500">${esc(rodape)}</div>` : "");
     }
 
+    const marcaDagua = layout.mostrarMarcaDagua && layout.marcaDaguaTexto ? `<div class="ml-watermark">${esc(layout.marcaDaguaTexto)}</div>` : "";
     const cabPrint = `<div class="ml-header"><div class="ml-timbre-faixa"></div><div class="ml-logo-title">${logo ? `<div class="ml-logo-box"><img src="${esc(logo)}" class="ml-logo"></div>` : `<div class="ml-logo-box ml-logo-box-texto">AO</div>`}<div class="ml-brand-wrap"><p class="ml-brand">AVANCE OLÍMPICO</p><h1>${esc(titulo)}</h1>${subtitulo ? `<p class="ml-subtitle">${esc(subtitulo)}</p>` : ""}</div></div>${cabecalho ? `<div class="ml-cabecalho">${esc(cabecalho).replace(/\n/g, "<br>")}</div>` : ""}</div>`;
     const bodyPrint = qs.map((q, idx) => {
       const meta = [q.codigo, q.disciplina, q.nivel, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(" · ");
@@ -15269,8 +15350,9 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       }).map(a => `<img src="${esc(a.url)}" class="ml-img-anexo">`).join("");
       return `<div class="ml-questao" style="${pageBreak}"><div class="ml-qmeta"><b>Questão ${idx+1}</b>${layout.mostrarMetadados && meta ? ` — ${esc(meta)}` : ""}</div><div class="ml-enunciado">${htmlEnun}</div>${imagensAnexas}${layout.mostrarAlternativas ? renderAlternativasNeutras(q, "print", layout.alternativasDuasColunas) : ""}${layout.linhasResposta ? linhasRespostaPrint(layout.tipo === "simulado" ? 5 : 4) : ""}</div>`;
     }).join("");
+    const assinaturaPrint = layout.mostrarAssinatura ? `<div class="ml-assinaturas"><div>Assinatura do estudante</div><div>Professor(a) / Correção</div></div>` : "";
     const rodapePrint = rodape ? `<div class="ml-rodape">${esc(rodape).replace(/\n/g, "<br>")}</div>` : "";
-    return `<div class="ml-page ${layout.tipo === "simulado" ? "ml-simulado" : "ml-lista"}">${cabPrint}${bodyPrint}${rodapePrint}</div>`;
+    return `<div class="ml-page ${layout.tipo === "simulado" ? "ml-simulado" : "ml-lista"} ml-estilo-${esc(layout.estiloVisual || "classico")}">${marcaDagua}${cabPrint}${bodyPrint}${assinaturaPrint}${rodapePrint}</div>`;
   }
   function garantirEstiloMiniListaLayouts() {
     if (document.getElementById("styleMiniListaLayoutsAvancados")) return;
@@ -15302,6 +15384,23 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         .ml-enunciado { font-size: 13px; color: #111827; }
         .ml-enunciado img, .ml-img-anexo { display: block; max-width: 100%; max-height: 420px; margin: 8px auto; border: 1px solid #e9d5ff; border-radius: 10px; }
         .ml-rodape { border-top: 1px solid #ddd6fe; margin-top: 12px; padding-top: 8px; color: #6b7280; font-size: 11px; }
+        .ml-watermark { position: fixed; inset: 38% auto auto 8%; transform: rotate(-28deg); font-size: 56px; font-weight: 900; letter-spacing: .08em; color: rgba(91, 33, 182, .055); z-index: 0; pointer-events: none; white-space: nowrap; }
+        .ml-page > *:not(.ml-watermark) { position: relative; z-index: 1; }
+        .ml-assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 26px; color: #4b5563; font-size: 11px; }
+        .ml-assinaturas div { border-top: 1px solid #9ca3af; padding-top: 7px; text-align: center; }
+        .ml-estilo-estudo .ml-header { border-color: #bfdbfe; background: linear-gradient(180deg, #eff6ff 0%, #ffffff 45%); }
+        .ml-estilo-estudo .ml-timbre-faixa { background: linear-gradient(90deg, #4c1d95 0%, #2563eb 55%, #7c3aed 100%); }
+        .ml-estilo-estudo .ml-cabecalho { border-color: #bfdbfe; background: #eff6ff; color: #1e3a8a; }
+        .ml-estilo-estudo .ml-qmeta { color: #1d4ed8; }
+        .ml-estilo-resposta .ml-header { border-color: #c4b5fd; background: linear-gradient(180deg, #f5f3ff 0%, #ffffff 42%); }
+        .ml-estilo-resposta .ml-questao { border-left: 5px solid #7c3aed; }
+        .ml-estilo-formal .ml-header { border-radius: 8px; border: 2px solid #5b21b6; background: #ffffff; }
+        .ml-estilo-formal .ml-timbre-faixa { height: 18px; background: #5b21b6; }
+        .ml-estilo-formal .ml-questao { border-radius: 6px; box-shadow: none; }
+        .ml-estilo-caderno .ml-header { border-radius: 0; border-width: 0 0 3px 0; border-color: #5b21b6; background: #ffffff; }
+        .ml-estilo-caderno .ml-timbre-faixa { height: 8px; }
+        .ml-estilo-caderno .ml-questao { border-width: 0 0 1px 0; border-radius: 0; padding: 10px 0 18px; box-shadow: none; }
+        .ml-estilo-caderno .ml-logo-box { width: 58px; height: 58px; border-radius: 12px; }
       }
     `;
     document.head.appendChild(st);
@@ -15374,7 +15473,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     const painel = document.createElement("div");
     painel.id = "painelLayoutsMiniListaQuestoes";
     painel.className = "mini-lista-editor bg-gray-800/50 border border-indigo-900/40 rounded-2xl p-5 shadow-xl";
-    painel.innerHTML = `<div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-indigo-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff configuram modelos que aparecem para os alunos ao gerar PDF da mini-lista.</p></div><div class="flex flex-wrap gap-2"><select id="layoutListaSelect" onchange="selecionarLayoutMiniListaAdmin()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[240px]"></select><button type="button" onclick="novoLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Novo</button><button type="button" onclick="salvarLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-black uppercase">Salvar</button><button type="button" onclick="excluirLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold uppercase">Excluir</button></div></div><div class="grid grid-cols-1 lg:grid-cols-4 gap-3"><input id="layoutListaId" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="id_do_layout"><input id="layoutListaNome" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Nome do layout"><select id="layoutListaTipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Lista</option><option value="simulado">Simulado</option></select><input id="layoutListaTitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Título impresso"></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3"><input id="layoutListaSubtitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Subtítulo"><input id="layoutListaLogoUrl" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="URL da logo"><input type="file" id="layoutListaLogoArquivo" accept="image/*" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300"></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3"><textarea id="layoutListaCabecalho" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Cabeçalho: Nome, turma, data..."></textarea><textarea id="layoutListaRodape" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Rodapé / instruções finais"></textarea></div><div class="flex flex-wrap gap-3 mt-3 text-xs text-gray-300"><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaMetadados" class="accent-indigo-500"> Mostrar metadados</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativas" class="accent-indigo-500"> Mostrar alternativas</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativasDuasColunas" class="accent-indigo-500"> Alternativas em duas colunas na tela</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaLinhasResposta" class="accent-indigo-500"> Espaço para resposta</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaQuestaoPorPagina" class="accent-indigo-500"> Uma questão por página</label></div>`;
+    painel.innerHTML = `<div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-indigo-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff configuram modelos que aparecem para os alunos ao gerar PDF da mini-lista.</p></div><div class="flex flex-wrap gap-2"><select id="layoutListaSelect" onchange="selecionarLayoutMiniListaAdmin()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[240px]"></select><button type="button" onclick="novoLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Novo</button><button type="button" onclick="salvarLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-black uppercase">Salvar</button><button type="button" onclick="excluirLayoutMiniListaAdmin()" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold uppercase">Excluir</button></div></div><div class="grid grid-cols-1 lg:grid-cols-5 gap-3"><input id="layoutListaId" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="id_do_layout"><input id="layoutListaNome" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Nome do layout"><select id="layoutListaTipo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Lista</option><option value="simulado">Simulado</option></select><select id="layoutListaEstilo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="classico">Clássico roxo</option><option value="estudo">Estudo azul/roxo</option><option value="resposta">Com resposta</option><option value="formal">Formal</option><option value="caderno">Caderno enxuto</option></select><input id="layoutListaTitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Título impresso"></div><div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mt-3"><input id="layoutListaSubtitulo" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Subtítulo"><input id="layoutListaLogoUrl" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="URL da logo"><input id="layoutListaMarcaDagua" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Marca d'água"><input type="file" id="layoutListaLogoArquivo" accept="image/*" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300"></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3"><textarea id="layoutListaCabecalho" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Cabeçalho: Nome, turma, data..."></textarea><textarea id="layoutListaRodape" rows="3" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 resize-y" placeholder="Rodapé / instruções finais"></textarea></div><div class="flex flex-wrap gap-3 mt-3 text-xs text-gray-300"><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaMetadados" class="accent-indigo-500"> Mostrar metadados</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativas" class="accent-indigo-500"> Mostrar alternativas</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAlternativasDuasColunas" class="accent-indigo-500"> Alternativas em duas colunas na tela</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaLinhasResposta" class="accent-indigo-500"> Espaço para resposta</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaQuestaoPorPagina" class="accent-indigo-500"> Uma questão por página</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaMostrarMarcaDagua" class="accent-indigo-500"> Marca d'água</label><label class="flex items-center gap-2"><input type="checkbox" id="layoutListaAssinatura" class="accent-indigo-500"> Campo de assinatura</label></div>`;
     view.insertBefore(painel, view.children[1] || null);
     popularSelectLayoutsMiniListaAdmin();
   }
@@ -15391,15 +15490,15 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     const l = layouts.find(x => x.id === id) || layouts[0] || layoutsPadraoMiniLista()[0];
     const set = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.value = valor ?? ""; };
     const chk = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.checked = !!valor; };
-    set("layoutListaId", l.id); set("layoutListaNome", l.nome); set("layoutListaTipo", l.tipo); set("layoutListaTitulo", l.titulo); set("layoutListaSubtitulo", l.subtitulo); set("layoutListaLogoUrl", l.logoUrl); set("layoutListaCabecalho", l.cabecalhoTexto); set("layoutListaRodape", l.rodapeTexto);
-    chk("layoutListaMetadados", l.mostrarMetadados); chk("layoutListaAlternativas", l.mostrarAlternativas); chk("layoutListaAlternativasDuasColunas", l.alternativasDuasColunas); chk("layoutListaLinhasResposta", l.linhasResposta); chk("layoutListaQuestaoPorPagina", l.questaoPorPagina);
+    set("layoutListaId", l.id); set("layoutListaNome", l.nome); set("layoutListaTipo", l.tipo); set("layoutListaEstilo", l.estiloVisual); set("layoutListaTitulo", l.titulo); set("layoutListaSubtitulo", l.subtitulo); set("layoutListaLogoUrl", l.logoUrl); set("layoutListaMarcaDagua", l.marcaDaguaTexto); set("layoutListaCabecalho", l.cabecalhoTexto); set("layoutListaRodape", l.rodapeTexto);
+    chk("layoutListaMetadados", l.mostrarMetadados); chk("layoutListaAlternativas", l.mostrarAlternativas); chk("layoutListaAlternativasDuasColunas", l.alternativasDuasColunas); chk("layoutListaLinhasResposta", l.linhasResposta); chk("layoutListaQuestaoPorPagina", l.questaoPorPagina); chk("layoutListaMostrarMarcaDagua", l.mostrarMarcaDagua); chk("layoutListaAssinatura", l.mostrarAssinatura);
   };
   window.novoLayoutMiniListaAdmin = function novoLayoutMiniListaAdmin() {
     const id = `layout_${Date.now()}`;
     const set = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.value = valor ?? ""; };
     const chk = (idCampo, valor) => { const el = document.getElementById(idCampo); if (el) el.checked = !!valor; };
-    set("layoutListaId", id); set("layoutListaNome", "Novo layout"); set("layoutListaTipo", "lista"); set("layoutListaTitulo", "Lista de Exercícios"); set("layoutListaSubtitulo", ""); set("layoutListaLogoUrl", layoutVisualAtual?.logoUrl || ""); set("layoutListaCabecalho", "Nome: ____________________________________________  Turma: ______________  Data: ____/____/______"); set("layoutListaRodape", "");
-    chk("layoutListaMetadados", true); chk("layoutListaAlternativas", true); chk("layoutListaAlternativasDuasColunas", false); chk("layoutListaLinhasResposta", false); chk("layoutListaQuestaoPorPagina", false);
+    set("layoutListaId", id); set("layoutListaNome", "Novo layout"); set("layoutListaTipo", "lista"); set("layoutListaEstilo", "classico"); set("layoutListaTitulo", "Avance Olímpico"); set("layoutListaSubtitulo", "Lista de Exercícios"); set("layoutListaLogoUrl", layoutVisualAtual?.logoUrl || ""); set("layoutListaMarcaDagua", "AVANCE OLÍMPICO"); set("layoutListaCabecalho", "Nome: ____________________________________________  Turma: ______________  Data: ____/____/______"); set("layoutListaRodape", "");
+    chk("layoutListaMetadados", true); chk("layoutListaAlternativas", true); chk("layoutListaAlternativasDuasColunas", false); chk("layoutListaLinhasResposta", false); chk("layoutListaQuestaoPorPagina", false); chk("layoutListaMostrarMarcaDagua", true); chk("layoutListaAssinatura", false);
   };
   async function layoutDoFormularioAdmin() {
     let logoUrl = document.getElementById("layoutListaLogoUrl")?.value.trim() || "";
@@ -15415,11 +15514,15 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       id: document.getElementById("layoutListaId")?.value || `layout_${Date.now()}`,
       nome: document.getElementById("layoutListaNome")?.value || "Layout sem nome",
       tipo: document.getElementById("layoutListaTipo")?.value || "lista",
+      estiloVisual: document.getElementById("layoutListaEstilo")?.value || "classico",
       titulo: document.getElementById("layoutListaTitulo")?.value || "Lista de Exercícios",
       subtitulo: document.getElementById("layoutListaSubtitulo")?.value || "",
       logoUrl,
       cabecalhoTexto: document.getElementById("layoutListaCabecalho")?.value || "",
       rodapeTexto: document.getElementById("layoutListaRodape")?.value || "",
+      marcaDaguaTexto: document.getElementById("layoutListaMarcaDagua")?.value || "",
+      mostrarMarcaDagua: !!document.getElementById("layoutListaMostrarMarcaDagua")?.checked,
+      mostrarAssinatura: !!document.getElementById("layoutListaAssinatura")?.checked,
       mostrarMetadados: !!document.getElementById("layoutListaMetadados")?.checked,
       mostrarAlternativas: !!document.getElementById("layoutListaAlternativas")?.checked,
       alternativasDuasColunas: !!document.getElementById("layoutListaAlternativasDuasColunas")?.checked,
@@ -15447,7 +15550,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   window.excluirLayoutMiniListaAdmin = async function excluirLayoutMiniListaAdmin() {
     if (!podeConfigurarLayoutLista()) return alert("Apenas ADM/Staff podem excluir layouts.");
     const id = document.getElementById("layoutListaSelect")?.value || document.getElementById("layoutListaId")?.value || "";
-    if (["lista_padrao", "simulado_padrao"].includes(id)) return alert("Os layouts padrão não podem ser excluídos. Edite-os ou crie outro.");
+    if (layoutsPadraoMiniLista().some(l => l.id === id)) return alert("Os layouts padrão da Avance não podem ser excluídos. Edite-os ou crie outro.");
     const ok = await confirmarPlataforma(`Excluir o layout ${id}?`, "Excluir layout", "Excluir", "Cancelar");
     if (!ok) return;
     const layouts = (await carregarLayoutsMiniLista()).filter(l => l.id !== id);
