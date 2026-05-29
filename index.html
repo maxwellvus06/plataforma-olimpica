@@ -963,6 +963,7 @@
                                 <h4 class="font-black text-amber-200 uppercase tracking-wider mb-2"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Regra de ouro</h4>
                                 <p>Não invente nomes diferentes para o mesmo conteúdo. Use a taxonomia do modelo. Exemplo: use sempre <b>Divisibilidade</b>, e não “divisao”, “divisível”, “divisibilidade básica” como temas separados.</p>
                                 <p class="mt-2">No lote, imagens entram por URL nas colunas <b>Arquivo URL 1/2/3</b>. O cadastro manual continua aceitando upload direto de imagens, PDFs e documentos.</p>
+                                <p class="mt-2">Se o campo <b>Código</b> ficar vazio, a plataforma gera automaticamente a próxima numeração disponível para aquele mesmo prefixo. Ex.: se já existe <b>MAT-N2-ARI-DIV-0001</b>, a próxima questão igual vira <b>MAT-N2-ARI-DIV-0002</b>.</p>
                             </div>
                         </div>
                         <div id="questoesLotePreview" class="mt-5"></div>
@@ -1022,7 +1023,16 @@
                         </form>
                     </div>
                     <div class="bg-gray-800/40 border border-gray-800 rounded-2xl p-4">
-                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3"><div><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-magnifying-glass text-blue-400 mr-2"></i>Explorar Banco de Questões</h3><p class="text-xs text-gray-500 mt-1">Filtre por taxonomia, veja anexos/imagens e abra as soluções quando quiser.</p></div></div>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider"><i class="fa-solid fa-magnifying-glass text-blue-400 mr-2"></i>Explorar Banco de Questões</h3>
+                                <p class="text-xs text-gray-500 mt-1">Filtre por taxonomia, veja anexos/imagens e abra as soluções quando quiser.</p>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <button type="button" onclick="exportarQuestoesExcel(false)" class="px-4 py-2.5 rounded-xl bg-blue-700/30 hover:bg-blue-700/50 text-blue-300 border border-blue-800/50 text-xs font-black uppercase"><i class="fa-solid fa-file-export mr-2"></i>Exportar Excel</button>
+                                <button type="button" onclick="alternarPainelExclusaoQuestoesLote()" class="px-4 py-2.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 text-red-300 border border-red-900/60 text-xs font-black uppercase"><i class="fa-solid fa-trash-can mr-2"></i>Excluir em lote</button>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Disciplina</label><select id="filtroQuestaoDisciplina" onchange="popularFiltrosQuestoes();renderizarBancoQuestoes()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todas</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Nível</label><select id="filtroQuestaoNivel" onchange="renderizarBancoQuestoes()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
@@ -1031,6 +1041,31 @@
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Dificuldade</label><select id="filtroQuestaoDificuldade" onchange="renderizarBancoQuestoes()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todas</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tipo</label><select id="filtroQuestaoTipo" onchange="renderizarBancoQuestoes()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Todos</option></select></div>
                             <div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Busca</label><input id="filtroQuestaoBusca" oninput="renderizarBancoQuestoes()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Tema, tags, enunciado..."></div>
+                        </div>
+                    </div>
+                    <div id="painelExclusaoQuestoesLote" class="hidden bg-red-950/20 border border-red-900/50 rounded-2xl p-5">
+                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 border-b border-red-900/40 pb-4 mb-4">
+                            <div>
+                                <h3 class="text-sm font-black text-red-200 uppercase tracking-wider"><i class="fa-solid fa-trash-can mr-2"></i>Exclusão em lote de questões</h3>
+                                <p class="text-xs text-red-100/70 mt-1 max-w-3xl">Cole códigos ou IDs, um por linha. Você também pode preencher automaticamente com as questões que estão aparecendo nos filtros atuais e revisar antes de excluir.</p>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <button type="button" onclick="preencherExclusaoQuestoesComFiltroAtual()" class="px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-200 border border-gray-700 text-xs font-bold uppercase"><i class="fa-solid fa-filter mr-2"></i>Usar filtros atuais</button>
+                                <button type="button" onclick="limparExclusaoQuestoesLote()" class="px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-950 text-gray-300 border border-gray-700 text-xs font-bold uppercase"><i class="fa-solid fa-broom mr-2"></i>Limpar</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)] gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-red-100 uppercase mb-1.5 tracking-wider">Códigos/IDs para excluir</label>
+                                <textarea id="questoesExcluirCodigos" oninput="atualizarPreviewExclusaoQuestoesLote()" rows="8" class="w-full p-3 rounded-xl bg-gray-950 border border-red-900/50 text-sm text-gray-100 resize-y focus:outline-none" placeholder="MAT-N2-ARI-DIV-0001
+MAT-N2-ARI-DIV-0002"></textarea>
+                                <p class="text-[10px] text-red-100/60 mt-1">Dica: use os filtros do banco, clique em “Usar filtros atuais”, confira a prévia e só então confirme a exclusão.</p>
+                            </div>
+                            <div class="rounded-2xl border border-red-900/40 bg-gray-950/70 p-4">
+                                <h4 class="text-xs font-black text-red-200 uppercase mb-2">Prévia da exclusão</h4>
+                                <div id="questoesExcluirPreview" class="text-xs text-gray-400 space-y-2">Nenhuma questão selecionada.</div>
+                                <button type="button" onclick="executarExclusaoQuestoesLote()" class="mt-4 w-full py-3 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase tracking-wider"><i class="fa-solid fa-trash mr-2"></i>Excluir selecionadas</button>
+                            </div>
                         </div>
                     </div>
                     <datalist id="listaTemasQuestoes"></datalist>

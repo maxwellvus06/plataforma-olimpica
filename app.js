@@ -13185,12 +13185,31 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   function abreviar(v, n=3) {
     return String(v || "GER").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]/g, "").slice(0,n).toUpperCase() || "GER";
   }
-  function gerarCodigoQuestao(q) {
-    const prefixo = [codigoDisciplina(q.disciplina), codigoNivel(q.nivel), abreviar(q.area), abreviar(q.tema)].join("-");
-    const existentes = getQuestoesBanco().map(x => String(x.codigo || ""));
-    let seq = existentes.filter(c => c.startsWith(prefixo)).length + 1;
+  function prefixoCodigoQuestao(q) {
+    return [codigoDisciplina(q.disciplina), codigoNivel(q.nivel), abreviar(q.area), abreviar(q.tema)].join("-");
+  }
+  function numeroFinalCodigoQuestao(codigo) {
+    const m = String(codigo || "").trim().match(/-(\d{1,})$/);
+    return m ? Number(m[1]) || 0 : 0;
+  }
+  function gerarCodigoQuestao(q, codigosReservados = []) {
+    const prefixo = prefixoCodigoQuestao(q);
+    const prefixoNorm = norm(prefixo);
+    const existentes = [
+      ...getQuestoesBanco().map(x => String(x.codigo || "").trim()).filter(Boolean),
+      ...(codigosReservados || []).map(x => String(x || "").trim()).filter(Boolean)
+    ];
+    let maior = 0;
+    existentes.forEach(codigo => {
+      const cNorm = norm(codigo);
+      if (cNorm.startsWith(`${prefixoNorm}-`)) maior = Math.max(maior, numeroFinalCodigoQuestao(codigo));
+    });
+    let seq = maior + 1;
     let codigo = `${prefixo}-${String(seq).padStart(4,"0")}`;
-    while (existentes.includes(codigo)) codigo = `${prefixo}-${String(++seq).padStart(4,"0")}`;
+    while (existentes.some(c => norm(c) === norm(codigo))) {
+      seq += 1;
+      codigo = `${prefixo}-${String(seq).padStart(4,"0")}`;
+    }
     return codigo;
   }
   function splitUrls(valor) {
@@ -13395,9 +13414,10 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       ...arquivosDeUrls([valorLinha(row, ["Solução URL 1", "Solucao URL 1"]), valorLinha(row, ["Solução URL 2", "Solucao URL 2"])].filter(Boolean).join("\n"), "solucao")
     ];
     const solucaoTexto = valorLinha(row, ["Resolução", "Resolucao", "Solução", "Solucao", "Texto da solução", "Texto da solucao"], "");
+    const codigoEntrada = valorLinha(row, ["Código", "Codigo", "ID"], "");
     const q = {
       id: novoId(),
-      codigo: valorLinha(row, ["Código", "Codigo", "ID"], ""),
+      codigo: codigoEntrada,
       titulo: valorLinha(row, ["Título", "Titulo", "Identificação", "Identificacao"], ""),
       disciplina,
       nivel: valorOpcaoMaisProxima(valorLinha(row, ["Nível", "Nivel"]), NIVEIS_QUESTOES_PADRAO, "Geral"),
@@ -13418,13 +13438,13 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       solucoes: [],
       status: valorOpcaoMaisProxima(valorLinha(row, ["Status"], "Ativa"), STATUS_QUESTOES_PADRAO, "Ativa"),
       origemCadastro: "importacao_xlsx",
+      codigoGeradoAutomaticamente: !codigoEntrada,
       linhaImportacao: numeroLinha,
       criadaEm: Date.now(), atualizadoEm: Date.now(),
       criadaPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
       criadaPorNome: usuarioLogado?.nome || "",
       criadaPorNivel: usuarioLogado?.nivel || ""
     };
-    if (!q.codigo) q.codigo = gerarCodigoQuestao(q);
     if (solucaoTexto || solucaoArquivos.length) q.solucoes.push({ id: novoId(), texto: solucaoTexto, arquivos: solucaoArquivos, tipo: "Solução importada", criadaEm: Date.now(), criadaPorId: q.criadaPorId, criadaPorNome: q.criadaPorNome, criadaPorNivel: q.criadaPorNivel });
     return q;
   }
@@ -13440,14 +13460,25 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         const ws = wb.Sheets[nomeAba];
         const linhas = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
         const validas = [], erros = [], avisos = [];
+        const codigosReservados = [];
         if (!linhas.length) erros.push("A planilha não possui linhas de questões na aba QUESTOES.");
         linhas.forEach((row, idx) => {
           const linha = idx + 2;
           if (!Object.values(row).some(v => String(v || "").trim())) return;
           const q = montarQuestaoDaLinha(row, linha);
+          if (!q.codigo) {
+            q.codigo = gerarCodigoQuestao(q, codigosReservados);
+            q.codigoGeradoAutomaticamente = true;
+          }
           const val = validarQuestao(q, linha, "lote");
+          if (!val.erros.length && q.codigo && codigosReservados.some(c => norm(c) === norm(q.codigo))) {
+            val.erros.push(`Linha ${linha}: Código duplicado dentro da própria planilha: ${q.codigo}.`);
+          }
           if (val.erros.length) erros.push(...val.erros);
-          else validas.push(q);
+          else {
+            validas.push(q);
+            if (q.codigo) codigosReservados.push(q.codigo);
+          }
           avisos.push(...val.avisos);
         });
         window.__questoesLotePendentes = validas;
@@ -13492,9 +13523,15 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     const codigos = new Set(existentes.map(q => norm(q.codigo)).filter(Boolean));
     const novas = [];
     const puladas = [];
-    validas.forEach(q => {
+    validas.forEach(orig => {
+      const q = { ...orig };
+      if (q.codigoGeradoAutomaticamente || !q.codigo) q.codigo = gerarCodigoQuestao(q, novas.map(n => n.codigo));
       if (q.codigo && codigos.has(norm(q.codigo))) puladas.push(q.codigo);
-      else { novas.push(q); if (q.codigo) codigos.add(norm(q.codigo)); }
+      else {
+        delete q._codigoAutomatico;
+        novas.push(q);
+        if (q.codigo) codigos.add(norm(q.codigo));
+      }
     });
     if (!novas.length) return alert("Todas as questões foram puladas por código duplicado.");
     await setStorage("app_questoes", [...existentes, ...novas]);
@@ -13553,7 +13590,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     inst.columns = [{width:34},{width:88}];
     inst.addRows([
       ["Como preencher", "Use a aba QUESTOES. Cada linha é uma questão. Campos obrigatórios: Título, Disciplina, Nível, Tema, Dificuldade, Tipo e Enunciado."],
-      ["Código", "Pode ficar vazio. A plataforma gera um código automático no padrão DISC-NIV-AREA-TEMA-0001."],
+      ["Código", "Pode ficar vazio. A plataforma gera um código automático no padrão DISC-NIV-AREA-TEMA-0001 e sempre procura a próxima numeração disponível no banco. Ex.: se MAT-N2-ARI-DIV-0001 já existe, a próxima questão do mesmo prefixo vira MAT-N2-ARI-DIV-0002."],
       ["Imagens/anexos em lote", "Coloque links públicos nas colunas Arquivo URL 1/2/3. O Excel não envia arquivos locais para o Firebase. Upload local deve ser feito no cadastro manual."],
       ["Múltipla escolha", "Preencha as alternativas A–E e o Gabarito. O sistema bloqueia questão objetiva sem alternativa ou sem gabarito."],
       ["Taxonomia", "Consulte a aba TAXONOMIA e use sempre os mesmos nomes para disciplina, área, tema e subtema."],
@@ -14169,5 +14206,200 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     catch (e) { console.warn(TAG, e); }
   }, 1500));
   setTimeout(() => { try { ativarEditoresBancoQuestoes(); garantirModalMidiaQuestao(); } catch(e) { console.warn(TAG, e); } }, 2200);
+  console.log(TAG, "carregado");
+})();
+
+// ============================================================
+// BANCO DE QUESTÕES — exportação Excel + exclusão em lote
+// Complementa o módulo sem alterar a estrutura dos demais módulos.
+// ============================================================
+(function bancoQuestoesExportacaoExclusaoLote(){
+  const TAG = "[BancoQuestoesExportDelete]";
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function normLocal(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+  function listaQuestoes() {
+    const qs = getStorage("app_questoes", []);
+    return Array.isArray(qs) ? qs : [];
+  }
+  function textoDeHtmlLocal(html) {
+    if (typeof document === "undefined") return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const tmp = document.createElement("div");
+    tmp.innerHTML = String(html || "");
+    return (tmp.innerText || tmp.textContent || "").trim();
+  }
+  function urlsArquivos(arquivos) {
+    return (Array.isArray(arquivos) ? arquivos : []).map(a => a?.url || "").filter(Boolean).join("\n");
+  }
+  function nomesArquivos(arquivos) {
+    return (Array.isArray(arquivos) ? arquivos : []).map(a => a?.nome || a?.fileName || "").filter(Boolean).join("\n");
+  }
+  function primeiraSolucao(q) {
+    const sols = Array.isArray(q?.solucoes) ? q.solucoes : [];
+    return sols[0] || {};
+  }
+  function passaFiltrosAtuais(q) {
+    const valorFiltro = id => document.getElementById(id)?.value || "TODOS";
+    const busca = normLocal(document.getElementById("filtroQuestaoBusca")?.value || "");
+    if (valorFiltro("filtroQuestaoDisciplina") !== "TODOS" && q.disciplina !== valorFiltro("filtroQuestaoDisciplina")) return false;
+    if (valorFiltro("filtroQuestaoNivel") !== "TODOS" && q.nivel !== valorFiltro("filtroQuestaoNivel")) return false;
+    if (valorFiltro("filtroQuestaoArea") !== "TODOS" && q.area !== valorFiltro("filtroQuestaoArea")) return false;
+    if (valorFiltro("filtroQuestaoTema") !== "TODOS" && q.tema !== valorFiltro("filtroQuestaoTema")) return false;
+    if (valorFiltro("filtroQuestaoDificuldade") !== "TODOS" && q.dificuldade !== valorFiltro("filtroQuestaoDificuldade")) return false;
+    if (valorFiltro("filtroQuestaoTipo") !== "TODOS" && q.tipo !== valorFiltro("filtroQuestaoTipo")) return false;
+    if (busca) {
+      const texto = normLocal([q.codigo, q.id, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade, q.tipo, q.fonte, q.ano, q.fase, q.enunciado, textoDeHtmlLocal(q.enunciadoHtml), ...(q.tags || []), ...Object.values(q.alternativas || {})].join(" "));
+      if (!texto.includes(busca)) return false;
+    }
+    return true;
+  }
+  function idsDigitadosExclusao() {
+    const txt = document.getElementById("questoesExcluirCodigos")?.value || "";
+    return Array.from(new Set(txt.split(/[\n,;]+/).map(v => v.trim()).filter(Boolean)));
+  }
+  function questoesSelecionadasParaExcluir() {
+    const ids = idsDigitadosExclusao();
+    if (!ids.length) return [];
+    const set = new Set(ids.map(normLocal));
+    return listaQuestoes().filter(q => set.has(normLocal(q.codigo)) || set.has(normLocal(q.id)));
+  }
+
+  window.exportarQuestoesExcel = async function exportarQuestoesExcel(apenasFiltradas = false) {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para exportar questões.");
+    if (typeof ExcelJS === "undefined") return alert("Biblioteca ExcelJS não carregou. Atualize a página e tente novamente.");
+    const questoes = (apenasFiltradas ? listaQuestoes().filter(passaFiltrosAtuais) : listaQuestoes())
+      .slice()
+      .sort((a,b) => String(a.codigo || "").localeCompare(String(b.codigo || ""), "pt-BR", { numeric: true, sensitivity: "base" }));
+    if (!questoes.length) return alert("Não há questões para exportar.");
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Avance Olímpico";
+    wb.created = new Date();
+    const ws = wb.addWorksheet("QUESTOES");
+    const cols = [
+      ["ID", "id", 24], ["Código", "codigo", 24], ["Título", "titulo", 42], ["Disciplina", "disciplina", 22], ["Nível", "nivel", 24],
+      ["Área", "area", 24], ["Tema", "tema", 28], ["Subtema", "subtema", 34], ["Dificuldade", "dificuldade", 18], ["Tipo", "tipo", 20],
+      ["Enunciado", "enunciado", 60], ["Enunciado HTML", "enunciadoHtml", 60], ["Texto limpo do HTML", "enunciadoTextoHtml", 48],
+      ["Alternativa A", "altA", 36], ["Alternativa B", "altB", 36], ["Alternativa C", "altC", 36], ["Alternativa D", "altD", 36], ["Alternativa E", "altE", 36],
+      ["Gabarito", "gabarito", 12], ["Resolução", "resolucao", 60], ["Resolução HTML", "resolucaoHtml", 60],
+      ["Fonte", "fonte", 24], ["Ano", "ano", 12], ["Fase", "fase", 18], ["Tempo estimado min", "tempo", 18], ["Tags", "tags", 34], ["Status", "status", 16],
+      ["Arquivo URLs", "arquivoUrls", 60], ["Arquivo nomes", "arquivoNomes", 42], ["Solução URLs", "solucaoUrls", 60], ["Soluções extras JSON", "solucoesJson", 70],
+      ["Origem cadastro", "origemCadastro", 24], ["Criada por", "criadaPorNome", 26], ["Criada em", "criadaEm", 22], ["Atualizada em", "atualizadoEm", 22]
+    ];
+    ws.columns = cols.map(([header, key, width]) => ({ header, key, width }));
+
+    questoes.forEach(q => {
+      const alt = q.alternativas || {};
+      const sol = primeiraSolucao(q);
+      ws.addRow({
+        id: q.id || "", codigo: q.codigo || "", titulo: q.titulo || "", disciplina: q.disciplina || "", nivel: q.nivel || "",
+        area: q.area || "", tema: q.tema || "", subtema: q.subtema || "", dificuldade: q.dificuldade || "", tipo: q.tipo || "",
+        enunciado: q.enunciado || "", enunciadoHtml: q.enunciadoHtml || "", enunciadoTextoHtml: textoDeHtmlLocal(q.enunciadoHtml || ""),
+        altA: alt.A || "", altB: alt.B || "", altC: alt.C || "", altD: alt.D || "", altE: alt.E || "", gabarito: q.alternativaCorreta || "",
+        resolucao: sol.texto || "", resolucaoHtml: sol.textoHtml || "",
+        fonte: q.fonte || "", ano: q.ano || "", fase: q.fase || "", tempo: q.tempoEstimadoMin || "", tags: (q.tags || []).join(", "), status: q.status || "",
+        arquivoUrls: urlsArquivos(q.arquivos), arquivoNomes: nomesArquivos(q.arquivos), solucaoUrls: urlsArquivos(sol.arquivos),
+        solucoesJson: JSON.stringify((q.solucoes || []).map(s => ({ texto: s.texto || "", textoHtml: s.textoHtml || "", arquivos: s.arquivos || [], tipo: s.tipo || "" }))),
+        origemCadastro: q.origemCadastro || "", criadaPorNome: q.criadaPorNome || "", criadaEm: q.criadaEm ? new Date(q.criadaEm).toLocaleString("pt-BR") : "", atualizadoEm: q.atualizadoEm ? new Date(q.atualizadoEm).toLocaleString("pt-BR") : ""
+      });
+    });
+
+    ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
+    ws.eachRow(row => row.eachCell(cell => {
+      cell.alignment = { vertical: "top", wrapText: true };
+      cell.border = { top:{style:"thin", color:{argb:"FF374151"}}, left:{style:"thin", color:{argb:"FF374151"}}, bottom:{style:"thin", color:{argb:"FF374151"}}, right:{style:"thin", color:{argb:"FF374151"}} };
+    }));
+
+    const resumo = wb.addWorksheet("RESUMO");
+    resumo.columns = [{ width: 28 }, { width: 18 }];
+    const porDisc = new Map();
+    const porNivel = new Map();
+    questoes.forEach(q => { porDisc.set(q.disciplina || "Não informado", (porDisc.get(q.disciplina || "Não informado") || 0) + 1); porNivel.set(q.nivel || "Não informado", (porNivel.get(q.nivel || "Não informado") || 0) + 1); });
+    resumo.addRows([["Total de questões", questoes.length], [], ["Por disciplina", "Quantidade"], ...Array.from(porDisc.entries()), [], ["Por nível", "Quantidade"], ...Array.from(porNivel.entries())]);
+    resumo.getColumn(1).font = { bold: true };
+
+    const baixar = typeof baixarWorkbookExcelJS === "function" ? baixarWorkbookExcelJS : async (workbook, nomeArquivo) => {
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = nomeArquivo; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    };
+    const data = new Date().toISOString().slice(0,10);
+    await baixar(wb, `banco_questoes_${anoDadosAtivo || "2026"}_${apenasFiltradas ? "filtrado" : "completo"}_${data}.xlsx`);
+  };
+
+  window.alternarPainelExclusaoQuestoesLote = function alternarPainelExclusaoQuestoesLote() {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para excluir questões.");
+    const painel = document.getElementById("painelExclusaoQuestoesLote");
+    if (!painel) return;
+    painel.classList.toggle("hidden");
+    if (!painel.classList.contains("hidden")) atualizarPreviewExclusaoQuestoesLote();
+  };
+
+  window.preencherExclusaoQuestoesComFiltroAtual = async function preencherExclusaoQuestoesComFiltroAtual() {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para excluir questões.");
+    const qs = listaQuestoes().filter(passaFiltrosAtuais);
+    if (!qs.length) return alert("Nenhuma questão encontrada nos filtros atuais.");
+    const ok = await confirmarPlataforma(`Preencher a área de exclusão com ${qs.length} questão(ões) dos filtros atuais?\n\nNada será apagado ainda. Você poderá revisar antes de confirmar.`, "Preparar exclusão em lote", "Preencher", "Cancelar");
+    if (!ok) return;
+    const txt = document.getElementById("questoesExcluirCodigos");
+    if (txt) txt.value = qs.map(q => q.codigo || q.id).filter(Boolean).join("\n");
+    atualizarPreviewExclusaoQuestoesLote();
+  };
+
+  window.atualizarPreviewExclusaoQuestoesLote = function atualizarPreviewExclusaoQuestoesLote() {
+    const box = document.getElementById("questoesExcluirPreview");
+    if (!box) return;
+    const digitados = idsDigitadosExclusao();
+    const selecionadas = questoesSelecionadasParaExcluir();
+    const encontrados = new Set(selecionadas.flatMap(q => [normLocal(q.codigo), normLocal(q.id)]));
+    const naoEncontrados = digitados.filter(id => !encontrados.has(normLocal(id)));
+    if (!digitados.length) {
+      box.innerHTML = `<p class="text-gray-500">Nenhuma questão selecionada.</p>`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="flex flex-wrap gap-2 mb-3">
+        <span class="px-3 py-1 rounded-xl bg-red-950/50 text-red-200 border border-red-900/60 font-bold">${selecionadas.length} encontrada(s)</span>
+        <span class="px-3 py-1 rounded-xl bg-gray-900 text-gray-400 border border-gray-700 font-bold">${naoEncontrados.length} não encontrada(s)</span>
+      </div>
+      ${selecionadas.length ? `<div class="max-h-52 overflow-y-auto space-y-1">${selecionadas.slice(0,60).map(q => `<p class="truncate"><b class="text-red-200 font-mono">${esc(q.codigo || q.id)}</b> — ${esc(q.titulo || "Sem título")}</p>`).join("")}${selecionadas.length > 60 ? `<p class="text-gray-500">...e mais ${selecionadas.length - 60} questão(ões)</p>` : ""}</div>` : ""}
+      ${naoEncontrados.length ? `<details class="mt-3"><summary class="cursor-pointer text-amber-300 font-bold">Ver não encontradas</summary><div class="mt-2 max-h-24 overflow-y-auto text-amber-100/80">${naoEncontrados.slice(0,80).map(x => `<p>${esc(x)}</p>`).join("")}</div></details>` : ""}
+    `;
+  };
+
+  window.limparExclusaoQuestoesLote = function limparExclusaoQuestoesLote() {
+    const txt = document.getElementById("questoesExcluirCodigos");
+    if (txt) txt.value = "";
+    atualizarPreviewExclusaoQuestoesLote();
+  };
+
+  window.executarExclusaoQuestoesLote = async function executarExclusaoQuestoesLote() {
+    if (!podeGerenciarQuestoes()) return alert("Sem permissão para excluir questões.");
+    const selecionadas = questoesSelecionadasParaExcluir();
+    if (!selecionadas.length) return alert("Nenhuma questão válida selecionada para excluir.");
+    const exemplos = selecionadas.slice(0, 10).map(q => `• ${q.codigo || q.id} — ${q.titulo || "Sem título"}`).join("\n");
+    const ok = await confirmarPlataforma(`Excluir definitivamente ${selecionadas.length} questão(ões) do banco?\n\n${exemplos}${selecionadas.length > 10 ? `\n...e mais ${selecionadas.length - 10}` : ""}\n\nAtenção: isso remove os registros do banco. Arquivos já enviados ao Storage não são apagados automaticamente.`, "Confirmar exclusão em lote", "Excluir", "Cancelar");
+    if (!ok) return;
+    const ids = new Set(selecionadas.map(q => String(q.id)));
+    const codigos = new Set(selecionadas.map(q => normLocal(q.codigo)).filter(Boolean));
+    const restantes = listaQuestoes().filter(q => !ids.has(String(q.id)) && !codigos.has(normLocal(q.codigo)));
+    await setStorage("app_questoes", restantes);
+    limparExclusaoQuestoesLote();
+    if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes();
+    if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes();
+    alert(`Exclusão concluída.\n\nRemovidas: ${selecionadas.length}`);
+  };
+
   console.log(TAG, "carregado");
 })();
