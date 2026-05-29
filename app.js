@@ -1771,7 +1771,7 @@ async function carregarDadosFirebaseInicial() {
         "app_simulados_envios",
         "app_aulas",
         "app_listas_suspensas",
-        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador", "Aluno"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -1796,7 +1796,7 @@ async function carregarDadosPosLogin() {
         "app_simulados_envios",
         "app_aulas",
         "app_listas_suspensas",
-        ...(["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador", "Aluno"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
     ];
 
     for (const chave of chaves) {
@@ -9093,7 +9093,7 @@ function toggleSenhaLogin() {
 }
 
 function podeGerenciarQuestoes() {
-    return !!usuarioLogado && ["ADM", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
+    return !!usuarioLogado && ["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel);
 }
 
 function normalizarListaUnicaOrdenada(lista) {
@@ -14939,4 +14939,36 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   document.addEventListener("DOMContentLoaded", () => setTimeout(() => { try { garantirEstilosMiniLista(); inserirMiniListaPainel(); popularFiltrosQuestoes(); renderizarBancoQuestoes(); } catch(e) { console.warn(TAG, e); } }, 1900));
   setTimeout(() => { try { garantirEstilosMiniLista(); inserirMiniListaPainel(); if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes(); } catch(e) { console.warn(TAG, e); } }, 2600);
   console.log(TAG, "carregado");
+})();
+
+
+// ============================================================
+// PATCH: ALUNO VISUALIZA BANCO DE QUESTÕES
+// Garante carregamento da coleção app_questoes para alunos também.
+// ============================================================
+(function patchAlunoCarregaQuestoesBanco(){
+  const niveisQueLeemBanco = ["ADM", "Staff", "Monitor", "Professor/Orientador", "Aluno"];
+  async function carregarQuestoesSeNecessario() {
+    try {
+      if (!usuarioLogado || !niveisQueLeemBanco.includes(usuarioLogado.nivel)) return;
+      const atual = getStorage("app_questoes", []);
+      if (Array.isArray(atual) && atual.length) return;
+      if (typeof carregarChaveFirebase === "function") {
+        await carregarChaveFirebase("app_questoes", []);
+        if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes();
+        if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes();
+      }
+    } catch (erro) {
+      console.warn("[PatchAlunoBancoQuestoes] Não foi possível carregar app_questoes.", erro);
+    }
+  }
+  const navegarOriginal = window.navegarAba;
+  if (typeof navegarOriginal === "function") {
+    window.navegarAba = function navegarAbaComCarregamentoQuestoes(abaId, botao) {
+      const retorno = navegarOriginal.apply(this, arguments);
+      if (abaId === "questoes") setTimeout(carregarQuestoesSeNecessario, 80);
+      return retorno;
+    };
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(carregarQuestoesSeNecessario, 2400));
 })();
