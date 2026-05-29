@@ -15145,14 +15145,14 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     const logo = layoutVisualAtual?.logoUrl || "";
     return [
       {
-        id: "lista_padrao",
-        nome: "Lista padrão",
+        id: "lista_padrao_avance",
+        nome: "Avance Olímpico — Lista timbrada",
         tipo: "lista",
-        titulo: "Lista de Exercícios",
-        subtitulo: "Banco de Questões Olímpicas",
+        titulo: "Avance Olímpico",
+        subtitulo: "Lista de Exercícios",
         logoUrl: logo,
-        cabecalhoTexto: "Nome: ____________________________________________  Turma: ______________  Data: ____/____/______",
-        rodapeTexto: "Material gerado pela plataforma olímpica.",
+        cabecalhoTexto: "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______",
+        rodapeTexto: "",
         mostrarMetadados: true,
         mostrarAlternativas: true,
         alternativasDuasColunas: false,
@@ -15160,14 +15160,14 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         questaoPorPagina: false
       },
       {
-        id: "simulado_padrao",
-        nome: "Simulado padrão",
+        id: "simulado_padrao_avance",
+        nome: "Avance Olímpico — Simulado timbrado",
         tipo: "simulado",
-        titulo: "Simulado",
-        subtitulo: "Caderno de Questões",
+        titulo: "Avance Olímpico",
+        subtitulo: "Caderno de Questões / Simulado",
         logoUrl: logo,
-        cabecalhoTexto: "Aluno(a): _________________________________________  Turma: ______________  Data: ____/____/______\nProfessor(a): _____________________________________  Nota: _______________",
-        rodapeTexto: "Leia com atenção. Marque apenas uma alternativa quando houver múltipla escolha.",
+        cabecalhoTexto: "Aluno(a): _________________________________________    Turma: ____________________    Data: ____/____/______\nProfessor(a): _____________________________________    Nota: ____________________",
+        rodapeTexto: "",
         mostrarMetadados: false,
         mostrarAlternativas: true,
         alternativasDuasColunas: false,
@@ -15258,7 +15258,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       return cab + body + (rodape ? `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-3 text-xs text-gray-500">${esc(rodape)}</div>` : "");
     }
 
-    const cabPrint = `<div class="ml-header"><div class="ml-logo-title">${logo ? `<img src="${esc(logo)}" class="ml-logo">` : ""}<div><h1>${esc(titulo)}</h1>${subtitulo ? `<p class="ml-subtitle">${esc(subtitulo)}</p>` : ""}</div></div>${cabecalho ? `<div class="ml-cabecalho">${esc(cabecalho).replace(/\n/g, "<br>")}</div>` : ""}<div class="ml-info">${qs.length} questão(ões) · gerado em ${new Date().toLocaleDateString("pt-BR")}</div></div>`;
+    const cabPrint = `<div class="ml-header"><div class="ml-timbre-faixa"></div><div class="ml-logo-title">${logo ? `<div class="ml-logo-box"><img src="${esc(logo)}" class="ml-logo"></div>` : `<div class="ml-logo-box ml-logo-box-texto">AO</div>`}<div class="ml-brand-wrap"><p class="ml-brand">AVANCE OLÍMPICO</p><h1>${esc(titulo)}</h1>${subtitulo ? `<p class="ml-subtitle">${esc(subtitulo)}</p>` : ""}</div></div>${cabecalho ? `<div class="ml-cabecalho">${esc(cabecalho).replace(/\n/g, "<br>")}</div>` : ""}</div>`;
     const bodyPrint = qs.map((q, idx) => {
       const meta = [q.codigo, q.disciplina, q.nivel, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(" · ");
       const pageBreak = layout.questaoPorPagina ? "page-break-after:always;" : "";
@@ -15285,19 +15285,23 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         body.print-mini-lista-avancada #printMiniListaQuestoesAvancada { display: block !important; color: #111827 !important; background: white !important; }
         @page { size: A4; margin: 14mm; }
         #printMiniListaQuestoesAvancada, #printMiniListaQuestoesAvancada * { box-sizing: border-box; }
-        .ml-page { font-family: Arial, sans-serif; color: #111827; font-size: 12px; line-height: 1.35; }
-        .ml-header { border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; }
-        .ml-logo-title { display: flex; align-items: center; gap: 14px; }
-        .ml-logo { width: 72px; height: 72px; object-fit: contain; }
-        .ml-header h1 { font-size: 23px; margin: 0; text-transform: uppercase; letter-spacing: .02em; }
-        .ml-subtitle { margin: 4px 0 0; color: #374151; font-size: 13px; }
-        .ml-cabecalho { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; color: #111827; }
-        .ml-info { margin-top: 8px; color: #4b5563; font-size: 11px; }
-        .ml-questao { page-break-inside: avoid; border: 1px solid #d1d5db; border-radius: 10px; padding: 13px; margin-bottom: 14px; background: #fff; }
-        .ml-qmeta { color: #374151; font-size: 12px; margin-bottom: 8px; }
+        .ml-page { font-family: Arial, sans-serif; color: #111827; font-size: 12px; line-height: 1.42; background: #ffffff; }
+        .ml-header { position: relative; border: 1px solid #e9d5ff; border-radius: 18px; padding: 0 18px 18px; margin-bottom: 18px; background: linear-gradient(180deg, #fcfaff 0%, #ffffff 40%); overflow: hidden; }
+        .ml-timbre-faixa { height: 14px; margin: 0 -18px 16px; background: linear-gradient(90deg, #5b21b6 0%, #7c3aed 50%, #a855f7 100%); }
+        .ml-logo-title { display: flex; align-items: center; gap: 16px; }
+        .ml-logo-box { width: 78px; height: 78px; border-radius: 18px; background: #ffffff; border: 2px solid #ddd6fe; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(91, 33, 182, .08); }
+        .ml-logo-box-texto { color: #5b21b6; font-size: 26px; font-weight: 900; letter-spacing: .04em; }
+        .ml-logo { width: 64px; height: 64px; object-fit: contain; }
+        .ml-brand-wrap { flex: 1; }
+        .ml-brand { margin: 0 0 4px; color: #6d28d9; font-size: 11px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+        .ml-header h1 { font-size: 24px; margin: 0; color: #2e1065; text-transform: uppercase; letter-spacing: .02em; }
+        .ml-subtitle { margin: 5px 0 0; color: #6b21a8; font-size: 13px; font-weight: 700; }
+        .ml-cabecalho { margin-top: 14px; border: 1px solid #ddd6fe; border-radius: 12px; padding: 10px 12px; color: #3b0764; background: #faf5ff; }
+        .ml-questao { page-break-inside: avoid; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; margin-bottom: 14px; background: #fff; box-shadow: 0 2px 0 rgba(91, 33, 182, .04); }
+        .ml-qmeta { color: #5b21b6; font-size: 12px; margin-bottom: 8px; }
         .ml-enunciado { font-size: 13px; color: #111827; }
-        .ml-enunciado img, .ml-img-anexo { display: block; max-width: 100%; max-height: 420px; margin: 8px auto; border: 1px solid #e5e7eb; border-radius: 8px; }
-        .ml-rodape { border-top: 1px solid #d1d5db; margin-top: 12px; padding-top: 8px; color: #4b5563; font-size: 11px; }
+        .ml-enunciado img, .ml-img-anexo { display: block; max-width: 100%; max-height: 420px; margin: 8px auto; border: 1px solid #e9d5ff; border-radius: 10px; }
+        .ml-rodape { border-top: 1px solid #ddd6fe; margin-top: 12px; padding-top: 8px; color: #6b7280; font-size: 11px; }
       }
     `;
     document.head.appendChild(st);
@@ -15314,7 +15318,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     const modal = document.createElement("div");
     modal.id = "modalMiniListaQuestoesAvancada";
     modal.className = "hidden fixed inset-0 z-[93] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
-    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharMiniListaQuestoes()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-file-pdf text-red-400 mr-2"></i>Mini-lista de questões</h3><p class="text-xs text-gray-400 mt-1">Escolha se quer imprimir como lista de exercícios ou como simulado. Depois salve como PDF.</p></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[150px_260px_auto] gap-2 w-full lg:w-auto"><select id="miniListaFormato" onchange="atualizarOpcoesLayoutMiniLista()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Formato lista</option><option value="simulado">Formato simulado</option></select><select id="miniListaLayout" onchange="renderizarPreviewMiniListaLayout()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"></select><div class="flex gap-2"><button type="button" onclick="imprimirMiniListaQuestoes()" class="flex-1 px-4 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-print mr-2"></i>Gerar PDF</button><button type="button" onclick="fecharMiniListaQuestoes()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div></div><div id="miniListaQuestoesCorpoAvancado" class="space-y-4"></div></div>`;
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharMiniListaQuestoes()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-file-pdf text-red-400 mr-2"></i>Mini-lista de questões</h3><p class="text-xs text-gray-400 mt-1">Escolha se quer imprimir como lista de exercícios ou como simulado. Depois salve como PDF.</p><p class="text-[11px] text-amber-300 mt-2">Para remover a data e o nome do site no rodapé/cabeçalho do navegador, desmarque <b>“Cabeçalhos e rodapés”</b> na janela de impressão.</p></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[150px_260px_auto] gap-2 w-full lg:w-auto"><select id="miniListaFormato" onchange="atualizarOpcoesLayoutMiniLista()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="lista">Formato lista</option><option value="simulado">Formato simulado</option></select><select id="miniListaLayout" onchange="renderizarPreviewMiniListaLayout()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"></select><div class="flex gap-2"><button type="button" onclick="imprimirMiniListaQuestoes()" class="flex-1 px-4 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-print mr-2"></i>Gerar PDF</button><button type="button" onclick="fecharMiniListaQuestoes()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div></div><div id="miniListaQuestoesCorpoAvancado" class="space-y-4"></div></div>`;
     document.body.appendChild(modal);
   }
   window.atualizarOpcoesLayoutMiniLista = async function atualizarOpcoesLayoutMiniLista() {
@@ -15356,8 +15360,10 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
   window.imprimirMiniListaQuestoes = function imprimirMiniListaQuestoesAvancada() {
     renderizarPreviewMiniListaLayout();
+    const tituloAnterior = document.title;
+    document.title = "Avance Olímpico";
     document.body.classList.add("print-mini-lista-avancada");
-    setTimeout(() => { window.print(); setTimeout(() => document.body.classList.remove("print-mini-lista-avancada"), 500); }, 150);
+    setTimeout(() => { window.print(); setTimeout(() => { document.body.classList.remove("print-mini-lista-avancada"); document.title = tituloAnterior; }, 500); }, 150);
   };
 
   function inserirPainelLayoutsMiniLista() {
