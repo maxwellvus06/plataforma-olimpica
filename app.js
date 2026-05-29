@@ -146,6 +146,9 @@ let listaSuspensaAtualSelect = null;
 // Ano ativo da plataforma. Não usa localStorage/sessionStorage: muda só na aba atual.
 let anoDadosAtivo = "2026";
 const CHAVES_ANUAIS_FIRESTORE = ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados", "app_plataforma", "app_simulados", "app_simulados_envios", "app_aulas", "app_questoes", "app_listas_suspensas"];
+const CHAVES_GRANDES_INCREMENTAIS = ["app_questoes", "app_alunos", "app_premiados", "app_simulados_envios"];
+const FIRESTORE_BATCH_LIMITE_SEGURO = 450;
+const COLECOES_CARREGAMENTO_SOB_DEMANDA = ["app_questoes"];
 const ANOS_REFERENCIA_PADRAO = ["2022", "2023", "2024", "2025", "2026", "2027", "2028", "2029", "2030"];
 
 const OPCOES_OLIMPIADA = {
@@ -1519,8 +1522,9 @@ function getStorage(chave, fallback = []) {
 }
 
 function setStorage(chave, valor) {
+    const anterior = getStorage(chave, []);
     memoriaDadosSistema[chave] = clonarDados(valor);
-    return salvarChaveFirebase(chave, valor);
+    return salvarChaveFirebase(chave, valor, anterior);
 }
 
 function setStorageLocal(chave, valor) {
@@ -1628,27 +1632,71 @@ function docIdUsuarioFirestore(item) {
     return String(item?.authUid || item?.id || item?.login || novoId());
 }
 
+async function executarOperacoesFirestoreEmBlocos(operacoes = []) {
+    if (!operacoes.length) return;
+    for (let i = 0; i < operacoes.length; i += FIRESTORE_BATCH_LIMITE_SEGURO) {
+        const lote = operacoes.slice(i, i + FIRESTORE_BATCH_LIMITE_SEGURO);
+        const batch = firebaseFirestore.batch();
+        lote.forEach(op => {
+            if (!op?.ref) return;
+            if (op.tipo === "delete") batch.delete(op.ref);
+            else if (op.tipo === "set") {
+                if (op.merge) batch.set(op.ref, op.data || {}, { merge: true });
+                else batch.set(op.ref, op.data || {});
+            }
+        });
+        await batch.commit();
+    }
+}
+
+function docIdItemColecaoFirestore(nomeColecao, item) {
+    return nomeColecao === "sistema_usuarios" ? docIdUsuarioFirestore(item) : String(item?.id || novoId());
+}
+
+function assinaturaJsonEscalavel(valor) {
+    try { return JSON.stringify(valor || {}, Object.keys(valor || {}).sort()); }
+    catch (_) { return String(valor); }
+}
+
 async function upsertColecaoFirestore(nomeColecao, lista) {
     const col = firebaseFirestore.collection(nomeColecao);
     const dados = prepararListaParaFirestore(lista);
-
-    let batch = firebaseFirestore.batch();
-    let ops = 0;
-
-    dados.forEach(item => {
-        const docId = nomeColecao === "sistema_usuarios" ? docIdUsuarioFirestore(item) : String(item.id);
-        batch.set(col.doc(docId), item, { merge: true });
-        ops++;
-    });
-
-    if (ops > 0) await batch.commit();
+    const operacoes = dados.map(item => ({
+        tipo: "set",
+        ref: col.doc(docIdItemColecaoFirestore(nomeColecao, item)),
+        data: item,
+        merge: true
+    }));
+    await executarOperacoesFirestoreEmBlocos(operacoes);
     return dados;
 }
 
+async function salvarColecaoFirestoreDiferencial(nomeColecao, listaNova, listaAnterior = []) {
+    const col = firebaseFirestore.collection(nomeColecao);
+    const novos = prepararListaParaFirestore(listaNova);
+    const anteriores = prepararListaParaFirestore(Array.isArray(listaAnterior) ? listaAnterior : []);
+    const mapaNovo = new Map(novos.map(item => [docIdItemColecaoFirestore(nomeColecao, item), item]));
+    const mapaAnterior = new Map(anteriores.map(item => [docIdItemColecaoFirestore(nomeColecao, item), item]));
+    const operacoes = [];
+
+    mapaAnterior.forEach((item, id) => {
+        if (!mapaNovo.has(id)) operacoes.push({ tipo: "delete", ref: col.doc(id) });
+    });
+
+    mapaNovo.forEach((item, id) => {
+        const anterior = mapaAnterior.get(id);
+        if (!anterior || assinaturaJsonEscalavel(anterior) !== assinaturaJsonEscalavel(item)) {
+            operacoes.push({ tipo: "set", ref: col.doc(id), data: item, merge: false });
+        }
+    });
+
+    await executarOperacoesFirestoreEmBlocos(operacoes);
+    return novos;
+}
+
 async function substituirColecaoFirestore(nomeColecao, lista) {
-    // ATENÇÃO: substituição total é segura para coleções anuais comuns,
-    // mas NUNCA deve ser usada para sistema_usuarios.
-    // Em usuários, um cache incompleto poderia apagar perfis já existentes.
+    // ATENÇÃO: substituição total é segura para coleções pequenas.
+    // Para coleções grandes, use salvarColecaoFirestoreDiferencial via salvarChaveFirebase.
     if (nomeColecao === "sistema_usuarios") {
         return upsertColecaoFirestore(nomeColecao, lista);
     }
@@ -1656,21 +1704,12 @@ async function substituirColecaoFirestore(nomeColecao, lista) {
     const col = firebaseFirestore.collection(nomeColecao);
     const atuais = await col.get();
     const dados = prepararListaParaFirestore(lista);
+    const operacoes = [];
 
-    let batch = firebaseFirestore.batch();
-    let ops = 0;
+    atuais.forEach(doc => operacoes.push({ tipo: "delete", ref: doc.ref }));
+    dados.forEach(item => operacoes.push({ tipo: "set", ref: col.doc(String(item.id)), data: item, merge: false }));
 
-    atuais.forEach(doc => {
-        batch.delete(doc.ref);
-        ops++;
-    });
-
-    dados.forEach(item => {
-        batch.set(col.doc(String(item.id)), item);
-        ops++;
-    });
-
-    if (ops > 0) await batch.commit();
+    await executarOperacoesFirestoreEmBlocos(operacoes);
     return dados;
 }
 
@@ -1682,7 +1721,7 @@ async function apagarUsuarioFirestore(usuario) {
     if (ids.size) await batch.commit();
 }
 
-function salvarChaveFirebase(chave, valor) {
+function salvarChaveFirebase(chave, valor, anterior = null) {
     initFirebase();
     if (!firebaseFirestore) {
         console.error(`${chave} NÃO foi salvo: Cloud Firestore não inicializado.`);
@@ -1690,9 +1729,14 @@ function salvarChaveFirebase(chave, valor) {
         return Promise.reject(new Error("Cloud Firestore não inicializado"));
     }
     const colecao = getFirebaseCollectionName(chave);
-    return substituirColecaoFirestore(colecao, valor).then((dados) => {
+    const usarDiferencial = CHAVES_GRANDES_INCREMENTAIS.includes(chave) && Array.isArray(valor);
+    const salvar = usarDiferencial
+        ? salvarColecaoFirestoreDiferencial(colecao, valor, Array.isArray(anterior) ? anterior : getStorage(chave, []))
+        : substituirColecaoFirestore(colecao, valor);
+
+    return salvar.then((dados) => {
         setStorageLocal(chave, dados);
-        console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}`);
+        console.log(`Firestore OK: ${chave} salvo na coleção ${colecao}${usarDiferencial ? " por atualização diferencial" : ""}`);
     }).catch(erro => {
         console.error(`${chave} NÃO foi salvo no Firestore na coleção ${colecao}.`, erro);
         alert(`${chave} não foi salvo no Firestore. Verifique as Rules do Cloud Firestore.
@@ -1721,6 +1765,9 @@ async function carregarChaveFirebase(chave, fallback = []) {
 
     try {
         const snap = await firebaseFirestore.collection(colecao).get();
+        if (snap.size > 1000) {
+            console.warn(`[Escala] ${chave} carregou ${snap.size} documentos de uma vez. Para crescimento grande, preferir tela paginada sob demanda.`);
+        }
         let remotos = [];
         snap.forEach(doc => {
             const data = doc.data() || {};
@@ -1757,6 +1804,28 @@ ${erro.message || erro}`);
     }
 }
 
+async function carregarEnviosSimuladosEscopados() {
+    // Aluno não deve baixar todos os envios do sistema. Ele só precisa dos próprios envios.
+    if (!usuarioLogado || !firebaseFirestore) return [];
+    if (["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado.nivel)) {
+        return carregarChaveFirebase("app_simulados_envios", []);
+    }
+    const uid = String(usuarioLogado.authUid || usuarioLogado.id || "");
+    if (!uid) { setStorageLocal("app_simulados_envios", []); return []; }
+    try {
+        const colecao = getFirebaseCollectionName("app_simulados_envios");
+        const snap = await firebaseFirestore.collection(colecao).where("usuarioId", "==", uid).get();
+        const envios = [];
+        snap.forEach(doc => { const data = doc.data() || {}; envios.push({ id: data.id || doc.id, ...data }); });
+        setStorageLocal("app_simulados_envios", envios);
+        return envios;
+    } catch (erro) {
+        console.warn("Não foi possível carregar envios escopados do aluno.", erro);
+        setStorageLocal("app_simulados_envios", []);
+        return [];
+    }
+}
+
 async function carregarDadosFirebaseInicial() {
     const chaves = [
         "app_usuarios",
@@ -1768,10 +1837,9 @@ async function carregarDadosFirebaseInicial() {
         "app_premiados",
         "app_plataforma",
         "app_simulados",
-        "app_simulados_envios",
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_simulados_envios"] : []),
         "app_aulas",
-        "app_listas_suspensas",
-        ...(["ADM", "Staff", "Monitor", "Professor/Orientador", "Aluno"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        "app_listas_suspensas"
     ];
 
     for (const chave of chaves) {
@@ -1793,15 +1861,15 @@ async function carregarDadosPosLogin() {
         "app_premiados",
         "app_plataforma",
         "app_simulados",
-        "app_simulados_envios",
+        ...(["ADM", "Staff", "Monitor", "Professor/Orientador"].includes(usuarioLogado?.nivel) ? ["app_simulados_envios"] : []),
         "app_aulas",
-        "app_listas_suspensas",
-        ...(["ADM", "Staff", "Monitor", "Professor/Orientador", "Aluno"].includes(usuarioLogado?.nivel) ? ["app_questoes"] : [])
+        "app_listas_suspensas"
     ];
 
     for (const chave of chaves) {
         await carregarChaveFirebase(chave, []);
     }
+    await carregarEnviosSimuladosEscopados();
 
     dadosTrabalho = getStorage("app_premiados", []);
     if (!Array.isArray(dadosTrabalho)) dadosTrabalho = [];
@@ -6202,8 +6270,16 @@ async function enviarArquivoParaFirebaseStorage(arquivo, pasta = "materiais") {
     }
 
     const tamanhoMb = arquivo.size / (1024 * 1024);
-    if (tamanhoMb > LIMITE_ARQUIVO_DRIVE_MB) {
-        throw new Error(`Arquivo muito grande. Use arquivo com até ${LIMITE_ARQUIVO_DRIVE_MB} MB.`);
+    const mime = String(arquivo.type || "").toLowerCase();
+    const pastaNorm = String(pasta || "").toLowerCase();
+    const limiteEfetivoMb = mime.startsWith("image/") || pastaNorm.includes("quest") || pastaNorm.includes("simulado") || pastaNorm.includes("monitoria")
+        ? Math.min(LIMITE_ARQUIVO_DRIVE_MB, 12)
+        : LIMITE_ARQUIVO_DRIVE_MB;
+    if (tamanhoMb > limiteEfetivoMb) {
+        throw new Error(`Arquivo muito grande. Use arquivo com até ${limiteEfetivoMb} MB. Para imagens, reduza ou compacte antes de enviar.`);
+    }
+    if (arquivo.name && arquivo.name.length > 140) {
+        throw new Error("Nome do arquivo muito longo. Renomeie para algo mais curto antes de enviar.");
     }
 
     const storagePath = caminhoArquivoStorage(pasta, arquivo);
@@ -14970,7 +15046,10 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       return retorno;
     };
   }
-  document.addEventListener("DOMContentLoaded", () => setTimeout(carregarQuestoesSeNecessario, 2400));
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
+    const view = document.getElementById("view-questoes");
+    if (view && !view.classList.contains("hidden")) carregarQuestoesSeNecessario();
+  }, 2400));
 })();
 
 // ============================================================
@@ -16329,3 +16408,74 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   console.log(TAG, "carregado");
 })();
 
+
+
+// ============================================================
+// PATCH PREVENTIVO DE ESCALA — carregamento, render e custo Firebase
+// Mantém a arquitetura atual, mas evita os piores gargalos antes de crescer.
+// ============================================================
+(function escalaPreventivaPatch(){
+  const TAG = "[EscalaPreventiva]";
+  function debounce(fn, wait = 250) {
+    let t = null;
+    return function(...args) {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), wait);
+    };
+  }
+
+  // Evita renderização repetida a cada tecla/filtro em telas pesadas.
+  if (typeof window.renderizarBancoQuestoes === "function" && !window.renderizarBancoQuestoes.__debouncedEscala) {
+    const original = window.renderizarBancoQuestoes;
+    const deb = debounce(function(){
+      const total = Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []).length : 0;
+      if (total > 5000) console.warn(`${TAG} Banco com ${total} questões em cache. Próximo passo recomendado: paginação remota por Firestore/índice de busca.`);
+      return original.apply(this, arguments);
+    }, 120);
+    deb.__debouncedEscala = true;
+    window.renderizarBancoQuestoes = deb;
+  }
+
+  // Carregamento sob demanda do banco: login não deve baixar questões automaticamente.
+  async function carregarBancoQuestoesSobDemanda() {
+    const atual = Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []) : [];
+    if (atual.length) return atual;
+    if (typeof carregarChaveFirebase === "function") {
+      console.info(`${TAG} Carregando banco de questões sob demanda...`);
+      return await carregarChaveFirebase("app_questoes", []);
+    }
+    return [];
+  }
+  window.carregarBancoQuestoesSobDemanda = carregarBancoQuestoesSobDemanda;
+
+  const navegarOriginalEscala = window.navegarAba;
+  if (typeof navegarOriginalEscala === "function" && !navegarOriginalEscala.__escalaPatch) {
+    const fn = function navegarAbaComEscala(abaId, botao) {
+      const r = navegarOriginalEscala.apply(this, arguments);
+      if (abaId === "questoes") {
+        setTimeout(async () => {
+          await carregarBancoQuestoesSobDemanda();
+          try { if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes(); } catch(_) {}
+          try { if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes(); } catch(_) {}
+        }, 100);
+      }
+      return r;
+    };
+    fn.__escalaPatch = true;
+    window.navegarAba = fn;
+  }
+
+  // Aviso útil para administradores antes de exportações/importações muito grandes.
+  window.avisoEscalaBancoQuestoes = function avisoEscalaBancoQuestoes() {
+    const total = Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []).length : 0;
+    if (total > 10000) {
+      return confirmarPlataforma(
+        `O banco tem ${total} questões em cache. Exportações e operações em lote podem demorar e gerar muitas leituras/escritas. Continuar?`,
+        "Operação pesada", "Continuar", "Cancelar"
+      );
+    }
+    return Promise.resolve(true);
+  };
+
+  console.log(TAG, "patch carregado");
+})();
