@@ -12598,3 +12598,269 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "carregado");
 })();
+
+// ============================================================================
+// UPGRADE GERADOR DE SIMULADOS — CHECKBOXES + CAMPOS COMPLETOS DO SIMULADO
+// ============================================================================
+(function(){
+  const TAG = "gerador-simulados-checkboxes-completo-v2";
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function norm(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  function uniqSorted(vals) {
+    return Array.from(new Set((vals || []).map(v => String(v || "").trim()).filter(Boolean)))
+      .sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base", numeric: true }));
+  }
+  function qsBanco() { return Array.isArray(getStorage("app_questoes", [])) ? getStorage("app_questoes", []) : []; }
+  function valoresTaxonomiaTemas() {
+    try {
+      if (typeof todosTemasQuestoes === "function") return todosTemasQuestoes();
+      if (typeof TAXONOMIA_TEMAS_QUESTOES !== "undefined") return Object.values(TAXONOMIA_TEMAS_QUESTOES).flatMap(g => Object.keys(g || {}));
+    } catch(_) {}
+    return [];
+  }
+  function valoresTaxonomiaSubtemas() {
+    try {
+      if (typeof todosSubtemasQuestoes === "function") return todosSubtemasQuestoes();
+      if (typeof TAXONOMIA_TEMAS_QUESTOES !== "undefined") return Object.values(TAXONOMIA_TEMAS_QUESTOES).flatMap(g => Object.values(g || {}).flat());
+    } catch(_) {}
+    return [];
+  }
+  function selecionadosCheckbox(nome) {
+    return Array.from(document.querySelectorAll(`input[name="${nome}"]:checked`)).map(i => i.value).filter(Boolean);
+  }
+  function renderGrupoChecks(containerId, nome, valores, placeholder, filtro = "") {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const anteriores = new Set(selecionadosCheckbox(nome));
+    const f = norm(filtro);
+    const lista = uniqSorted(valores).filter(v => !f || norm(v).includes(f));
+    if (!lista.length) {
+      box.innerHTML = `<div class="p-3 text-center text-xs text-gray-500">${esc(placeholder || "Nenhuma opção encontrada.")}</div>`;
+      return;
+    }
+    box.innerHTML = lista.map(v => {
+      const id = `${nome}_${Math.random().toString(36).slice(2, 9)}`;
+      const checked = anteriores.has(v) ? "checked" : "";
+      return `<label for="${id}" class="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-800/80 cursor-pointer text-xs text-gray-300">
+        <input id="${id}" type="checkbox" name="${nome}" value="${esc(v)}" ${checked} onchange="atualizarResumoGeradorSimulado()" class="mt-0.5 accent-purple-500 shrink-0">
+        <span class="leading-snug">${esc(v)}</span>
+      </label>`;
+    }).join("");
+  }
+  function setContador(id, atual, total) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = atual ? `${atual}/${total}` : `${total}`;
+  }
+
+  window.limparCheckboxesGeradorSimulado = function limparCheckboxesGeradorSimulado() {
+    document.querySelectorAll('#painelGeradorSimuladoQuestoes input[type="checkbox"][name^="gerSim"]').forEach(i => { i.checked = false; });
+    ["gerSimBuscaTema", "gerSimBuscaSubtema"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+    popularFiltrosGeradorSimulado();
+    atualizarResumoGeradorSimulado();
+  };
+
+  window.popularFiltrosGeradorSimulado = function popularFiltrosGeradorSimulado() {
+    const qs = qsBanco();
+    const disciplinas = uniqSorted(qs.map(q => q.disciplina));
+    const niveis = uniqSorted(["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral", ...qs.map(q => q.nivel)]);
+    const temas = uniqSorted([...valoresTaxonomiaTemas(), ...qs.map(q => q.tema)]);
+    const subtemas = uniqSorted([...valoresTaxonomiaSubtemas(), ...qs.map(q => q.subtema)]);
+
+    renderGrupoChecks("gerSimDisciplinaChecks", "gerSimDisciplina", disciplinas, "Cadastre questões para aparecerem as disciplinas.");
+    renderGrupoChecks("gerSimNivelChecks", "gerSimNivel", niveis, "Cadastre questões para aparecerem os níveis.");
+    renderGrupoChecks("gerSimTemasChecks", "gerSimTema", temas, "Nenhum tema encontrado.", document.getElementById("gerSimBuscaTema")?.value || "");
+    renderGrupoChecks("gerSimSubtemasChecks", "gerSimSubtema", subtemas, "Nenhum subtema encontrado.", document.getElementById("gerSimBuscaSubtema")?.value || "");
+
+    setContador("gerSimCountDisciplina", selecionadosCheckbox("gerSimDisciplina").length, disciplinas.length);
+    setContador("gerSimCountNivel", selecionadosCheckbox("gerSimNivel").length, niveis.length);
+    setContador("gerSimCountTema", selecionadosCheckbox("gerSimTema").length, temas.length);
+    setContador("gerSimCountSubtema", selecionadosCheckbox("gerSimSubtema").length, subtemas.length);
+    atualizarDistribuicaoGeradorSimulado();
+    atualizarDestinoGeradorSimulado();
+    atualizarResumoGeradorSimulado();
+  };
+
+  window.atualizarDestinoGeradorSimulado = function atualizarDestinoGeradorSimulado() {
+    const tipo = document.getElementById("gerSimDestinoTipo")?.value || "todos";
+    const wrap = document.getElementById("gerSimDestinoWrap");
+    const sel = document.getElementById("gerSimDestinoValores");
+    if (!wrap || !sel) return;
+    const anteriores = new Set(Array.from(sel.selectedOptions || []).map(o => o.value));
+    if (tipo === "todos") {
+      wrap.classList.add("hidden");
+      sel.innerHTML = "";
+      atualizarResumoGeradorSimulado();
+      return;
+    }
+    wrap.classList.remove("hidden");
+    let opcoes = [];
+    if (tipo === "nivel") {
+      opcoes = uniqSorted(["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral", ...qsBanco().map(q => q.nivel)]).map(v => ({ value: v, text: v }));
+    } else if (tipo === "cidade") {
+      opcoes = getStorage("app_cidades", []).map(c => ({ value: c.id || c.nome, text: [c.nome, c.uf].filter(Boolean).join(" - ") }));
+    } else if (tipo === "escola") {
+      opcoes = getStorage("app_escolas", []).map(e => ({ value: e.id || e.nome, text: e.nome || e.id }));
+    } else if (tipo === "aluno") {
+      const escolas = getStorage("app_escolas", []);
+      opcoes = getStorage("app_alunos", []).map(a => {
+        const escola = escolas.find(e => String(e.id) === String(a.escolaId) || String(e.nome) === String(a.escola));
+        return { value: a.id || a.cpf || a.nome, text: `${a.nome || "Aluno"} — ${a.cpf || "sem CPF"} — ${escola?.nome || a.escola || "sem escola"}` };
+      });
+    }
+    sel.innerHTML = opcoes.map(o => `<option value="${esc(o.value)}" ${anteriores.has(String(o.value)) ? "selected" : ""}>${esc(o.text)}</option>`).join("");
+    atualizarResumoGeradorSimulado();
+  };
+
+  window.atualizarResumoGeradorSimulado = function atualizarResumoGeradorSimulado() {
+    setContador("gerSimCountDisciplina", selecionadosCheckbox("gerSimDisciplina").length, document.querySelectorAll('input[name="gerSimDisciplina"]').length);
+    setContador("gerSimCountNivel", selecionadosCheckbox("gerSimNivel").length, document.querySelectorAll('input[name="gerSimNivel"]').length);
+    setContador("gerSimCountTema", selecionadosCheckbox("gerSimTema").length, document.querySelectorAll('input[name="gerSimTema"]').length);
+    setContador("gerSimCountSubtema", selecionadosCheckbox("gerSimSubtema").length, document.querySelectorAll('input[name="gerSimSubtema"]').length);
+    const resumo = document.getElementById("gerSimResumo");
+    if (!resumo) return;
+    const total = Math.max(1, Number(document.getElementById("gerSimQtd")?.value || 10));
+    const disc = selecionadosCheckbox("gerSimDisciplina");
+    const niv = selecionadosCheckbox("gerSimNivel");
+    const temas = selecionadosCheckbox("gerSimTema");
+    const subs = selecionadosCheckbox("gerSimSubtema");
+    const destino = document.getElementById("gerSimDestinoTipo")?.value || "todos";
+    const h = !!document.getElementById("gerSimHardcore")?.checked;
+    const pub = !!document.getElementById("gerSimPublico")?.checked;
+    resumo.innerHTML = `Prévia: <b class="text-gray-300">${total}</b> questões · ${disc.length || "todas as"} disciplina(s) · ${niv.length || "todos os"} nível(is) · ${temas.length || "todos os"} tema(s) · ${subs.length || "todos os"} subtema(s) · destino: <b class="text-gray-300">${esc(destino)}</b>${pub ? ' · <span class="text-purple-200 font-bold">link público</span>' : ''}${h ? ' · <span class="text-red-200 font-bold">Hardcore</span>' : ''}`;
+  };
+
+  const __atualizarDistGeradorBaseV2 = typeof atualizarDistribuicaoGeradorSimulado === "function" ? atualizarDistribuicaoGeradorSimulado : null;
+  window.atualizarDistribuicaoGeradorSimulado = function atualizarDistribuicaoGeradorSimuladoV2() {
+    if (__atualizarDistGeradorBaseV2) __atualizarDistGeradorBaseV2();
+    atualizarResumoGeradorSimulado();
+  };
+
+  function distGerador() {
+    if (typeof distribuicaoGeradorSimulado === "function") return distribuicaoGeradorSimulado();
+    const n = id => Math.max(0, Number(document.getElementById(id)?.value || 0));
+    return { "Fácil": n("gerSimQtdFacil"), "Médio": n("gerSimQtdMedio"), "Difícil": n("gerSimQtdDificil"), "Muito difícil": n("gerSimQtdMuitoDificil"), "Olímpica": n("gerSimQtdOlimpica"), "Vestibular": n("gerSimQtdVestibular") };
+  }
+  function difProximas(dif) {
+    if (typeof dificuldadeProxima === "function") return dificuldadeProxima(dif);
+    const ordem = ["Fácil", "Médio", "Difícil", "Muito difícil", "Olímpica", "Vestibular"];
+    const i = ordem.indexOf(dif);
+    return [...ordem.slice(0, i).reverse(), ...ordem.slice(i + 1)];
+  }
+  function passaFiltroArray(valor, selecionados) {
+    return !selecionados.length || selecionados.includes(valor);
+  }
+  function selectDestinoValoresGerador() {
+    return Array.from(document.getElementById("gerSimDestinoValores")?.selectedOptions || []).map(o => o.value).filter(Boolean);
+  }
+
+  window.gerarSimuladoPeloBancoQuestoes = async function gerarSimuladoPeloBancoQuestoesCompleto() {
+    if (!podeGerenciarQuestoes()) return alert("Apenas ADM, Monitor e Professor/Orientador podem gerar simulados pelo banco de questões.");
+    const total = Math.max(1, Math.min(120, Number(document.getElementById("gerSimQtd")?.value || 10)));
+    const dist = distGerador();
+    const soma = Object.values(dist).reduce((a,b) => a + Number(b || 0), 0);
+    if (soma > total) return alert("A distribuição por dificuldade não pode ultrapassar o total de questões.");
+
+    const disciplinas = selecionadosCheckbox("gerSimDisciplina");
+    const niveis = selecionadosCheckbox("gerSimNivel");
+    const temas = selecionadosCheckbox("gerSimTema");
+    const subtemas = selecionadosCheckbox("gerSimSubtema");
+    let base = qsBanco().filter(q => {
+      if (!passaFiltroArray(q.disciplina, disciplinas)) return false;
+      if (!passaFiltroArray(q.nivel, niveis)) return false;
+      if (!passaFiltroArray(q.tema, temas)) return false;
+      if (!passaFiltroArray(q.subtema, subtemas)) return false;
+      return true;
+    });
+    if (!base.length) return alert("Nenhuma questão encontrada com esses filtros. Revise disciplina, nível, tema e subtema.");
+    base = base.sort(() => Math.random() - 0.5);
+
+    const escolhidas = [];
+    const usados = new Set();
+    function pegar(q) {
+      if (!q || usados.has(String(q.id))) return false;
+      usados.add(String(q.id));
+      escolhidas.push(q);
+      return true;
+    }
+    function pegarPorDificuldade(dif, qtd) {
+      if (!qtd) return;
+      base.filter(q => String(q.dificuldade || "") === dif).forEach(q => { if (escolhidas.length < total && escolhidas.filter(x => x.dificuldade === dif).length < qtd) pegar(q); });
+      if (escolhidas.filter(x => x.dificuldade === dif).length < qtd) {
+        for (const prox of difProximas(dif)) {
+          base.filter(q => String(q.dificuldade || "") === prox).forEach(q => { if (escolhidas.length < total && escolhidas.filter(x => x.dificuldade === dif).length < qtd) pegar(q); });
+          if (escolhidas.filter(x => x.dificuldade === dif).length >= qtd) break;
+        }
+      }
+    }
+    Object.entries(dist).forEach(([dif, qtd]) => pegarPorDificuldade(dif, Number(qtd || 0)));
+    base.forEach(q => { if (escolhidas.length < total) pegar(q); });
+    if (!escolhidas.length) return alert("Não foi possível montar o simulado com os filtros selecionados.");
+    if (escolhidas.length < total) {
+      const ok = await confirmarPlataforma(`O banco só encontrou ${escolhidas.length} questão(ões) compatíveis com seus filtros, mas você pediu ${total}. Criar mesmo assim?`, "Banco insuficiente", "Criar mesmo assim", "Voltar");
+      if (!ok) return;
+    }
+
+    const horas = Math.max(0, Number(document.getElementById("gerSimHoras")?.value || 0));
+    const minutos = Math.max(0, Math.min(59, Number(document.getElementById("gerSimMinutos")?.value || 0)));
+    const formato = document.getElementById("gerSimFormato")?.value || "objetivo";
+    const destinoTipo = document.getElementById("gerSimDestinoTipo")?.value || "todos";
+    const destinoValores = destinoTipo === "todos" ? [] : selectDestinoValoresGerador();
+    if (destinoTipo !== "todos" && !destinoValores.length) return alert("Selecione pelo menos uma opção no público-alvo, ou mude o destino para todos.");
+
+    const sim = {
+      id: novoId(),
+      titulo: document.getElementById("gerSimTitulo")?.value.trim() || `Simulado gerado — ${new Date().toLocaleDateString("pt-BR")}`,
+      disciplina: disciplinas.length ? disciplinas.join(", ") : "Geral",
+      nivel: niveis.length ? niveis.join(", ") : "Geral",
+      formato,
+      tipoCriacao: "banco_questoes",
+      dataAbertura: document.getElementById("gerSimDataAbertura")?.value || "",
+      horaAbertura: document.getElementById("gerSimHoraAbertura")?.value || "",
+      dataFim: document.getElementById("gerSimDataFim")?.value || "",
+      horaFim: document.getElementById("gerSimHoraFim")?.value || "23:59",
+      duracaoMinutos: horas * 60 + minutos,
+      duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido",
+      quantidadeQuestoes: escolhidas.length,
+      quantidadeObjetivas: formato === "dissertativo" ? 0 : escolhidas.length,
+      quantidadeDissertativas: formato === "dissertativo" ? escolhidas.length : 0,
+      publico: !!document.getElementById("gerSimPublico")?.checked,
+      hardcore: !!document.getElementById("gerSimHardcore")?.checked,
+      modoHardcore: !!document.getElementById("gerSimHardcore")?.checked,
+      telaCheiaObrigatoria: !!document.getElementById("gerSimHardcore")?.checked,
+      destino: { tipo: destinoTipo, valores: destinoValores },
+      geradoDoBanco: true,
+      filtrosGerador: { disciplinas, niveis, temas, subtemas, distribuicao: dist, totalSolicitado: total },
+      questoesBanco: escolhidas.map((q, i) => ({
+        numero: i + 1, questaoId: q.id, titulo: q.titulo, disciplina: q.disciplina, nivel: q.nivel, tema: q.tema, subtema: q.subtema,
+        dificuldade: q.dificuldade, tipo: q.tipo, fonte: q.fonte, ano: q.ano, enunciado: q.enunciado, arquivos: q.arquivos || [], alternativaCorreta: q.alternativaCorreta || ""
+      })),
+      gabaritoObjetivo: formato === "dissertativo" ? [] : escolhidas.map((q, i) => ({ numero: i + 1, resposta: String(q.alternativaCorreta || "").toUpperCase() })).filter(g => g.resposta),
+      gabarito: "Simulado gerado a partir do Banco de Questões.",
+      descricao: "Simulado criado pelo gerador do banco de questões, com filtros por checkbox e controles completos de aplicação.",
+      criadoEm: Date.now(),
+      criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+      criadoPorNome: usuarioLogado?.nome || "",
+      criadoPorNivel: usuarioLogado?.nivel || ""
+    };
+
+    const lista = getStorage("app_simulados", []);
+    lista.push(sim);
+    await setStorage("app_simulados", lista);
+    const link = sim.publico ? `${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoDadosAtivo}` : "";
+    document.getElementById("gerSimResumo").innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${escolhidas.length} questão(ões).</span>${link ? `<br><span class="text-purple-200">Link público: ${esc(link)}</span>` : ""}`;
+    if (typeof renderizarSimulados === "function") renderizarSimulados();
+    if (typeof atualizarSelectRankingSimulados === "function") atualizarSelectRankingSimulados();
+    alert(sim.publico ? `Simulado criado a partir do Banco de Questões.\n\nLink público:\n${link}` : "Simulado criado a partir do Banco de Questões.");
+  };
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { try { popularFiltrosGeradorSimulado(); } catch(e) { console.warn(TAG, e); } }, 1000));
+  setTimeout(() => { try { popularFiltrosGeradorSimulado(); } catch(e) { console.warn(TAG, e); } }, 1600);
+  console.log(TAG, "carregado");
+})();
