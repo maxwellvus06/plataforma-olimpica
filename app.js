@@ -19365,3 +19365,359 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
   console.log(TAG, 'ativo. Use diagnosticarCalendarioLimpo() para conferir.');
 })();
+
+
+// ============================================================
+// PATCH — REUNIÃO COM FILTROS DE CIDADE/ESCOLA E ESCOPO DO USUÁRIO
+// Objetivo:
+// - Reunião disponível para ADM/Staff/Gestor/Escola.
+// - Gestor enxerga apenas sua cidade e pode filtrar escolas da cidade.
+// - Escola enxerga apenas sua escola.
+// - ADM/Staff podem filtrar por cidade e/ou escola.
+// ============================================================
+(function patchReuniaoFiltrosEscopo(){
+  const TAG = '[Reunião filtros/escopo]';
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function' ? normalizarTexto(v) : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr||[]).map(v => String(v||'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base',numeric:true}));
+  const podeVerReuniao = () => !!usuarioLogado && ['ADM','Staff','Gestor','Escola'].includes(String(usuarioLogado.nivel||''));
+  const equipeGeral = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel||''));
+
+  function nomeCidadePorId(id){
+    const c = (getStorage('app_cidades', []) || []).find(x => String(x.id) === String(id));
+    return c ? `${c.nome}${c.uf ? ' - ' + c.uf : ''}` : '';
+  }
+  function escolaVinculada(){
+    if (typeof getEscolaVinculadaUsuario === 'function') return getEscolaVinculadaUsuario();
+    const escolas = getStorage('app_escolas', []) || [];
+    return escolas.find(e => String(e.id) === String(usuarioLogado?.vinculoId));
+  }
+  function cidadeDoUsuario(){
+    if (typeof getCidadeGestor === 'function') return getCidadeGestor();
+    const cidades = getStorage('app_cidades', []) || [];
+    if (usuarioLogado?.nivel === 'Gestor') return cidades.find(c => String(c.id) === String(usuarioLogado.vinculoId));
+    const escv = escolaVinculada();
+    return escv ? cidades.find(c => String(c.id) === String(escv.cidadeId)) : null;
+  }
+  function municipioDoUsuarioTexto(){
+    const c = cidadeDoUsuario();
+    return c ? `${c.nome}${c.uf ? ' - ' + c.uf : ''}` : '';
+  }
+  function escolaCidadeNome(escola){
+    return nomeCidadePorId(escola?.cidadeId) || escola?.municipio || escola?.cidade || '';
+  }
+  function garantirAbaReuniaoPermissao(){
+    try {
+      ['Gestor','Escola'].forEach(nivel => {
+        if (typeof PERMISSOES !== 'undefined' && PERMISSOES[nivel] && !PERMISSOES[nivel].abas.includes('reuniao')) {
+          const i = PERMISSOES[nivel].abas.indexOf('relatorios');
+          PERMISSOES[nivel].abas.splice(i >= 0 ? i+1 : 0, 0, 'reuniao');
+        }
+      });
+      const btn = document.getElementById('btnNav-reuniao');
+      if (btn && podeVerReuniao()) btn.classList.remove('hidden');
+    } catch(e){ console.warn(TAG, 'permissão', e); }
+  }
+
+  function inserirFiltrosReuniao(){
+    const view = document.getElementById('view-reuniao');
+    if (!view || document.getElementById('reuniaoFiltroCidade')) return;
+    const headerControls = view.querySelector('.no-print');
+    if (!headerControls) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'reuniaoFiltrosEscopoWrap';
+    wrap.className = 'flex flex-wrap gap-2 w-full lg:w-auto';
+    wrap.innerHTML = `
+      <select id="reuniaoFiltroCidade" class="p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none min-w-[210px]" title="Filtra a reunião por cidade/município."></select>
+      <select id="reuniaoFiltroEscola" class="p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none min-w-[230px]" title="Filtra a reunião por escola dentro da cidade selecionada."></select>
+    `;
+    headerControls.insertBefore(wrap, headerControls.firstChild);
+    document.getElementById('reuniaoFiltroCidade')?.addEventListener('change', () => {
+      popularFiltrosReuniaoEscopo(window.__reuniaoUltimosPremiados || []);
+      gerarPainelReuniao();
+    });
+    document.getElementById('reuniaoFiltroEscola')?.addEventListener('change', gerarPainelReuniao);
+  }
+
+  function cidadeValorDoResultado(r){
+    return r?.municipio || r?.cidade || r?.cidadeNome || '';
+  }
+  function escolaValorDoResultado(r){
+    return r?.escola || r?.escolaNome || '';
+  }
+
+  function itemEscopoBase(item){
+    if (!usuarioLogado) return false;
+    if (equipeGeral()) return true;
+    const municipioUsuario = municipioDoUsuarioTexto();
+    const escolaUsuario = escolaVinculada();
+
+    if (usuarioLogado.nivel === 'Gestor') {
+      if (!municipioUsuario) return false;
+      const mun = cidadeValorDoResultado(item);
+      if (mun) return norm(mun) === norm(municipioUsuario);
+      // fallback por escolaId/escola
+      const escolasCidade = (getStorage('app_escolas', []) || []).filter(e => norm(escolaCidadeNome(e)) === norm(municipioUsuario));
+      const nomes = new Set(escolasCidade.map(e => norm(e.nome)));
+      const ids = new Set(escolasCidade.map(e => String(e.id)));
+      if (item?.escolaId && ids.has(String(item.escolaId))) return true;
+      if (item?.escola && nomes.has(norm(item.escola))) return true;
+      return false;
+    }
+
+    if (usuarioLogado.nivel === 'Escola') {
+      if (!escolaUsuario) return false;
+      if (item?.escolaId && String(item.escolaId) === String(escolaUsuario.id)) return true;
+      if (item?.escola && norm(item.escola) === norm(escolaUsuario.nome)) return true;
+      if (item?.nome && norm(item.nome) === norm(escolaUsuario.nome)) return true;
+      return false;
+    }
+
+    return false;
+  }
+
+  function aplicarEscopoReuniao(lista){
+    return (lista || []).filter(item => {
+      // itens sem recorte territorial são considerados globais só para ADM/Staff
+      if (!cidadeValorDoResultado(item) && !escolaValorDoResultado(item) && !item?.escolaId && !item?.cidadeId) return equipeGeral();
+      return itemEscopoBase(item);
+    });
+  }
+
+  function escolasDisponiveisPorCidade(cidade, premiados){
+    const nomes = new Set();
+    (premiados || []).forEach(r => {
+      if (cidade !== 'TODAS' && norm(cidadeValorDoResultado(r)) !== norm(cidade)) return;
+      if (escolaValorDoResultado(r)) nomes.add(escolaValorDoResultado(r));
+    });
+    // inclui cadastro de escolas, mesmo sem resultado, para filtro de planejamento.
+    (getStorage('app_escolas', []) || []).forEach(e => {
+      const mun = escolaCidadeNome(e);
+      if (cidade !== 'TODAS' && norm(mun) !== norm(cidade)) return;
+      if (e.nome) nomes.add(e.nome);
+    });
+    return uniq(Array.from(nomes));
+  }
+
+  function popularFiltrosReuniaoEscopo(premiadosEscopados = []){
+    inserirFiltrosReuniao();
+    const cidadeSel = document.getElementById('reuniaoFiltroCidade');
+    const escolaSel = document.getElementById('reuniaoFiltroEscola');
+    if (!cidadeSel || !escolaSel) return;
+
+    const oldCidade = cidadeSel.value || 'TODAS';
+    const oldEscola = escolaSel.value || 'TODAS';
+
+    let cidades = uniq([
+      ...premiadosEscopados.map(cidadeValorDoResultado),
+      ...(getStorage('app_escolas', []) || []).map(escolaCidadeNome)
+    ]);
+
+    if (usuarioLogado?.nivel === 'Gestor') {
+      const c = municipioDoUsuarioTexto();
+      cidades = c ? [c] : [];
+      cidadeSel.disabled = true;
+    } else if (usuarioLogado?.nivel === 'Escola') {
+      const c = municipioDoUsuarioTexto();
+      cidades = c ? [c] : [];
+      cidadeSel.disabled = true;
+    } else {
+      cidadeSel.disabled = false;
+    }
+
+    cidadeSel.innerHTML = (equipeGeral() ? `<option value="TODAS">Todas as cidades</option>` : '') + cidades.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    if (usuarioLogado?.nivel === 'Gestor' || usuarioLogado?.nivel === 'Escola') cidadeSel.value = cidades[0] || '';
+    else cidadeSel.value = (oldCidade === 'TODAS' || cidades.includes(oldCidade)) ? oldCidade : 'TODAS';
+
+    let cidadeAtual = cidadeSel.value || 'TODAS';
+    let escolas = escolasDisponiveisPorCidade(cidadeAtual, premiadosEscopados);
+
+    if (usuarioLogado?.nivel === 'Escola') {
+      const e = escolaVinculada();
+      escolas = e?.nome ? [e.nome] : [];
+      escolaSel.disabled = true;
+    } else {
+      escolaSel.disabled = false;
+    }
+
+    escolaSel.innerHTML = (usuarioLogado?.nivel === 'Escola' ? '' : `<option value="TODAS">Todas as escolas</option>`) + escolas.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    if (usuarioLogado?.nivel === 'Escola') escolaSel.value = escolas[0] || '';
+    else escolaSel.value = (oldEscola === 'TODAS' || escolas.includes(oldEscola)) ? oldEscola : 'TODAS';
+  }
+
+  function aplicarFiltrosReuniao(premiados){
+    const cidade = document.getElementById('reuniaoFiltroCidade')?.value || 'TODAS';
+    const escola = document.getElementById('reuniaoFiltroEscola')?.value || 'TODAS';
+    return (premiados || []).filter(r => {
+      if (cidade !== 'TODAS' && norm(cidadeValorDoResultado(r)) !== norm(cidade)) return false;
+      if (escola !== 'TODAS' && norm(escolaValorDoResultado(r)) !== norm(escola)) return false;
+      return true;
+    });
+  }
+
+  function filtrarAlunosReuniao(alunos){
+    const cidade = document.getElementById('reuniaoFiltroCidade')?.value || 'TODAS';
+    const escola = document.getElementById('reuniaoFiltroEscola')?.value || 'TODAS';
+    const escolas = getStorage('app_escolas', []) || [];
+    return (alunos || []).filter(a => {
+      let escolaObj = escolas.find(e => String(e.id) === String(a.escolaId)) || escolas.find(e => norm(e.nome) === norm(a.escola || a.escolaNome));
+      let escolaNome = a.escola || a.escolaNome || escolaObj?.nome || '';
+      let municipio = a.municipio || a.cidade || escolaCidadeNome(escolaObj);
+      const item = { municipio, escola: escolaNome, escolaId: a.escolaId };
+      if (!itemEscopoBase(item)) return false;
+      if (cidade !== 'TODAS' && norm(municipio) !== norm(cidade)) return false;
+      if (escola !== 'TODAS' && norm(escolaNome) !== norm(escola)) return false;
+      return true;
+    });
+  }
+
+  function filtrarCronogramaReuniao(cronograma){
+    const cidade = document.getElementById('reuniaoFiltroCidade')?.value || 'TODAS';
+    const escola = document.getElementById('reuniaoFiltroEscola')?.value || 'TODAS';
+    return (cronograma || []).filter(item => {
+      // Eventos globais permanecem visíveis para planejamento.
+      if (!item.municipio && !item.cidade && !item.escola && !item.escolaId && !item.cidadeId) return true;
+      const mun = item.municipio || item.cidade || nomeCidadePorId(item.cidadeId);
+      const escNome = item.escola || item.escolaNome || '';
+      const pseudo = { municipio: mun, escola: escNome, escolaId: item.escolaId };
+      if (!itemEscopoBase(pseudo)) return false;
+      if (cidade !== 'TODAS' && mun && norm(mun) !== norm(cidade)) return false;
+      if (escola !== 'TODAS' && escNome && norm(escNome) !== norm(escola)) return false;
+      return true;
+    });
+  }
+
+  function filtrarPlataformaReuniao(plataforma){
+    // Materiais sem recorte explícito são globais dentro do contexto.
+    return (plataforma || []).filter(m => {
+      if (!m.municipio && !m.cidade && !m.escola && !m.escolaId && !m.cidadeId && !m.destino) return true;
+      const mun = m.municipio || m.cidade || nomeCidadePorId(m.cidadeId);
+      const escNome = m.escola || m.escolaNome || '';
+      return itemEscopoBase({ municipio: mun, escola: escNome, escolaId: m.escolaId });
+    });
+  }
+
+  function setTxt(id, valor){ const el = document.getElementById(id); if (el) el.innerText = valor; }
+  function setHtml(id, valor){ const el = document.getElementById(id); if (el) el.innerHTML = valor; }
+
+  async function gerarPainelReuniaoEscopo(){
+    if (!podeVerReuniao()) return;
+    const btn = document.getElementById('btnAtualizarReuniao');
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Gerando...'; }
+
+      const anos = typeof anosSelecionadosReuniao === 'function' ? anosSelecionadosReuniao() : [String(typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : new Date().getFullYear())];
+      const dados = await carregarDadosMultianuaisRelatorio(anos);
+
+      let premiadosEscopo = aplicarEscopoReuniao(dados.premiados || []);
+      window.__reuniaoUltimosPremiados = premiadosEscopo;
+      popularFiltrosReuniaoEscopo(premiadosEscopo);
+      const premiados = aplicarFiltrosReuniao(premiadosEscopo);
+      const alunos = filtrarAlunosReuniao(dados.alunos || []);
+      const cronograma = filtrarCronogramaReuniao(dados.cronograma || []);
+      const plataforma = filtrarPlataformaReuniao(dados.plataforma || []);
+
+      const porAno = agregarPorAno(premiados, anos);
+      const primeiro = porAno[0]?.total || 0;
+      const ultimo = porAno[porAno.length - 1]?.total || 0;
+      const delta = ultimo - primeiro;
+
+      const escolas = new Set(premiados.map(r => norm(escolaValorDoResultado(r))).filter(Boolean));
+      const cidades = new Set(premiados.map(r => norm(cidadeValorDoResultado(r))).filter(Boolean));
+      const olimpiadas = contagemPorCampo(premiados, 'olimpiada', 8);
+      const rankingCidades = agregarRanking(premiados, 'municipio').slice(0, 8);
+      const rankingEscolas = agregarRanking(premiados, 'escola', 'municipio').slice(0, 10);
+
+      setTxt('reuniaoTotalMedalhas', formatoNumero(premiados.length));
+      setTxt('reuniaoTotalSub', `${resumoOuros(premiados)} ouro(s), ${resumoPratas(premiados)} prata(s), ${resumoBronzes(premiados)} bronze(s)`);
+      const cresc = document.getElementById('reuniaoCrescimento');
+      if (cresc) { cresc.innerText = crescimentoPercentual(primeiro, ultimo); cresc.className = `text-3xl font-black mt-2 ${tendenciaClasse(delta)}`; }
+      setTxt('reuniaoCrescimentoSub', `${primeiro} em ${porAno[0]?.ano || '—'} → ${ultimo} em ${porAno[porAno.length-1]?.ano || '—'}`);
+      setTxt('reuniaoEscolas', formatoNumero(escolas.size));
+      setTxt('reuniaoEscolasSub', `${cidades.size} cidade(s) com resultado`);
+      setTxt('reuniaoAlunos', formatoNumero(alunos.length));
+      setTxt('reuniaoAlunosSub', `${plataforma.length} material(is) no contexto filtrado`);
+
+      const tbodyEvo = document.getElementById('tableReuniaoEvolucao');
+      if (tbodyEvo) {
+        tbodyEvo.innerHTML = porAno.map((linha, i) => {
+          const anterior = i > 0 ? porAno[i-1].total : linha.total;
+          const d = linha.total - anterior;
+          return `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${linha.ano}</td><td class="p-4 font-bold">${linha.total}</td><td class="p-4">${linha.ouro}</td><td class="p-4">${linha.prata}</td><td class="p-4">${linha.bronze}</td><td class="p-4 font-bold ${tendenciaClasse(d)}">${i === 0 ? '—' : (d >= 0 ? '+' : '') + d}</td></tr>`;
+        }).join('') || `<tr><td colspan="6" class="p-6 text-center text-gray-500">Sem dados no período.</td></tr>`;
+      }
+
+      const recorteNome = (() => {
+        const c = document.getElementById('reuniaoFiltroCidade')?.value || 'TODAS';
+        const e = document.getElementById('reuniaoFiltroEscola')?.value || 'TODAS';
+        if (e !== 'TODAS') return `Recorte atual: escola ${e}.`;
+        if (c !== 'TODAS') return `Recorte atual: cidade ${c}.`;
+        return 'Recorte atual: visão geral autorizada.';
+      })();
+
+      const insights = [];
+      insights.push(montarItemInsight(recorteNome, 'fa-filter', 'text-blue-400'));
+      insights.push(montarItemInsight(gerarInsightCrescimento(porAno), delta >= 0 ? 'fa-arrow-trend-up' : 'fa-triangle-exclamation', delta >= 0 ? 'text-emerald-400' : 'text-amber-400'));
+      if (equipeGeral()) insights.push(montarItemInsight(melhorEntidadeTexto(rankingCidades, 'cidades'), 'fa-city', 'text-emerald-400'));
+      insights.push(montarItemInsight(melhorEntidadeTexto(rankingEscolas, 'escolas'), 'fa-school', 'text-purple-400'));
+      if (olimpiadas.length) insights.push(montarItemInsight(`A olimpíada de maior impacto no período é ${olimpiadas[0].nome}, com ${olimpiadas[0].total} resultado(s).`, 'fa-trophy', 'text-amber-400'));
+      if (!premiados.length) insights.push(montarItemInsight('Ainda não há resultados suficientes nesse recorte. O foco da reunião deve ser cadastro, participação e importação de resultados.', 'fa-clipboard-list', 'text-blue-400'));
+      setHtml('reuniaoInsights', insights.join(''));
+
+      const tbodyCid = document.getElementById('tableReuniaoCidades');
+      if (tbodyCid) tbodyCid.innerHTML = rankingCidades.map(r => `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${esc(r.nome)}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4">${melhorAnoTexto(r.porAno)}</td><td class="p-4 text-gray-400">${crescimentoEntidadeTexto(r.porAno, anos)}</td></tr>`).join('') || `<tr><td colspan="4" class="p-6 text-center text-gray-500">Sem cidades ranqueadas nesse recorte.</td></tr>`;
+
+      const tbodyEsc = document.getElementById('tableReuniaoEscolas');
+      if (tbodyEsc) tbodyEsc.innerHTML = rankingEscolas.map(r => `<tr class="hover:bg-gray-700/20"><td class="p-4 font-bold text-white">${esc(r.nome)}</td><td class="p-4 text-gray-400">${esc(r.secundario || '—')}</td><td class="p-4 font-bold">${r.total}</td><td class="p-4 text-gray-400">${crescimentoEntidadeTexto(r.porAno, anos)}</td></tr>`).join('') || `<tr><td colspan="4" class="p-6 text-center text-gray-500">Sem escolas ranqueadas nesse recorte.</td></tr>`;
+
+      setHtml('reuniaoOlimpiadas', olimpiadas.map((o, i) => `<div class="flex items-center justify-between gap-3 bg-gray-900/60 border border-gray-700 rounded-xl p-3"><span class="font-bold text-gray-200">${i+1}. ${esc(o.nome)}</span><span class="text-blue-400 font-black">${o.total}</span></div>`).join('') || `<p class="text-gray-500">Sem resultados por olimpíada nesse recorte.</p>`);
+
+      const agenda = cronograma
+        .map(item => ({...item, temporal: classificarTemporalCronograma(item)}))
+        .filter(item => item.temporal && item.temporal.codigo !== 'passado' && item.temporal.codigo !== 'semdata')
+        .sort((a,b) => a.temporal.dataBase - b.temporal.dataBase)
+        .slice(0, 6);
+      setHtml('reuniaoAgenda', agenda.map(item => `<div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3"><p class="font-bold text-white">${esc(item.etapa || 'Etapa')}</p><p class="text-xs text-gray-400 mt-1">${esc(item.data || 'Data não informada')} · ${esc(nomeOlimpiadaPorIdReuniao(item.olimpiadaId) || item.olimpiada || 'Olimpíada')}</p></div>`).join('') || `<p class="text-gray-500">Sem agenda futura cadastrada para esse contexto.</p>`);
+
+      const enc = [];
+      if (delta < 0) enc.push('Investigar queda de resultados e comparar calendário de preparação do período.');
+      if (alunos.length && premiados.length) enc.push(`Cruzar ${alunos.length} aluno(s) cadastrado(s) com resultados para identificar talentos recorrentes.`);
+      if (plataforma.length) enc.push(`Usar os ${plataforma.length} material(is) publicados para direcionar trilhas de estudo por nível.`);
+      enc.push('Definir metas por escola e olimpíada para o próximo ciclo.');
+      enc.push('Revisar eventos dos próximos 30 dias e responsáveis por inscrição/aplicação/correção.');
+      setHtml('reuniaoEncaminhamentos', enc.map(x => `<div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3"><i class="fa-solid fa-check text-emerald-400 mr-2"></i>${esc(x)}</div>`).join(''));
+
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao gerar painel de reunião.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate mr-2"></i>Atualizar'; }
+    }
+  }
+
+  window.prepararTelaReuniao = async function prepararTelaReuniaoEscopo(){
+    garantirAbaReuniaoPermissao();
+    inserirFiltrosReuniao();
+    if (typeof prepararFiltrosReuniao === 'function') prepararFiltrosReuniao();
+    await gerarPainelReuniaoEscopo();
+  };
+  window.gerarPainelReuniao = gerarPainelReuniaoEscopo;
+  try { prepararTelaReuniao = window.prepararTelaReuniao; gerarPainelReuniao = window.gerarPainelReuniao; } catch(_) {}
+
+  document.addEventListener('DOMContentLoaded', () => setTimeout(garantirAbaReuniaoPermissao, 500));
+
+  window.diagnosticarReuniaoEscopo = function diagnosticarReuniaoEscopo(){
+    return {
+      usuario: usuarioLogado ? {nivel: usuarioLogado.nivel, vinculoId: usuarioLogado.vinculoId, nome: usuarioLogado.nome} : null,
+      podeVerReuniao: podeVerReuniao(),
+      cidadeUsuario: municipioDoUsuarioTexto(),
+      escolaUsuario: escolaVinculada()?.nome || '',
+      filtros: {
+        cidade: document.getElementById('reuniaoFiltroCidade')?.value,
+        escola: document.getElementById('reuniaoFiltroEscola')?.value
+      },
+      abaVisivel: !document.getElementById('view-reuniao')?.classList.contains('hidden')
+    };
+  };
+  console.log(TAG, 'ativo. Use diagnosticarReuniaoEscopo() no console.');
+})();

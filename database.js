@@ -65,7 +65,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: true }
     },
     Gestor: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "reuniao", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
@@ -73,7 +73,7 @@ const PERMISSOES = {
         plataforma: { podeGerenciar: false }
     },
     Escola: {
-        abas: ["dashboard", "calendario", "importar", "relatorios", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
+        abas: ["dashboard", "calendario", "importar", "relatorios", "reuniao", "plataforma", "simulados", "aulas", "monitoria", "alunos", "usuarios", "olimpiadas"],
         dashboard: { filtroTravado: true },
         calendario: { podeEditar: false },
         resultados: { podeEditar: false },
