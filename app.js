@@ -18648,3 +18648,537 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "patch carregado");
 })();
+
+
+// ============================================================
+// PATCH FINAL — listagens, filtros encadeados e preview em tempo real
+// Corrige:
+// 1) Olimpíadas e etapas não listadas no calendário.
+// 2) Gerador de mini-lista: Disciplina > Área > Tema > Subtema sem perder checkbox marcado.
+// 3) Gerador de simulado: Disciplina > Área > Tema > Subtema com checkboxes funcionais.
+// 4) Simulados não listados por carregamento incompleto.
+// 5) Layouts de impressão retráteis + pré-visualização em tempo real.
+// ============================================================
+(function patchFinalEventosSimuladosLayouts(){
+  const TAG = "[patch-final-eventos-simulados-layouts]";
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  }
+  function norm(v) {
+    if (typeof normalizarTexto === "function") return normalizarTexto(v);
+    return String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  function unique(vals) {
+    return Array.from(new Set((vals || []).map(v => String(v || "").trim()).filter(Boolean)))
+      .sort((a,b)=>a.localeCompare(b, "pt-BR", { sensitivity:"base", numeric:true }));
+  }
+  function baseColecao(chave) {
+    if (typeof getFirebaseCollectionBaseName === "function") return getFirebaseCollectionBaseName(chave);
+    return String(chave || "").replace(/^app_/, "sistema_");
+  }
+  function caminhoAnual(chave) {
+    if (typeof getFirebaseCollectionName === "function") return getFirebaseCollectionName(chave);
+    const base = baseColecao(chave);
+    return chave === "app_usuarios" ? base : `anos/${anoDadosAtivo || "2026"}/${base}`;
+  }
+
+  async function lerColecaoDireta(caminho) {
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) return [];
+    const snap = await firebaseFirestore.collection(caminho).get();
+    const arr = [];
+    snap.forEach(doc => {
+      const data = doc.data() || {};
+      arr.push({ id: data.id || doc.id, ...data });
+    });
+    return arr;
+  }
+
+  async function carregarColecaoFinal(chave, {force=false} = {}) {
+    const atual = typeof getStorage === "function" ? getStorage(chave, []) : [];
+    if (!force && Array.isArray(atual) && atual.length) return atual;
+
+    const caminhos = [];
+    const anual = caminhoAnual(chave);
+    const raiz = baseColecao(chave);
+    caminhos.push(anual);
+    if (!caminhos.includes(raiz)) caminhos.push(raiz);
+
+    for (const caminho of caminhos) {
+      try {
+        const dados = await lerColecaoDireta(caminho);
+        if (dados.length) {
+          if (typeof setStorageLocal === "function") setStorageLocal(chave, dados);
+          return dados;
+        }
+      } catch (e) {
+        console.warn(TAG, "falha ao ler", chave, caminho, e?.message || e);
+      }
+    }
+
+    const seed = typeof dadosSementePorChave === "function" ? dadosSementePorChave(chave) : [];
+    if (Array.isArray(seed) && seed.length) {
+      if (typeof setStorageLocal === "function") setStorageLocal(chave, seed);
+      return seed;
+    }
+    if (typeof setStorageLocal === "function") setStorageLocal(chave, []);
+    return [];
+  }
+
+  // Evita que carregamentos de coleção vazia tentem semear/escrever para usuários sem permissão.
+  const carregarChaveOriginalFinal = typeof carregarChaveFirebase === "function" ? carregarChaveFirebase : null;
+  window.carregarChaveFirebase = async function carregarChaveFirebaseFinal(chave, fallback = []) {
+    try {
+      const dados = await carregarColecaoFinal(chave, {force:true});
+      if (dados.length) return dados;
+      if (Array.isArray(fallback) && fallback.length) {
+        if (typeof setStorageLocal === "function") setStorageLocal(chave, fallback);
+        return fallback;
+      }
+      return [];
+    } catch (e) {
+      console.warn(TAG, "carregamento robusto falhou", chave, e);
+      return [];
+    }
+  };
+  try { carregarChaveFirebase = window.carregarChaveFirebase; } catch(_) {}
+
+  async function garantirBaseCalendario() {
+    await carregarColecaoFinal("app_olimpiadas", {force:true});
+    await carregarColecaoFinal("app_cronograma", {force:false});
+    popularOlimpiadasNoCalendario();
+    popularEtapasCalendario();
+  }
+
+  function popularOlimpiadasNoCalendario() {
+    const olis = unique((typeof getStorage === "function" ? getStorage("app_olimpiadas", []) : []).map(o => o.nome ? `${o.id}|||${o.nome}` : ""));
+    const lista = olis.map(x => {
+      const [id, nome] = x.split("|||");
+      return {id, nome};
+    }).filter(o => o.id && o.nome);
+
+    const selects = [
+      {id:"addCroOlimpiadaSelect", placeholder:"Selecione a olimpíada homologada..."},
+      {id:"filterCronogramaOlimpiada", placeholder:"Todas as olimpíadas"}
+    ];
+    selects.forEach(cfg => {
+      const sel = document.getElementById(cfg.id);
+      if (!sel) return;
+      const atual = sel.value || "";
+      const primeira = cfg.id === "filterCronogramaOlimpiada" ? `<option value="TODOS">${cfg.placeholder}</option>` : `<option value="">${cfg.placeholder}</option>`;
+      sel.innerHTML = primeira + lista.map(o => `<option value="${esc(o.id)}">${esc(o.nome)}</option>`).join("");
+      if (Array.from(sel.options).some(o => o.value === atual)) sel.value = atual;
+    });
+  }
+
+  function optionsEtapas() {
+    if (typeof montarOptionsEtapasSelect === "function") {
+      return montarOptionsEtapasSelect("", { incluirPlaceholder: true, textoPlaceholder: "Selecione a etapa/fase..." });
+    }
+    if (typeof TAXONOMIA_ETAPAS !== "undefined") {
+      return `<option value="">Selecione a etapa/fase...</option>` + TAXONOMIA_ETAPAS.map(g =>
+        `<optgroup label="${esc(g.grupoNome || g.grupoCodigo || "Etapas")}">${(g.etapas || []).map(e => `<option value="${esc(e.nome)}">${esc(e.codigo ? e.codigo + " · " : "")}${esc(e.nome)}</option>`).join("")}</optgroup>`
+      ).join("");
+    }
+    return `<option value="">Selecione a etapa/fase...</option>`;
+  }
+  function popularEtapasCalendario() {
+    const add = document.getElementById("addCroEtapa");
+    if (add) {
+      const atual = add.value || "";
+      add.innerHTML = optionsEtapas();
+      if (Array.from(add.options).some(o => o.value === atual)) add.value = atual;
+    }
+    const filtro = document.getElementById("filterCronogramaEtapa");
+    if (filtro && (!filtro.options.length || filtro.options.length <= 1)) {
+      if (typeof TAXONOMIA_ETAPAS !== "undefined") {
+        filtro.innerHTML = `<option value="TODOS">Todas as etapas</option>` + TAXONOMIA_ETAPAS.map(g =>
+          `<optgroup label="${esc(g.grupoNome || g.grupoCodigo || "Etapas")}">${(g.etapas || []).map(e => `<option value="${esc(e.nome)}">${esc(e.codigo ? e.codigo + " · " : "")}${esc(e.nome)}</option>`).join("")}</optgroup>`
+        ).join("");
+      }
+    }
+  }
+
+  // =========================
+  // Mini-lista aleatória: dependência preservando checks
+  // =========================
+  function valsChecked(classe, campo) {
+    return Array.from(document.querySelectorAll(`.${classe}[data-campo="${campo}"]:checked`)).map(i => i.value);
+  }
+  function estadoMini() {
+    const campos = ["disciplina","area","tema","subtema","nivel","dificuldade","tipo"];
+    const obj = { inc:{}, exc:{} };
+    campos.forEach(c => {
+      obj.inc[c] = valsChecked("bqRandCheck", c);
+      obj.exc[c] = valsChecked("bqRandBlock", c);
+    });
+    return obj;
+  }
+  function labelCheck(classe, campo, valor, checked, bloqueio=false) {
+    return `<label class="flex items-center gap-2 p-2 rounded-lg ${bloqueio ? "bg-red-950/15 border-red-900/40 text-red-100" : "bg-gray-950 border-gray-700 text-gray-200"} border text-[11px]">
+      <input type="checkbox" class="${classe} ${bloqueio ? "accent-red-500" : "accent-purple-500"}" data-campo="${esc(campo)}" value="${esc(valor)}" ${checked ? "checked" : ""}>
+      <span>${esc(valor)}</span>
+    </label>`;
+  }
+  function grupoMini(campo, titulo, valores, estado, aviso) {
+    const vals = unique(valores);
+    if (!vals.length) {
+      return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(titulo)}</summary><p class="text-xs text-gray-500 mt-3">${esc(aviso || "Nenhuma opção disponível.")}</p></details>`;
+    }
+    const quero = vals.map(v => labelCheck("bqRandCheck", campo, v, (estado.inc[campo] || []).includes(v), false)).join("");
+    const nao = vals.map(v => labelCheck("bqRandBlock", campo, v, (estado.exc[campo] || []).includes(v), true)).join("");
+    return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3" open>
+      <summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(titulo)}</summary>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+        <div><p class="text-[10px] text-emerald-300 font-black uppercase mb-2">Quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${quero}</div></div>
+        <div><p class="text-[10px] text-red-300 font-black uppercase mb-2">Não quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${nao}</div></div>
+      </div>
+    </details>`;
+  }
+  function renderMiniDependente() {
+    const box = document.getElementById("bqRandGrupos");
+    if (!box) return;
+    const st = estadoMini();
+    const qs = (typeof getStorage === "function" ? getStorage("app_questoes", []) : []) || [];
+    const disc = st.inc.disciplina || [];
+    const area = st.inc.area || [];
+    const tema = st.inc.tema || [];
+    const baseDisc = disc.length ? qs.filter(q => disc.includes(q.disciplina)) : [];
+    const baseArea = area.length ? baseDisc.filter(q => area.includes(q.area)) : [];
+    const baseTema = tema.length ? baseArea.filter(q => tema.includes(q.tema)) : [];
+    box.innerHTML = [
+      grupoMini("disciplina", "Disciplina", qs.map(q => q.disciplina), st, "Cadastre questões para listar disciplinas."),
+      grupoMini("area", "Área", disc.length ? baseDisc.map(q => q.area) : [], st, "Escolha uma disciplina primeiro."),
+      grupoMini("tema", "Tema", area.length ? baseArea.map(q => q.tema) : [], st, "Escolha uma área primeiro."),
+      grupoMini("subtema", "Subtema", tema.length ? baseTema.map(q => q.subtema) : [], st, "Escolha um tema primeiro."),
+      grupoMini("nivel", "Nível", qs.map(q => q.nivel), st, "Nenhum nível encontrado."),
+      grupoMini("dificuldade", "Dificuldade", qs.map(q => q.dificuldade), st, "Nenhuma dificuldade encontrada."),
+      grupoMini("tipo", "Tipo", qs.map(q => q.tipo), st, "Nenhum tipo encontrado.")
+    ].join("");
+  }
+  const abrirMiniBaseFinal = window.abrirGeradorMiniListaAleatoria;
+  window.abrirGeradorMiniListaAleatoria = function abrirGeradorMiniListaAleatoriaFinal() {
+    const r = typeof abrirMiniBaseFinal === "function" ? abrirMiniBaseFinal.apply(this, arguments) : undefined;
+    setTimeout(renderMiniDependente, 60);
+    return r;
+  };
+  document.addEventListener("change", e => {
+    if (e.target?.classList?.contains("bqRandCheck") && ["disciplina","area","tema"].includes(e.target.dataset.campo)) {
+      setTimeout(renderMiniDependente, 20);
+    }
+  });
+
+  // =========================
+  // Gerador de simulado por banco: checkboxes encadeados
+  // =========================
+  function gerChecked(nome) {
+    return Array.from(document.querySelectorAll(`#painelGeradorSimuladoQuestoes input[type="checkbox"][name="${nome}"]:checked`)).map(i => i.value);
+  }
+  function renderGerChecks(containerId, name, valores, placeholder, filtro="") {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const antes = new Set(gerChecked(name));
+    const f = norm(filtro);
+    const vals = unique(valores).filter(v => !f || norm(v).includes(f));
+    if (!vals.length) {
+      box.innerHTML = `<div class="p-3 text-center text-xs text-gray-500">${esc(placeholder || "Nenhuma opção encontrada.")}</div>`;
+      return;
+    }
+    box.innerHTML = vals.map(v => {
+      const id = `${name}_${Math.random().toString(36).slice(2,9)}`;
+      return `<label for="${id}" class="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-800/80 cursor-pointer text-xs text-gray-300">
+        <input id="${id}" type="checkbox" name="${esc(name)}" value="${esc(v)}" ${antes.has(v) ? "checked" : ""} class="mt-0.5 accent-purple-500 shrink-0">
+        <span class="leading-snug">${esc(v)}</span>
+      </label>`;
+    }).join("");
+  }
+  function garantirAreaGeradorSimulado() {
+    if (document.getElementById("gerSimAreaChecks")) return;
+    const discBox = document.getElementById("gerSimDisciplinaChecks");
+    const nivelWrapper = document.getElementById("gerSimNivelChecks")?.closest("div");
+    if (!discBox || !nivelWrapper) return;
+    const areaWrap = document.createElement("div");
+    areaWrap.innerHTML = `<div class="flex items-center justify-between mb-1"><label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Área</label><span id="gerSimCountArea" class="text-[10px] text-gray-500"></span></div><div id="gerSimAreaChecks" class="ger-sim-check-grid max-h-48 overflow-y-auto rounded-xl border border-gray-700 bg-gray-950/60 p-2 space-y-1"></div>`;
+    nivelWrapper.insertAdjacentElement("afterend", areaWrap);
+  }
+  function setCount(id, atual, total) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = atual ? `${atual}/${total}` : `${total}`;
+  }
+  window.popularFiltrosGeradorSimulado = function popularFiltrosGeradorSimuladoFinal() {
+    garantirAreaGeradorSimulado();
+    const qs = (typeof getStorage === "function" ? getStorage("app_questoes", []) : []) || [];
+    const discSel = gerChecked("gerSimDisciplina");
+    const areaSel = gerChecked("gerSimArea");
+    const temaSel = gerChecked("gerSimTema");
+    const baseDisc = discSel.length ? qs.filter(q => discSel.includes(q.disciplina)) : [];
+    const baseArea = areaSel.length ? baseDisc.filter(q => areaSel.includes(q.area)) : [];
+    const baseTema = temaSel.length ? baseArea.filter(q => temaSel.includes(q.tema)) : [];
+
+    const disciplinas = unique(qs.map(q => q.disciplina));
+    const niveis = unique(["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral", ...qs.map(q => q.nivel)]);
+    const areas = discSel.length ? unique(baseDisc.map(q => q.area)) : [];
+    const temas = areaSel.length ? unique(baseArea.map(q => q.tema)) : [];
+    const subtemas = temaSel.length ? unique(baseTema.map(q => q.subtema)) : [];
+
+    renderGerChecks("gerSimDisciplinaChecks", "gerSimDisciplina", disciplinas, "Cadastre questões para aparecerem as disciplinas.");
+    renderGerChecks("gerSimNivelChecks", "gerSimNivel", niveis, "Cadastre questões para aparecerem os níveis.");
+    renderGerChecks("gerSimAreaChecks", "gerSimArea", areas, "Escolha uma disciplina primeiro.");
+    renderGerChecks("gerSimTemasChecks", "gerSimTema", temas, "Escolha uma área primeiro.", document.getElementById("gerSimBuscaTema")?.value || "");
+    renderGerChecks("gerSimSubtemasChecks", "gerSimSubtema", subtemas, "Escolha um tema primeiro.", document.getElementById("gerSimBuscaSubtema")?.value || "");
+
+    setCount("gerSimCountDisciplina", gerChecked("gerSimDisciplina").length, disciplinas.length);
+    setCount("gerSimCountNivel", gerChecked("gerSimNivel").length, niveis.length);
+    setCount("gerSimCountArea", gerChecked("gerSimArea").length, areas.length);
+    setCount("gerSimCountTema", gerChecked("gerSimTema").length, temas.length);
+    setCount("gerSimCountSubtema", gerChecked("gerSimSubtema").length, subtemas.length);
+    if (typeof atualizarDistribuicaoGeradorSimulado === "function") atualizarDistribuicaoGeradorSimulado();
+    if (typeof atualizarDestinoGeradorSimulado === "function") atualizarDestinoGeradorSimulado();
+    if (typeof atualizarResumoGeradorSimulado === "function") atualizarResumoGeradorSimulado();
+  };
+  document.addEventListener("change", e => {
+    if (!e.target?.closest?.("#painelGeradorSimuladoQuestoes")) return;
+    if (["gerSimDisciplina","gerSimArea","gerSimTema"].includes(e.target.name)) {
+      setTimeout(() => window.popularFiltrosGeradorSimulado(), 20);
+    }
+  });
+  document.addEventListener("input", e => {
+    if (["gerSimBuscaTema","gerSimBuscaSubtema"].includes(e.target?.id)) setTimeout(() => window.popularFiltrosGeradorSimulado(), 20);
+  });
+
+  function numGer(id) { return Math.max(0, Number(document.getElementById(id)?.value || 0)); }
+  function distGer() {
+    return {
+      "Fácil": numGer("gerSimQtdFacil"),
+      "Médio": numGer("gerSimQtdMedio"),
+      "Difícil": numGer("gerSimQtdDificil"),
+      "Muito difícil": numGer("gerSimQtdMuitoDificil"),
+      "Olímpica": numGer("gerSimQtdOlimpica"),
+      "Vestibular": numGer("gerSimQtdVestibular")
+    };
+  }
+  function proximasDificuldades(dif) {
+    const ordem = ["Fácil","Médio","Difícil","Muito difícil","Olímpica","Vestibular"];
+    const i = ordem.indexOf(dif);
+    return [...ordem.slice(0,i).reverse(), ...ordem.slice(i+1)];
+  }
+  window.gerarSimuladoPeloBancoQuestoes = async function gerarSimuladoPeloBancoQuestoesFinal() {
+    if (typeof podeGerenciarQuestoes === "function" && !podeGerenciarQuestoes()) return alert("Apenas ADM, Monitor e Professor/Orientador podem gerar simulados pelo banco de questões.");
+    await carregarColecaoFinal("app_questoes", {force:false});
+    const total = Math.max(1, Number(document.getElementById("gerSimQtd")?.value || 10));
+    const disciplinas = gerChecked("gerSimDisciplina");
+    const niveis = gerChecked("gerSimNivel");
+    const areas = gerChecked("gerSimArea");
+    const temas = gerChecked("gerSimTema");
+    const subtemas = gerChecked("gerSimSubtema");
+    let base = (getStorage("app_questoes", []) || []).filter(q => {
+      if (disciplinas.length && !disciplinas.includes(q.disciplina)) return false;
+      if (niveis.length && !niveis.includes(q.nivel)) return false;
+      if (areas.length && !areas.includes(q.area)) return false;
+      if (temas.length && !temas.includes(q.tema)) return false;
+      if (subtemas.length && !subtemas.includes(q.subtema)) return false;
+      return true;
+    });
+    if (!base.length) return alert("Nenhuma questão encontrada com esses filtros.");
+    base = base.sort(() => Math.random() - 0.5);
+    const dist = distGer();
+    const soma = Object.values(dist).reduce((a,b)=>a+b,0);
+    if (soma > total) return alert("A distribuição por dificuldade não pode ultrapassar o total de questões.");
+    const escolhidas = [];
+    const usados = new Set();
+    function pegar(dif, qtd) {
+      let cand = base.filter(q => !usados.has(q.id) && q.dificuldade === dif);
+      if (cand.length < qtd) proximasDificuldades(dif).forEach(d2 => { if (cand.length < qtd) cand.push(...base.filter(q => !usados.has(q.id) && q.dificuldade === d2)); });
+      cand.slice(0,qtd).forEach(q => { if (!usados.has(q.id)) { usados.add(q.id); escolhidas.push(q); } });
+    }
+    Object.entries(dist).forEach(([dif,qtd]) => { if (qtd) pegar(dif,qtd); });
+    base.forEach(q => { if (escolhidas.length < total && !usados.has(q.id)) { usados.add(q.id); escolhidas.push(q); } });
+    if (!escolhidas.length) return alert("Não foi possível montar o simulado com os filtros selecionados.");
+
+    const horas = Math.max(0, Number(document.getElementById("gerSimHoras")?.value || 0));
+    const minutos = Math.max(0, Number(document.getElementById("gerSimMinutos")?.value || 0));
+    const sim = {
+      id: typeof novoId === "function" ? novoId() : String(Date.now()),
+      titulo: document.getElementById("gerSimTitulo")?.value.trim() || `Simulado gerado — ${new Date().toLocaleDateString("pt-BR")}`,
+      disciplina: disciplinas.length ? disciplinas.join(", ") : "Geral",
+      nivel: niveis.length ? niveis.join(", ") : "Geral",
+      area: areas.join(", "),
+      tema: temas.join(", "),
+      subtema: subtemas.join(", "),
+      formato: document.getElementById("gerSimFormato")?.value || "objetivo",
+      dataFim: document.getElementById("gerSimPrazo")?.value || "",
+      horaFim: "23:59",
+      duracaoMinutos: horas * 60 + minutos,
+      duracao: horas || minutos ? `${horas}h ${minutos}min` : "Sem limite definido",
+      quantidadeQuestoes: escolhidas.length,
+      publico: !!document.getElementById("gerSimPublico")?.checked,
+      geradoDoBanco: true,
+      questoesBanco: escolhidas.map((q, i) => ({ numero: i+1, questaoId:q.id, titulo:q.titulo, disciplina:q.disciplina, nivel:q.nivel, area:q.area, tema:q.tema, subtema:q.subtema, dificuldade:q.dificuldade, tipo:q.tipo, fonte:q.fonte, ano:q.ano, enunciado:q.enunciado, enunciadoHtml:q.enunciadoHtml, arquivos:q.arquivos || [], alternativas:q.alternativas || {}, alternativaCorreta:q.alternativaCorreta || "" })),
+      gabaritoObjetivo: escolhidas.map((q,i)=>({numero:i+1, resposta:String(q.alternativaCorreta || "").toUpperCase()})).filter(g=>g.resposta),
+      gabarito: "Simulado gerado a partir do Banco de Questões.",
+      descricao: "Leia cada questão no ambiente cronometrado e preencha o cartão-resposta. O gabarito/resolução só será liberado após o prazo final.",
+      destino: { tipo: "todos", valores: [] },
+      criadoEm: Date.now(),
+      atualizadoEm: Date.now(),
+      criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || "",
+      criadoPorNome: usuarioLogado?.nome || "",
+      criadoPorNivel: usuarioLogado?.nivel || ""
+    };
+    const lista = getStorage("app_simulados", []);
+    lista.push(sim);
+    await setStorage("app_simulados", lista);
+    const resumo = document.getElementById("gerSimResumo");
+    if (resumo) resumo.innerHTML = `<span class="text-emerald-300 font-bold">Simulado criado com ${escolhidas.length} questões.</span>` + (sim.publico ? `<br><span class="text-purple-200">Link público: ${location.origin + location.pathname}?simuladoPublico=${sim.id}&ano=${anoDadosAtivo}</span>` : "");
+    if (typeof renderizarSimulados === "function") renderizarSimulados();
+    alert("Simulado criado a partir do Banco de Questões.");
+  };
+
+  // =========================
+  // Simulados: garantir carregamento e renderização
+  // =========================
+  const renderSimBaseFinal = typeof renderizarSimulados === "function" ? renderizarSimulados : null;
+  window.renderizarSimulados = function renderizarSimuladosFinal() {
+    const lista = getStorage("app_simulados", []) || [];
+    if (!lista.length && !window.__carregandoSimuladosFinal) {
+      window.__carregandoSimuladosFinal = true;
+      carregarColecaoFinal("app_simulados", {force:true}).then(() => {
+        window.__carregandoSimuladosFinal = false;
+        if (typeof popularFiltrosSimulados === "function") popularFiltrosSimulados();
+        if (renderSimBaseFinal) renderSimBaseFinal();
+      });
+      const grid = document.getElementById("gridSimulados");
+      if (grid) grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando simulados...</div>`;
+      return;
+    }
+    return renderSimBaseFinal ? renderSimBaseFinal.apply(this, arguments) : undefined;
+  };
+  try { renderizarSimulados = window.renderizarSimulados; } catch(_) {}
+
+  // =========================
+  // Layouts: retrátil e preview em tempo real
+  // =========================
+  function previewLayoutHTML() {
+    const get = id => document.getElementById(id)?.value || "";
+    const chk = id => !!document.getElementById(id)?.checked;
+    const layout = {
+      titulo: get("layoutListaTitulo") || "Avance Olímpico",
+      subtitulo: get("layoutListaSubtitulo") || "Lista de Exercícios",
+      estilo: get("layoutListaEstilo") || "classico",
+      logo: get("layoutListaLogoUrl"),
+      cab: get("layoutListaCabecalho") || "Aluno(a): __________________________ Turma: ______ Data: ___/___/_____",
+      marca: get("layoutListaMarcaDagua") || "AVANCE OLÍMPICO",
+      water: chk("layoutListaMostrarMarcaDagua"),
+      ass: chk("layoutListaAssinatura"),
+      meta: chk("layoutListaMetadados"),
+      alts: chk("layoutListaAlternativas"),
+      linhas: chk("layoutListaLinhasResposta")
+    };
+    const alts = layout.alts ? `<ol class="plv-alts"><li>Alternativa A do modelo.</li><li>Alternativa B do modelo.</li><li>Alternativa C do modelo.</li><li>Alternativa D do modelo.</li><li>Alternativa E do modelo.</li></ol>` : "";
+    const linhas = layout.linhas ? `<div class="plv-linhas">${Array.from({length:4}).map(()=>"<div></div>").join("")}</div>` : "";
+    const questao = n => `<article class="plv-q"><div class="plv-meta"><b>Questão ${n}</b>${layout.meta ? " — Matemática · Aritmética · Médio" : ""}</div><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Em uma situação-problema, analise as informações e determine a alternativa correta.</p>${alts}${linhas}</article>`;
+    return `<div class="plv-page plv-${esc(layout.estilo)}">${layout.water ? `<div class="plv-water">${esc(layout.marca)}</div>` : ""}<header><div class="plv-bar"></div><div class="plv-head">${layout.logo ? `<img src="${esc(layout.logo)}">` : `<div class="plv-logo">AO</div>`}<div><p>AVANCE OLÍMPICO</p><h1>${esc(layout.titulo)}</h1><h2>${esc(layout.subtitulo)}</h2></div></div><div class="plv-cab">${esc(layout.cab).replace(/\n/g,"<br>")}</div></header>${questao(1)}${questao(2)}${layout.ass ? `<div class="plv-ass"><span>Assinatura do estudante</span><span>Professor(a) / Correção</span></div>` : ""}</div>`;
+  }
+  function garantirStylePreviewLive() {
+    if (document.getElementById("stylePreviewLayoutLiveFinal")) return;
+    const st = document.createElement("style");
+    st.id = "stylePreviewLayoutLiveFinal";
+    st.textContent = `.plv-wrap{margin-top:16px;border:1px solid #4c1d95;border-radius:18px;background:#111827;padding:14px}.plv-title{font-size:11px;color:#c4b5fd;text-transform:uppercase;font-weight:900;letter-spacing:.08em;margin-bottom:10px}.plv-page{position:relative;background:white;color:#111827;border-left:6px solid #7c3aed;padding:18px;min-height:520px;max-width:760px;margin:auto;font-family:Arial,sans-serif;box-shadow:0 14px 40px rgba(0,0,0,.28);transform-origin:top center}.plv-page header{border:1px solid #ddd6fe;border-radius:16px;overflow:hidden;background:linear-gradient(135deg,#faf5ff,#fff 48%,#f5f3ff);margin-bottom:14px}.plv-bar{height:12px;background:linear-gradient(90deg,#3b0764,#7c3aed,#a855f7)}.plv-head{display:flex;align-items:center;gap:12px;padding:12px}.plv-head img,.plv-logo{width:58px;height:58px;border-radius:14px;border:2px solid #ddd6fe;background:#fff;display:flex;align-items:center;justify-content:center;color:#5b21b6;font-weight:900;font-size:22px;object-fit:contain}.plv-head p{margin:0 0 3px;color:#6d28d9;font-size:10px;font-weight:900;letter-spacing:.16em}.plv-head h1{margin:0;color:#2e1065;font-size:20px;text-transform:uppercase}.plv-head h2{margin:3px 0 0;color:#6b21a8;font-size:12px}.plv-cab{margin:0 12px 12px;padding:8px;border:1px solid #ddd6fe;border-radius:10px;background:#faf5ff;color:#3b0764;font-size:11px}.plv-q{position:relative;z-index:1;border:1px solid #e5e7eb;border-left:4px solid #7c3aed;border-radius:12px;margin-bottom:10px;padding:10px;background:#fff;font-size:12px}.plv-meta{color:#6d28d9;font-size:11px;border-bottom:1px dashed #ddd6fe;padding-bottom:5px;margin-bottom:7px}.plv-alts{margin:8px 0 0 20px}.plv-linhas div{border-bottom:1px solid #d1d5db;height:20px}.plv-water{position:absolute;top:43%;left:9%;transform:rotate(-28deg);font-size:44px;font-weight:900;color:rgba(91,33,182,.055);z-index:0;white-space:nowrap}.plv-ass{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:20px}.plv-ass span{border-top:1px solid #9ca3af;text-align:center;padding-top:6px;font-size:10px;color:#4b5563}`;
+    document.head.appendChild(st);
+  }
+  function atualizarPreviewLive() {
+    const corpo = document.getElementById("previewLayoutLiveCorpo");
+    if (corpo) corpo.innerHTML = previewLayoutHTML();
+  }
+  function prepararPreviewLiveLayout() {
+    garantirStylePreviewLive();
+    const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    if (!painel) return;
+    const areaConteudo = painel.querySelector(".layout-conteudo-retratil") || painel;
+    if (!document.getElementById("previewLayoutLiveCorpo")) {
+      areaConteudo.insertAdjacentHTML("beforeend", `<div class="plv-wrap"><div class="flex items-center justify-between gap-2 mb-2"><div class="plv-title">Pré-visualização em tempo real</div><button type="button" onclick="atualizarPreviewLayoutLiveFinal()" class="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-[10px] font-black uppercase"><i class="fa-solid fa-rotate mr-1"></i>Atualizar</button></div><div id="previewLayoutLiveCorpo"></div></div>`);
+    }
+    ["layoutListaId","layoutListaNome","layoutListaTipo","layoutListaEstilo","layoutListaTitulo","layoutListaSubtitulo","layoutListaLogoUrl","layoutListaMarcaDagua","layoutListaCabecalho","layoutListaRodape","layoutListaMetadados","layoutListaAlternativas","layoutListaLinhasResposta","layoutListaMostrarMarcaDagua","layoutListaAssinatura"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.dataset.previewLiveReady !== "true") {
+        el.dataset.previewLiveReady = "true";
+        el.addEventListener("input", atualizarPreviewLive);
+        el.addEventListener("change", atualizarPreviewLive);
+      }
+    });
+    atualizarPreviewLive();
+  }
+  window.atualizarPreviewLayoutLiveFinal = atualizarPreviewLive;
+
+  function tornarLayoutRetratilFinal() {
+    const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    if (!painel || painel.dataset.retratilFinal === "true") return;
+    painel.dataset.retratilFinal = "true";
+    const filhos = Array.from(painel.childNodes);
+    const wrap = document.createElement("div");
+    wrap.className = "layout-conteudo-retratil hidden mt-4";
+    filhos.forEach(n => wrap.appendChild(n));
+    painel.innerHTML = `<button type="button" class="w-full flex items-center justify-between gap-3 text-left"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-indigo-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">Clique para expandir/recolher e configurar modelos com prévia em tempo real.</p></div><span class="px-3 py-1.5 rounded-xl bg-gray-950 border border-gray-700 text-xs font-black uppercase text-gray-200"><i class="fa-solid fa-chevron-down mr-1"></i> Expandir</span></button>`;
+    const btn = painel.querySelector("button");
+    btn.addEventListener("click", () => {
+      wrap.classList.toggle("hidden");
+      const aberto = !wrap.classList.contains("hidden");
+      btn.querySelector("span").innerHTML = aberto ? '<i class="fa-solid fa-chevron-up mr-1"></i> Recolher' : '<i class="fa-solid fa-chevron-down mr-1"></i> Expandir';
+      if (aberto) setTimeout(prepararPreviewLiveLayout, 80);
+    });
+    painel.appendChild(wrap);
+  }
+
+  // Navegação final: ao abrir módulos, carregue o necessário antes de renderizar.
+  const navBaseFinal2 = window.navegarAba || (typeof navegarAba === "function" ? navegarAba : null);
+  if (typeof navBaseFinal2 === "function" && !window.__navPatchFinalEventosSimulados) {
+    window.__navPatchFinalEventosSimulados = true;
+    const nav = function(abaId, botao) {
+      const r = navBaseFinal2.apply(this, arguments);
+      setTimeout(async () => {
+        try {
+          if (abaId === "calendario") {
+            await garantirBaseCalendario();
+            if (typeof renderizarCronograma === "function") renderizarCronograma();
+            popularOlimpiadasNoCalendario(); popularEtapasCalendario();
+          }
+          if (abaId === "simulados") {
+            await carregarColecaoFinal("app_simulados", {force:true});
+            await carregarColecaoFinal("app_questoes", {force:false});
+            if (typeof popularFiltrosSimulados === "function") popularFiltrosSimulados();
+            window.popularFiltrosGeradorSimulado();
+            window.renderizarSimulados();
+          }
+          if (abaId === "olimpiadas") {
+            await carregarColecaoFinal("app_olimpiadas", {force:true});
+            if (typeof renderizarOlimpiadasDireto === "function") renderizarOlimpiadasDireto();
+            else if (typeof renderizarTabelasGerenciais === "function") renderizarTabelasGerenciais();
+          }
+          if (abaId === "questoes" || abaId === "plataforma") {
+            await carregarColecaoFinal("app_questoes", {force:false});
+            setTimeout(() => { renderMiniDependente(); tornarLayoutRetratilFinal(); prepararPreviewLiveLayout(); }, 200);
+          }
+        } catch(e) { console.warn(TAG, "nav load", abaId, e); }
+      }, 120);
+      return r;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    setInterval(() => {
+      if (!document.getElementById("view-calendario")?.classList.contains("hidden")) {
+        popularOlimpiadasNoCalendario(); popularEtapasCalendario();
+      }
+      if (!document.getElementById("view-simulados")?.classList.contains("hidden")) {
+        garantirAreaGeradorSimulado();
+      }
+      tornarLayoutRetratilFinal();
+      if (!document.getElementById("painelLayoutsMiniListaQuestoes")?.querySelector(".layout-conteudo-retratil")?.classList.contains("hidden")) prepararPreviewLiveLayout();
+    }, 1200);
+  });
+
+  console.log(TAG, "carregado");
+})();
