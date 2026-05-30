@@ -16477,95 +16477,253 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 })();
 
 
+
 // ============================================================
-// PATCH — Paginação sob demanda para listagens grandes
-// Abas: Resultados, Calendário, Usuários, Alunos, Escolas e Cidades.
-// Padrão: 5 por página. Opções: 5, 10, 20, 50, 100, 1000.
+// PATCH — Paginação visual com carregamento correto por aba
+// Corrige a limitação da paginação remota anterior:
+// - A busca agora funciona no conjunto completo da aba carregada.
+// - Calendário volta a ordenar corretamente todos os eventos carregados.
+// - Resultados e alunos filtram de forma completa.
+// - O desempenho visual continua protegido: só renderiza a página atual.
 // ============================================================
-(function patchPaginacaoSobDemandaListagensGrandes(){
-    const TAG = "[Paginação sob demanda]";
-    const OPCOES_TAMANHO = [5, 10, 20, 50, 100, 1000];
-    const estados = {};
-    const cacheDocsRelacionados = {};
+(function patchPaginacaoVisualComCargaPorAba(){
+    const TAG = "[Paginação visual por aba]";
+    const TAMANHOS = [5, 10, 20, 50, 100, 1000];
+    const estadoPag = {};
+    const colecoesCarregadas = new Set();
 
-    function chaveColecao(chave) {
-        if (typeof getFirebaseCollectionName === "function") return getFirebaseCollectionName(chave);
-        const base = String(chave || "").replace(/^app_/, "sistema_");
-        if (chave === "app_usuarios") return base;
-        return `anos/${anoDadosAtivo || "2026"}/${base}`;
-    }
-
-    function estado(id) {
-        if (!estados[id]) estados[id] = { id, pageSize: 5, page: 1, cursors: [], lastDoc: null, loading: false, hasNext: false, cache: [] };
-        return estados[id];
-    }
-
-    function valorSeguro(v) {
+    function esc(v) {
         if (typeof textoSeguro === "function") return textoSeguro(v);
-        return String(v ?? "").replace(/[&<>"']/g, s => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
+        return String(v ?? "").replace(/[&<>\"']/g, s => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
     }
 
-    function normalizar(v) {
+    function norm(v) {
         if (typeof normalizarTexto === "function") return normalizarTexto(v);
         return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     }
 
-    function resetarEstado(id) {
-        estados[id] = { id, pageSize: Number(document.getElementById(`pag_${id}_size`)?.value || 5), page: 1, cursors: [], lastDoc: null, loading: false, hasNext: false, cache: [] };
-        return estados[id];
+    function getEstado(id) {
+        if (!estadoPag[id]) estadoPag[id] = { pagina: 1, tamanho: 5 };
+        return estadoPag[id];
     }
 
-    function controleHTML(id, titulo = "Itens") {
-        const st = estado(id);
-        return `<div id="controle_${id}" class="mb-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    function resetPagina(id) {
+        const st = getEstado(id);
+        st.pagina = 1;
+        const sel = document.getElementById(`pagvis_${id}_tamanho`);
+        if (sel) st.tamanho = Number(sel.value || 5);
+        return st;
+    }
+
+    async function garantirColecoes(chaves) {
+        for (const chave of chaves) {
+            const cacheKey = `${chave === "app_usuarios" ? "global" : (anoDadosAtivo || "2026")}:${chave}`;
+            if (colecoesCarregadas.has(cacheKey)) continue;
+            if (typeof carregarChaveFirebase === "function") {
+                await carregarChaveFirebase(chave, []);
+            }
+            colecoesCarregadas.add(cacheKey);
+        }
+    }
+
+    function inserirControle(tbodyId, id, titulo) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody || document.getElementById(`controle_pagvis_${id}`)) return;
+        const table = tbody.closest("table");
+        const host = table?.parentElement || table;
+        if (!host) return;
+        const st = getEstado(id);
+        host.insertAdjacentHTML("beforebegin", `<div id="controle_pagvis_${id}" class="mb-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Paginação sob demanda</p>
-                <p id="pag_${id}_info" class="text-xs text-gray-400 mt-1">${valorSeguro(titulo)} — carregando de ${st.pageSize} em ${st.pageSize}</p>
+                <p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Paginação de exibição</p>
+                <p id="pagvis_${id}_info" class="text-xs text-gray-400 mt-1">${esc(titulo)} — carregando somente a página visual.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <label class="text-[10px] uppercase font-bold text-gray-500">Por página</label>
-                <select id="pag_${id}_size" onchange="paginacaoSobDemandaAlterarTamanho('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">
-                    ${OPCOES_TAMANHO.map(n => `<option value="${n}" ${n === st.pageSize ? "selected" : ""}>${n}</option>`).join("")}
+                <select id="pagvis_${id}_tamanho" onchange="paginacaoVisualAlterarTamanho('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">
+                    ${TAMANHOS.map(n => `<option value="${n}" ${n === st.tamanho ? "selected" : ""}>${n}</option>`).join("")}
                 </select>
-                <button type="button" onclick="paginacaoSobDemandaAnterior('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold hover:bg-gray-800"><i class="fa-solid fa-chevron-left mr-1"></i>Anterior</button>
-                <button type="button" onclick="paginacaoSobDemandaProxima('${id}')" class="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-black">Próxima<i class="fa-solid fa-chevron-right ml-1"></i></button>
-                <button type="button" onclick="paginacaoSobDemandaRecarregar('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold hover:bg-gray-800"><i class="fa-solid fa-rotate-right"></i></button>
+                <button type="button" onclick="paginacaoVisualAnterior('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold hover:bg-gray-800"><i class="fa-solid fa-chevron-left mr-1"></i>Anterior</button>
+                <button type="button" onclick="paginacaoVisualProxima('${id}')" class="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-black">Próxima<i class="fa-solid fa-chevron-right ml-1"></i></button>
+                <button type="button" onclick="paginacaoVisualRecarregar('${id}')" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold hover:bg-gray-800"><i class="fa-solid fa-rotate-right"></i></button>
             </div>
-        </div>`;
+        </div>`);
     }
 
-    function inserirControleAntesDoTbody(tbodyId, id, titulo) {
-        const tbody = document.getElementById(tbodyId);
-        if (!tbody || document.getElementById(`controle_${id}`)) return;
-        const table = tbody.closest("table");
-        const container = table?.parentElement || table;
-        if (!container) return;
-        container.insertAdjacentHTML("beforebegin", controleHTML(id, titulo));
-    }
-
-    function atualizarInfo(id, totalPagina, extra = "") {
-        const st = estado(id);
-        const el = document.getElementById(`pag_${id}_info`);
+    function atualizarInfo(id, total, exibidos) {
+        const st = getEstado(id);
+        const el = document.getElementById(`pagvis_${id}_info`);
         if (!el) return;
-        const inicio = totalPagina ? ((st.page - 1) * st.pageSize + 1) : 0;
-        const fim = totalPagina ? ((st.page - 1) * st.pageSize + totalPagina) : 0;
-        el.innerHTML = `Página <b class="text-white">${st.page}</b> · exibindo <b class="text-white">${inicio}–${fim}</b> · ${st.pageSize} por página${extra ? " · " + extra : ""}`;
+        const totalPaginas = Math.max(1, Math.ceil(total / st.tamanho));
+        if (st.pagina > totalPaginas) st.pagina = totalPaginas;
+        const inicio = total ? ((st.pagina - 1) * st.tamanho + 1) : 0;
+        const fim = total ? Math.min(total, inicio + exibidos - 1) : 0;
+        el.innerHTML = `Página <b class="text-white">${st.pagina}</b> de <b class="text-white">${totalPaginas}</b> · exibindo <b class="text-white">${inicio}–${fim}</b> de <b class="text-white">${total}</b> registro(s)`;
     }
 
-    function tbodyLoading(tbodyId, colSpan, msg = "Carregando dados do banco...") {
+    function paginaAtual(id, lista) {
+        const st = getEstado(id);
+        const totalPaginas = Math.max(1, Math.ceil(lista.length / st.tamanho));
+        if (st.pagina > totalPaginas) st.pagina = totalPaginas;
+        if (st.pagina < 1) st.pagina = 1;
+        const ini = (st.pagina - 1) * st.tamanho;
+        return lista.slice(ini, ini + st.tamanho);
+    }
+
+    function loading(tbodyId, colspan, texto = "Carregando dados desta aba...") {
         const tbody = document.getElementById(tbodyId);
-        if (tbody) tbody.innerHTML = `<tr><td colspan="${colSpan}" class="p-6 text-center text-gray-500 text-sm"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>${valorSeguro(msg)}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="${colspan}" class="p-6 text-center text-gray-500 text-sm"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>${esc(texto)}</td></tr>`;
     }
 
-    function tbodyVazio(tbodyId, colSpan, msg = "Nenhum registro encontrado nesta página.") {
+    function vazio(tbodyId, colspan, texto = "Nenhum registro encontrado.") {
         const tbody = document.getElementById(tbodyId);
-        if (tbody) tbody.innerHTML = `<tr><td colspan="${colSpan}" class="p-6 text-center text-gray-500 text-sm">${valorSeguro(msg)}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="${colspan}" class="p-6 text-center text-gray-500 text-sm">${esc(texto)}</td></tr>`;
     }
 
-    function aplicarEscopoUsuarios(lista) {
-        let usuarios = Array.isArray(lista) ? lista : [];
-        const nivel = usuarioLogado?.nivel;
+    function preservarSelect(id, fn) {
+        const el = document.getElementById(id);
+        const valor = el?.value;
+        fn?.();
+        if (el && valor && Array.from(el.options).some(o => o.value === valor)) el.value = valor;
+    }
+
+    function aplicarFiltroResultados(lista) {
+        const nFiltro = document.getElementById("filterResultadoNome")?.value?.trim().toLowerCase() || "";
+        const cFiltro = document.getElementById("filterResultadoCidade")?.value || "TODOS";
+        const eFiltro = document.getElementById("filterResultadoEscola")?.value || "TODOS";
+        const pFiltro = document.getElementById("filterResultadoPremio")?.value || "TODOS";
+        return lista.filter(r => {
+            const porMuni = typeof resultadoDentroDoEscopoResultadosUsuario === "function" ? resultadoDentroDoEscopoResultadosUsuario(r) : true;
+            const porNome = !nFiltro || norm(r.aluno).includes(norm(nFiltro));
+            const porCidade = cFiltro === "TODOS" || norm(r.municipio) === norm(cFiltro);
+            const porEscola = eFiltro === "TODOS" || norm(r.escola) === norm(eFiltro);
+            const porPremio = pFiltro === "TODOS" || norm(r.premio) === norm(pFiltro);
+            return porMuni && porNome && porCidade && porEscola && porPremio;
+        });
+    }
+
+    async function renderResultadosPaginado() {
+        inserirControle("tableResultadosImportacaoCorpo", "resultados", "Resultados olímpicos");
+        loading("tableResultadosImportacaoCorpo", 10);
+        await garantirColecoes(["app_cidades", "app_escolas", "app_premiados"]);
+        dadosTrabalho = getStorage("app_premiados", []);
+        const valores = {
+            cidade: document.getElementById("filterResultadoCidade")?.value,
+            escola: document.getElementById("filterResultadoEscola")?.value,
+            premio: document.getElementById("filterResultadoPremio")?.value
+        };
+        if (typeof preencherFiltrosResultadosImportacao === "function") preencherFiltrosResultadosImportacao();
+        [["filterResultadoCidade", valores.cidade], ["filterResultadoEscola", valores.escola], ["filterResultadoPremio", valores.premio]].forEach(([id, v]) => {
+            const el = document.getElementById(id); if (el && v && Array.from(el.options).some(o => o.value === v)) el.value = v;
+        });
+        const filtrados = aplicarFiltroResultados(dadosTrabalho);
+        const pagina = paginaAtual("resultados", filtrados);
+        const tbody = document.getElementById("tableResultadosImportacaoCorpo");
+        if (!tbody) return;
+        if (!pagina.length) { vazio("tableResultadosImportacaoCorpo", 10, "Nenhum resultado encontrado para os filtros selecionados."); atualizarInfo("resultados", filtrados.length, 0); return; }
+        const podeEditar = typeof permissao === "function" ? permissao("resultados.podeEditar") : false;
+        tbody.innerHTML = pagina.map(r => {
+            const chave = encodeURIComponent(typeof chaveResultado === "function" ? chaveResultado(r) : (r.id || ""));
+            return `<tr class="hover:bg-gray-700/30 text-xs">
+                <td class="p-4 font-bold text-white">${esc(r.aluno)}</td>
+                <td class="p-4 text-gray-400 font-mono">${esc(r.alunoCpf || "—")}</td>
+                <td class="p-4 text-gray-300">${esc(r.escola)}</td>
+                <td class="p-4 text-blue-400 font-semibold">${esc(r.municipio)}</td>
+                <td class="p-4 text-gray-300 font-medium">${esc(r.serie || "Não informada")}</td>
+                <td class="p-4 text-gray-400">${esc(r.olimpiada)}</td>
+                <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${esc(r.premio)}</span></td>
+                <td class="p-4 text-gray-400 max-w-xs"><span title="${esc(r.observacao || '')}">${esc(r.observacao || '—')}</span></td>
+                <td class="p-4">${typeof certificadoResultadoHtml === "function" ? certificadoResultadoHtml(r) : ""}</td>
+                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarResultado('${chave}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
+            </tr>`;
+        }).join("");
+        atualizarInfo("resultados", filtrados.length, pagina.length);
+    }
+
+    function aplicarFiltroCronograma(cronograma) {
+        const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+        const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
+        const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
+        const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
+        return cronograma.filter(c => {
+            const info = typeof normalizarEtapaCronograma === "function" ? normalizarEtapaCronograma(c.etapa) : { etapa: c.etapa, padronizada: true, etapaGrupo: "" };
+            const porGrupo = filtroGrupo === "TODOS" || (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+            const porEtapa = filtroEtapa === "TODOS" || norm(info.etapa) === norm(filtroEtapa);
+            const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
+            const porMes = typeof cronogramaEventoNoMes === "function" ? cronogramaEventoNoMes(c, filtroMes) : true;
+            return porGrupo && porEtapa && porOlimpiada && porMes;
+        });
+    }
+
+    async function renderCronogramaPaginado() {
+        inserirControle("tableCronogramaCorpo", "cronograma", "Calendário olímpico");
+        loading("tableCronogramaCorpo", 6);
+        await garantirColecoes(["app_cronograma"]);
+        const valores = {
+            grupo: document.getElementById("filterCronogramaGrupoEtapa")?.value,
+            etapa: document.getElementById("filterCronogramaEtapa")?.value,
+            olimp: document.getElementById("filterCronogramaOlimpiada")?.value,
+            mes: document.getElementById("filterCronogramaMes")?.value
+        };
+        if (typeof preencherFiltrosCronograma === "function") preencherFiltrosCronograma();
+        [["filterCronogramaGrupoEtapa", valores.grupo], ["filterCronogramaEtapa", valores.etapa], ["filterCronogramaOlimpiada", valores.olimp], ["filterCronogramaMes", valores.mes]].forEach(([id, v]) => {
+            const el = document.getElementById(id); if (el && v && Array.from(el.options).some(o => o.value === v)) el.value = v;
+        });
+        const todos = getStorage("app_cronograma", []);
+        const filtrados = typeof ordenarCronogramaPorModo === "function" ? ordenarCronogramaPorModo(aplicarFiltroCronograma(todos)) : aplicarFiltroCronograma(todos);
+        const pagina = paginaAtual("cronograma", filtrados);
+        const olimpiadas = getStorage("app_olimpiadas", []);
+        const tbody = document.getElementById("tableCronogramaCorpo");
+        if (!tbody) return;
+        if (!pagina.length) { vazio("tableCronogramaCorpo", 6, "Nenhum evento encontrado para os filtros selecionados."); atualizarInfo("cronograma", filtrados.length, 0); return; }
+        const podeEditar = typeof permissao === "function" ? permissao("calendario.podeEditar") : false;
+        tbody.innerHTML = pagina.map(c => {
+            const oli = olimpiadas.find(o => String(o.id) === String(c.olimpiadaId));
+            const temporal = typeof classificarTemporalCronograma === "function" ? classificarTemporalCronograma(c) : { codigo: "" };
+            const rowExtra = temporal.codigo === "passado" ? " opacity-70" : (temporal.codigo === "agora" ? " bg-amber-500/5 ring-1 ring-amber-500/20" : "");
+            return `<tr class="hover:bg-gray-800/40 transition${rowExtra}">
+                <td class="p-4 font-bold text-white">${oli ? esc(oli.nome) : "Desconhecida"}</td>
+                <td class="p-4 text-xs font-semibold">${typeof etapaVisualCronograma === "function" ? etapaVisualCronograma(c) : esc(c.etapa)}</td>
+                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${typeof formatarPeriodoCronograma === "function" ? esc(formatarPeriodoCronograma(c)) : esc(c.data)}${typeof badgeTemporalCronograma === "function" ? badgeTemporalCronograma(c) : ""}</td>
+                <td class="p-4 text-xs text-gray-400 font-medium">${esc(c.segmento)}</td>
+                <td class="p-4 text-gray-400 text-xs leading-relaxed">${esc(c.acao)}</td>
+                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarCronograma('${esc(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
+            </tr>`;
+        }).join("");
+        atualizarInfo("cronograma", filtrados.length, pagina.length);
+    }
+
+    async function renderAlunosPaginado() {
+        inserirControle("tableAlunosCorpo", "alunos", "Alunos");
+        loading("tableAlunosCorpo", 5);
+        await garantirColecoes(["app_cidades", "app_escolas", "app_alunos"]);
+        if (typeof popularSeletoresAlunos === "function") popularSeletoresAlunos();
+        const filtro = norm(document.getElementById("filterAlunoNome")?.value || "");
+        let alunos = typeof alunosPermitidosParaUsuario === "function" ? alunosPermitidosParaUsuario() : getStorage("app_alunos", []);
+        if (filtro) alunos = alunos.filter(a => norm(`${a.nome || ""} ${a.cpf || ""} ${a.emailInstitucional || ""} ${a.emailPessoal || ""}`).includes(filtro));
+        alunos.sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
+        const pagina = paginaAtual("alunos", alunos);
+        const tbody = document.getElementById("tableAlunosCorpo");
+        if (!tbody) return;
+        if (!pagina.length) { vazio("tableAlunosCorpo", 5, "Nenhum aluno encontrado."); atualizarInfo("alunos", alunos.length, 0); return; }
+        tbody.innerHTML = pagina.map(a => {
+            const responsavel = a.mae || a.pai || a.responsavelAcademico || "—";
+            return `<tr class="hover:bg-gray-800/60 transition">
+                <td class="p-4"><div class="font-bold text-white">${esc(a.nome)}</div><div class="text-[11px] text-gray-500">${esc(a.emailInstitucional || a.emailPessoal || "sem e-mail")}</div></td>
+                <td class="p-4"><div class="font-mono text-xs text-gray-300">${esc(a.cpf)}</div><div class="text-[11px] text-blue-400 font-bold">${esc(a.idade || (typeof calcularIdadePorData === "function" ? calcularIdadePorData(a.dataNascimento) : "") || "—")} anos</div><div class="text-[11px] text-gray-500">${esc(a.etnia || "Não informado")}</div></td>
+                <td class="p-4"><div class="font-semibold text-gray-200">${esc(a.escolaNome)}</div><div class="text-[11px] text-gray-500">${esc(a.serie)} · ${esc(a.turnoTurma)} · ${esc(a.municipio)}</div></td>
+                <td class="p-4"><div class="text-gray-300">${esc(responsavel)}</div><div class="text-[11px] text-gray-500">${esc(a.contatoResponsavel || a.contatoAluno || "sem contato")}</div></td>
+                <td class="p-4 text-right"><button onclick="editarAluno('${esc(a.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td>
+            </tr>`;
+        }).join("");
+        atualizarInfo("alunos", alunos.length, pagina.length);
+    }
+
+    function usuariosPermitidosGerenciais() {
+        const cidades = getStorage("app_cidades", []);
         const escolas = getStorage("app_escolas", []);
+        let usuarios = getStorage("app_usuarios", []);
+        const nivel = usuarioLogado?.nivel;
         if (nivel === "Gestor") {
             const cidadeId = usuarioLogado.vinculoId;
             const escolasDaCidade = escolas.filter(e => e.cidadeId === cidadeId).map(e => e.id);
@@ -16573,258 +16731,58 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
         } else if (nivel === "Escola") {
             usuarios = usuarios.filter(u => u.nivel === "Aluno" && u.vinculoId === usuarioLogado.vinculoId);
         }
-        return usuarios;
+        return { usuarios, cidades, escolas };
     }
 
-    async function obterDocRelacionado(chave, id) {
-        if (!id) return null;
-        const k = `${chave}:${id}`;
-        if (cacheDocsRelacionados[k]) return cacheDocsRelacionados[k];
-        const local = getStorage(chave, []).find(x => String(x.id) === String(id));
-        if (local) return local;
-        try {
-            if (typeof initFirebase === "function") initFirebase();
-            if (!firebaseFirestore) return null;
-            const doc = await firebaseFirestore.collection(chaveColecao(chave)).doc(String(id)).get();
-            if (!doc.exists) return null;
-            const data = { id: doc.id, ...(doc.data() || {}) };
-            cacheDocsRelacionados[k] = data;
-            return data;
-        } catch (e) {
-            console.warn(TAG, "falha ao buscar relacionado", chave, id, e);
-            return null;
-        }
-    }
-
-    async function carregarPaginaFirestore({ id, chave, tamanhoExtra = 1, where = [], filtroLocal = null }) {
-        const st = estado(id);
-        const pageSize = st.pageSize || 5;
-        const limiteBusca = filtroLocal ? Math.min(1000, Math.max(pageSize * 8, pageSize + tamanhoExtra)) : pageSize + tamanhoExtra;
-        if (st.loading) return st.cache || [];
-        st.loading = true;
-        try {
-            if (typeof initFirebase === "function") initFirebase();
-            if (!firebaseFirestore) {
-                const local = getStorage(chave, []);
-                const filtrados = filtroLocal ? local.filter(filtroLocal) : local;
-                const ini = (st.page - 1) * pageSize;
-                const pagina = filtrados.slice(ini, ini + pageSize);
-                st.hasNext = filtrados.length > ini + pageSize;
-                st.cache = pagina;
-                return pagina;
-            }
-            let q = firebaseFirestore.collection(chaveColecao(chave));
-            where.forEach(w => {
-                if (w && w.campo && w.op && w.valor !== undefined && w.valor !== null && w.valor !== "TODOS" && w.valor !== "") {
-                    q = q.where(w.campo, w.op, w.valor);
-                }
-            });
-            q = q.orderBy(firebase.firestore.FieldPath.documentId());
-            const cursorAnterior = st.cursors[st.page - 2];
-            if (cursorAnterior) q = q.startAfter(cursorAnterior);
-            q = q.limit(limiteBusca);
-            const snap = await q.get();
-            let docs = [];
-            snap.forEach(doc => docs.push({ id: doc.id, ...(doc.data() || {}), __snap: doc }));
-            if (filtroLocal) docs = docs.filter(filtroLocal);
-            const pagina = docs.slice(0, pageSize);
-            st.lastDoc = snap.docs[snap.docs.length - 1] || null;
-            st.hasNext = snap.size === limiteBusca || docs.length > pageSize;
-            st.cache = pagina.map(({__snap, ...rest}) => rest);
-            // Mantém só a página no cache da coleção para não explodir memória/renderização.
-            setStorageLocal(chave, st.cache);
-            return st.cache;
-        } catch (erro) {
-            console.error(TAG, "erro ao carregar página", chave, erro);
-            const local = getStorage(chave, []);
-            const filtrados = filtroLocal ? local.filter(filtroLocal) : local;
-            const ini = (st.page - 1) * pageSize;
-            const pagina = filtrados.slice(ini, ini + pageSize);
-            st.cache = pagina;
-            return pagina;
-        } finally {
-            st.loading = false;
-        }
-    }
-
-    window.paginacaoSobDemandaAlterarTamanho = function(id) {
-        resetarEstado(id);
-        renderizarPaginaDemanda(id);
-    };
-    window.paginacaoSobDemandaRecarregar = function(id) {
-        resetarEstado(id);
-        renderizarPaginaDemanda(id);
-    };
-    window.paginacaoSobDemandaProxima = function(id) {
-        const st = estado(id);
-        if (st.lastDoc) st.cursors[st.page - 1] = st.lastDoc;
-        st.page += 1;
-        renderizarPaginaDemanda(id);
-    };
-    window.paginacaoSobDemandaAnterior = function(id) {
-        const st = estado(id);
-        if (st.page <= 1) return;
-        st.page -= 1;
-        renderizarPaginaDemanda(id);
-    };
-
-    function filtroResultadoLocal() {
-        const nFiltro = normalizar(document.getElementById("filterResultadoNome")?.value || "");
-        const filtroGrupo = {
-            cidade: document.getElementById("filterResultadoCidade")?.value || "TODOS",
-            escola: document.getElementById("filterResultadoEscola")?.value || "TODOS",
-            premio: document.getElementById("filterResultadoPremio")?.value || "TODOS"
-        };
-        return r => {
-            const porEscopo = typeof resultadoDentroDoEscopoResultadosUsuario === "function" ? resultadoDentroDoEscopoResultadosUsuario(r) : true;
-            const porNome = !nFiltro || normalizar(r.aluno).includes(nFiltro);
-            const porCidade = filtroGrupo.cidade === "TODOS" || normalizar(r.municipio) === normalizar(filtroGrupo.cidade);
-            const porEscola = filtroGrupo.escola === "TODOS" || normalizar(r.escola) === normalizar(filtroGrupo.escola);
-            const porPremio = filtroGrupo.premio === "TODOS" || normalizar(r.premio) === normalizar(filtroGrupo.premio);
-            return porEscopo && porNome && porCidade && porEscola && porPremio;
-        };
-    }
-
-    async function renderResultadosDemanda() {
-        inserirControleAntesDoTbody("tableResultadosImportacaoCorpo", "resultados", "Resultados olímpicos");
-        tbodyLoading("tableResultadosImportacaoCorpo", 10);
-        const filtro = filtroResultadoLocal();
-        const itens = await carregarPaginaFirestore({ id: "resultados", chave: "app_premiados", filtroLocal: filtro });
-        dadosTrabalho = itens;
-        const tbody = document.getElementById("tableResultadosImportacaoCorpo");
-        if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableResultadosImportacaoCorpo", 10, "Nenhum resultado encontrado nesta página/filtro."); atualizarInfo("resultados", 0); return; }
-        const podeEditar = typeof permissao === "function" ? permissao("resultados.podeEditar") : false;
-        tbody.innerHTML = itens.map(r => {
-            const chave = encodeURIComponent(typeof chaveResultado === "function" ? chaveResultado(r) : (r.id || ""));
-            return `<tr class="hover:bg-gray-700/30 text-xs">
-                <td class="p-4 font-bold text-white">${valorSeguro(r.aluno)}</td>
-                <td class="p-4 text-gray-400 font-mono">${valorSeguro(r.alunoCpf || "—")}</td>
-                <td class="p-4 text-gray-300">${valorSeguro(r.escola)}</td>
-                <td class="p-4 text-blue-400 font-semibold">${valorSeguro(r.municipio)}</td>
-                <td class="p-4 text-gray-300 font-medium">${valorSeguro(r.serie || "Não informada")}</td>
-                <td class="p-4 text-gray-400">${valorSeguro(r.olimpiada)}</td>
-                <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${valorSeguro(r.premio)}</span></td>
-                <td class="p-4 text-gray-400 max-w-xs"><span title="${valorSeguro(r.observacao || '')}">${valorSeguro(r.observacao || '—')}</span></td>
-                <td class="p-4">${typeof certificadoResultadoHtml === "function" ? certificadoResultadoHtml(r) : ""}</td>
-                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarResultado('${chave}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
-            </tr>`;
-        }).join("");
-        atualizarInfo("resultados", itens.length);
-    }
-
-    function filtroCronogramaLocal() {
-        const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
-        const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
-        const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
-        const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
-        return c => {
-            const info = typeof normalizarEtapaCronograma === "function" ? normalizarEtapaCronograma(c.etapa) : { etapa: c.etapa, padronizada: true, etapaGrupo: "" };
-            const porGrupo = filtroGrupo === "TODOS" || (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
-            const porEtapa = filtroEtapa === "TODOS" || normalizar(info.etapa) === normalizar(filtroEtapa);
-            const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
-            const porMes = typeof cronogramaEventoNoMes === "function" ? cronogramaEventoNoMes(c, filtroMes) : true;
-            return porGrupo && porEtapa && porOlimpiada && porMes;
-        };
-    }
-
-    async function renderCronogramaDemanda() {
-        inserirControleAntesDoTbody("tableCronogramaCorpo", "cronograma", "Calendário olímpico");
-        tbodyLoading("tableCronogramaCorpo", 6);
-        if (typeof preencherFiltrosCronograma === "function") preencherFiltrosCronograma();
-        const itensRaw = await carregarPaginaFirestore({ id: "cronograma", chave: "app_cronograma", filtroLocal: filtroCronogramaLocal() });
-        const itens = typeof ordenarCronogramaPorModo === "function" ? ordenarCronogramaPorModo(itensRaw) : itensRaw;
-        const olimpiadas = getStorage("app_olimpiadas", []);
-        const tbody = document.getElementById("tableCronogramaCorpo");
-        if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableCronogramaCorpo", 6, "Nenhum evento encontrado nesta página/filtro."); atualizarInfo("cronograma", 0); return; }
-        const podeEditar = typeof permissao === "function" ? permissao("calendario.podeEditar") : false;
-        tbody.innerHTML = itens.map(c => {
-            const oli = olimpiadas.find(o => String(o.id) === String(c.olimpiadaId));
-            const temporal = typeof classificarTemporalCronograma === "function" ? classificarTemporalCronograma(c) : { codigo: "" };
-            const rowExtra = temporal.codigo === "passado" ? " opacity-70" : (temporal.codigo === "agora" ? " bg-amber-500/5 ring-1 ring-amber-500/20" : "");
-            return `<tr class="hover:bg-gray-800/40 transition${rowExtra}">
-                <td class="p-4 font-bold text-white">${oli ? valorSeguro(oli.nome) : "Desconhecida"}</td>
-                <td class="p-4 text-xs font-semibold">${typeof etapaVisualCronograma === "function" ? etapaVisualCronograma(c) : valorSeguro(c.etapa)}</td>
-                <td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${typeof formatarPeriodoCronograma === "function" ? valorSeguro(formatarPeriodoCronograma(c)) : valorSeguro(c.data)}${typeof badgeTemporalCronograma === "function" ? badgeTemporalCronograma(c) : ""}</td>
-                <td class="p-4 text-xs text-gray-400 font-medium">${valorSeguro(c.segmento)}</td>
-                <td class="p-4 text-gray-400 text-xs leading-relaxed">${valorSeguro(c.acao)}</td>
-                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarCronograma('${valorSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
-            </tr>`;
-        }).join("");
-        atualizarInfo("cronograma", itens.length);
-    }
-
-    async function renderAlunosDemanda() {
-        inserirControleAntesDoTbody("tableAlunosCorpo", "alunos", "Alunos");
-        tbodyLoading("tableAlunosCorpo", 5);
-        const filtro = normalizar(document.getElementById("filterAlunoNome")?.value || "");
-        const itensRaw = await carregarPaginaFirestore({ id: "alunos", chave: "app_alunos", filtroLocal: a => {
-            const texto = `${a.nome || ""} ${a.cpf || ""} ${a.emailInstitucional || ""} ${a.emailPessoal || ""}`;
-            return !filtro || normalizar(texto).includes(filtro);
-        }});
-        let itens = typeof alunosPermitidosParaUsuario === "function" ? itensRaw.filter(a => alunosPermitidosParaUsuario().some(x => String(x.id) === String(a.id))) : itensRaw;
-        const tbody = document.getElementById("tableAlunosCorpo");
-        if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableAlunosCorpo", 5, "Nenhum aluno encontrado nesta página/filtro."); atualizarInfo("alunos", 0); return; }
-        itens.sort((a,b) => String(a.nome||"").localeCompare(String(b.nome||""), "pt-BR"));
-        tbody.innerHTML = itens.map(a => {
-            const responsavel = a.mae || a.pai || a.responsavelAcademico || "—";
-            return `<tr class="hover:bg-gray-800/60 transition">
-                <td class="p-4"><div class="font-bold text-white">${valorSeguro(a.nome)}</div><div class="text-[11px] text-gray-500">${valorSeguro(a.emailInstitucional || a.emailPessoal || "sem e-mail")}</div></td>
-                <td class="p-4"><div class="font-mono text-xs text-gray-300">${valorSeguro(a.cpf)}</div><div class="text-[11px] text-blue-400 font-bold">${valorSeguro(a.idade || (typeof calcularIdadePorData === "function" ? calcularIdadePorData(a.dataNascimento) : "") || "—")} anos</div><div class="text-[11px] text-gray-500">${valorSeguro(a.etnia || "Não informado")}</div></td>
-                <td class="p-4"><div class="font-semibold text-gray-200">${valorSeguro(a.escolaNome)}</div><div class="text-[11px] text-gray-500">${valorSeguro(a.serie)} · ${valorSeguro(a.turnoTurma)} · ${valorSeguro(a.municipio)}</div></td>
-                <td class="p-4"><div class="text-gray-300">${valorSeguro(responsavel)}</div><div class="text-[11px] text-gray-500">${valorSeguro(a.contatoResponsavel || a.contatoAluno || "sem contato")}</div></td>
-                <td class="p-4 text-right"><button onclick="editarAluno('${valorSeguro(a.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td>
-            </tr>`;
-        }).join("");
-        atualizarInfo("alunos", itens.length);
-    }
-
-    async function renderCidadesDemanda() {
-        inserirControleAntesDoTbody("tableCidadesCorpo", "cidades", "Cidades");
-        tbodyLoading("tableCidadesCorpo", 5);
-        const itens = await carregarPaginaFirestore({ id: "cidades", chave: "app_cidades" });
+    async function renderCidadesPaginado() {
+        inserirControle("tableCidadesCorpo", "cidades", "Cidades");
+        loading("tableCidadesCorpo", 5);
+        await garantirColecoes(["app_cidades"]);
+        const cidades = getStorage("app_cidades", []);
+        const pagina = paginaAtual("cidades", cidades);
         const tbody = document.getElementById("tableCidadesCorpo");
         if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableCidadesCorpo", 5, "Nenhuma cidade nesta página."); atualizarInfo("cidades", 0); return; }
-        tbody.innerHTML = itens.map(c => `<tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${valorSeguro(c.id)}</td><td class="p-4 font-semibold text-white">${valorSeguro(c.nome)}</td><td class="p-4 font-mono text-blue-400">${valorSeguro(c.sigla)}</td><td class="p-4 font-bold text-gray-400">${valorSeguro(c.uf)}</td><td class="p-4 text-right"><button onclick="editarCidade('${valorSeguro(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>`).join("");
-        atualizarInfo("cidades", itens.length);
+        if (!pagina.length) { vazio("tableCidadesCorpo", 5, "Nenhuma cidade cadastrada."); atualizarInfo("cidades", cidades.length, 0); return; }
+        tbody.innerHTML = pagina.map(c => `<tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${esc(c.id)}</td><td class="p-4 font-semibold text-white">${esc(c.nome)}</td><td class="p-4 font-mono text-blue-400">${esc(c.sigla)}</td><td class="p-4 font-bold text-gray-400">${esc(c.uf)}</td><td class="p-4 text-right"><button onclick="editarCidade('${esc(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>`).join("");
+        atualizarInfo("cidades", cidades.length, pagina.length);
     }
 
-    async function renderEscolasDemanda() {
-        inserirControleAntesDoTbody("tableEscolasCorpo", "escolas", "Escolas");
-        tbodyLoading("tableEscolasCorpo", 6);
-        const itens = await carregarPaginaFirestore({ id: "escolas", chave: "app_escolas" });
+    async function renderEscolasPaginado() {
+        inserirControle("tableEscolasCorpo", "escolas", "Escolas");
+        loading("tableEscolasCorpo", 6);
+        await garantirColecoes(["app_cidades", "app_escolas"]);
+        const cidades = getStorage("app_cidades", []);
+        const escolas = getStorage("app_escolas", []);
+        const pagina = paginaAtual("escolas", escolas);
         const tbody = document.getElementById("tableEscolasCorpo");
         if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableEscolasCorpo", 6, "Nenhuma escola nesta página."); atualizarInfo("escolas", 0); return; }
-        const linhas = [];
-        for (const e of itens) {
-            const cid = await obterDocRelacionado("app_cidades", e.cidadeId);
-            linhas.push(`<tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${valorSeguro(e.inep)}</td><td class="p-4"><div class="font-bold text-white text-sm">${valorSeguro(e.nome)}</div><div class="text-gray-500">${valorSeguro(e.razaoSocial)}</div></td><td class="p-4 font-mono">${valorSeguro(e.cnpj)}</td><td class="p-4"><div>${valorSeguro(e.diretor)}</div><div class="text-blue-400 font-mono">${valorSeguro(e.email)}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${valorSeguro(cid.nome)} - ${valorSeguro(cid.uf)}` : valorSeguro(e.cidadeId || "Desconhecido")}</td><td class="p-4 text-right"><button onclick="editarEscola('${valorSeguro(e.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>`);
-        }
-        tbody.innerHTML = linhas.join("");
-        atualizarInfo("escolas", itens.length);
+        if (!pagina.length) { vazio("tableEscolasCorpo", 6, "Nenhuma escola cadastrada."); atualizarInfo("escolas", escolas.length, 0); return; }
+        tbody.innerHTML = pagina.map(e => {
+            const cid = cidades.find(c => String(c.id) === String(e.cidadeId));
+            return `<tr class="hover:bg-gray-700/30 text-xs"><td class="p-4 font-mono text-purple-400">${esc(e.inep)}</td><td class="p-4"><div class="font-bold text-white text-sm">${esc(e.nome)}</div><div class="text-gray-500">${esc(e.razaoSocial)}</div></td><td class="p-4 font-mono">${esc(e.cnpj)}</td><td class="p-4"><div>${esc(e.diretor)}</div><div class="text-blue-400 font-mono">${esc(e.email)}</div></td><td class="p-4 font-semibold text-emerald-400">${cid ? `${esc(cid.nome)} - ${esc(cid.uf)}` : "Desconhecido"}</td><td class="p-4 text-right"><button onclick="editarEscola('${esc(e.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button></td></tr>`;
+        }).join("");
+        atualizarInfo("escolas", escolas.length, pagina.length);
     }
 
-    async function renderUsuariosDemanda() {
-        inserirControleAntesDoTbody("tableUsuariosCorpo", "usuarios", "Usuários");
-        tbodyLoading("tableUsuariosCorpo", 5);
-        let itens = await carregarPaginaFirestore({ id: "usuarios", chave: "app_usuarios" });
-        itens = aplicarEscopoUsuarios(itens);
+    async function renderUsuariosPaginado() {
+        inserirControle("tableUsuariosCorpo", "usuarios", "Usuários");
+        loading("tableUsuariosCorpo", 5);
+        await garantirColecoes(["app_cidades", "app_escolas", "app_usuarios"]);
+        const { usuarios, cidades, escolas } = usuariosPermitidosGerenciais();
+        const pagina = paginaAtual("usuarios", usuarios);
         const tbody = document.getElementById("tableUsuariosCorpo");
         if (!tbody) return;
-        if (!itens.length) { tbodyVazio("tableUsuariosCorpo", 5, "Nenhum usuário nesta página."); atualizarInfo("usuarios", 0); return; }
-        const linhas = [];
-        for (const u of itens) {
+        if (!pagina.length) { vazio("tableUsuariosCorpo", 5, "Nenhum usuário encontrado."); atualizarInfo("usuarios", usuarios.length, 0); return; }
+        const permsUser = PERMISSOES[usuarioLogado?.nivel];
+        const podeEditar = permsUser?.usuarios?.podeGerenciar;
+        tbody.innerHTML = pagina.map(u => {
             let descVinculo = "Acesso Global";
             if (u.nivel === "Gestor") {
-                const c = await obterDocRelacionado("app_cidades", u.vinculoId);
-                descVinculo = c ? `Polo: ${c.nome} - ${c.uf}` : "Falta Vincular";
+                const targetCid = cidades.find(c => c.id === u.vinculoId);
+                descVinculo = targetCid ? `Polo: ${targetCid.nome} - ${targetCid.uf}` : "Falta Vincular";
             } else if (u.nivel === "Escola" || u.nivel === "Aluno") {
-                const e = await obterDocRelacionado("app_escolas", u.vinculoId);
-                descVinculo = e ? `Unidade: ${e.nome}` : "Falta Vincular";
+                const targetEsc = escolas.find(e => e.id === u.vinculoId);
+                descVinculo = targetEsc ? `Unidade: ${targetEsc.nome}` : "Falta Vincular";
             } else if (u.nivel === "Professor/Orientador") {
                 const escopo = u.escopoProfessorOrientador || {};
                 const qtdEscolas = escopo.todasEscolas ? "todas" : (Array.isArray(escopo.escolasIds) ? escopo.escolasIds.length : 0);
@@ -16835,62 +16793,74 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
                 const qtdEscolas = Array.isArray(escopo.escolasIds) ? escopo.escolasIds.length : 0;
                 descVinculo = `Visualização: ${qtdCidades} cidade(s), ${qtdEscolas} escola(s)`;
             }
-            const permsUser = PERMISSOES[usuarioLogado?.nivel];
-            const podeEditar = permsUser?.usuarios?.podeGerenciar;
-            linhas.push(`<tr class="hover:bg-gray-750 text-xs">
-                <td class="p-4 font-bold text-white">${valorSeguro(u.nome)}</td>
-                <td class="p-4"><div class="font-mono text-blue-400 font-bold">${valorSeguro(u.login || u.emailAuth || u.authEmail)}</div><div class="text-gray-500 font-medium text-[10px] uppercase">${valorSeguro(u.nivel)}</div></td>
-                <td class="p-4"><div>${valorSeguro(u.email || u.authEmail || u.emailAuth)}</div><div class="text-gray-500 font-mono">${valorSeguro(u.telefone)}</div></td>
-                <td class="p-4 font-semibold ${u.nivel === 'ADM' ? 'text-blue-400' : 'text-amber-400'}">${valorSeguro(descVinculo)}</td>
-                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarUsuario('${valorSeguro(u.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
-            </tr>`);
-        }
-        tbody.innerHTML = linhas.join("");
-        atualizarInfo("usuarios", itens.length);
+            return `<tr class="hover:bg-gray-750 text-xs">
+                <td class="p-4 font-bold text-white">${esc(u.nome)}</td>
+                <td class="p-4"><div class="font-mono text-blue-400 font-bold">${esc(u.login || u.emailAuth || u.authEmail)}</div><div class="text-gray-500 font-medium text-[10px] uppercase">${esc(u.nivel)}</div></td>
+                <td class="p-4"><div>${esc(u.email || u.authEmail || u.emailAuth)}</div><div class="text-gray-500 font-mono">${esc(u.telefone)}</div></td>
+                <td class="p-4 font-semibold ${u.nivel === 'ADM' ? 'text-blue-400' : 'text-amber-400'}">${esc(descVinculo)}</td>
+                <td class="p-4 text-right">${podeEditar ? `<button onclick="editarUsuario('${esc(u.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i> Editar</button>` : ""}</td>
+            </tr>`;
+        }).join("");
+        atualizarInfo("usuarios", usuarios.length, pagina.length);
     }
 
-    window.renderizarPaginaDemanda = function(id) {
-        const mapa = {
-            resultados: renderResultadosDemanda,
-            cronograma: renderCronogramaDemanda,
-            alunos: renderAlunosDemanda,
-            cidades: renderCidadesDemanda,
-            escolas: renderEscolasDemanda,
-            usuarios: renderUsuariosDemanda
-        };
+    window.renderizarPaginadoVisual = function(id) {
+        const mapa = { resultados: renderResultadosPaginado, cronograma: renderCronogramaPaginado, alunos: renderAlunosPaginado, cidades: renderCidadesPaginado, escolas: renderEscolasPaginado, usuarios: renderUsuariosPaginado };
         return mapa[id]?.();
     };
 
-    const renderResultadosOriginal = typeof renderizarResultadosImportacao === "function" ? renderizarResultadosImportacao : null;
-    const renderCronogramaOriginal = typeof renderizarCronograma === "function" ? renderizarCronograma : null;
-    const renderAlunosOriginal = typeof renderizarAlunos === "function" ? renderizarAlunos : null;
-    const renderGerencialOriginal = typeof renderizarTabelasGerenciais === "function" ? renderizarTabelasGerenciais : null;
-
-    renderizarResultadosImportacao = function(){ resetarEstado("resultados"); return renderResultadosDemanda(); };
-    renderizarCronograma = function(){ resetarEstado("cronograma"); return renderCronogramaDemanda(); };
-    renderizarAlunos = function(){ resetarEstado("alunos"); return renderAlunosDemanda(); };
-    renderizarTabelasGerenciais = function(){
-        // Não renderiza tudo de uma vez. Renderiza somente a tabela da aba visível.
-        if (!document.getElementById("view-cidades")?.classList.contains("hidden")) return renderCidadesDemanda();
-        if (!document.getElementById("view-escolas")?.classList.contains("hidden")) return renderEscolasDemanda();
-        if (!document.getElementById("view-usuarios")?.classList.contains("hidden")) return renderUsuariosDemanda();
-        if (renderGerencialOriginal) return renderGerencialOriginal();
+    window.paginacaoVisualAlterarTamanho = function(id) { resetPagina(id); window.renderizarPaginadoVisual(id); };
+    window.paginacaoVisualAnterior = function(id) { const st = getEstado(id); if (st.pagina > 1) { st.pagina--; window.renderizarPaginadoVisual(id); } };
+    window.paginacaoVisualProxima = function(id) { const st = getEstado(id); st.pagina++; window.renderizarPaginadoVisual(id); };
+    window.paginacaoVisualRecarregar = function(id) {
+        for (const key of Array.from(colecoesCarregadas)) {
+            if (id === "resultados" && key.includes(":app_premiados")) colecoesCarregadas.delete(key);
+            if (id === "cronograma" && key.includes(":app_cronograma")) colecoesCarregadas.delete(key);
+            if (id === "alunos" && key.includes(":app_alunos")) colecoesCarregadas.delete(key);
+            if (id === "cidades" && key.includes(":app_cidades")) colecoesCarregadas.delete(key);
+            if (id === "escolas" && key.includes(":app_escolas")) colecoesCarregadas.delete(key);
+            if (id === "usuarios" && key.includes(":app_usuarios")) colecoesCarregadas.delete(key);
+        }
+        resetPagina(id); window.renderizarPaginadoVisual(id);
     };
 
-    // Eventos de filtro devem reiniciar a página e buscar novamente.
+    renderizarResultadosImportacao = function(){ resetPagina("resultados"); return renderResultadosPaginado(); };
+    renderizarCronograma = function(){ resetPagina("cronograma"); return renderCronogramaPaginado(); };
+    renderizarAlunos = function(){ resetPagina("alunos"); return renderAlunosPaginado(); };
+    renderizarTabelasGerenciais = function(){
+        if (!document.getElementById("view-cidades")?.classList.contains("hidden")) return renderCidadesPaginado();
+        if (!document.getElementById("view-escolas")?.classList.contains("hidden")) return renderEscolasPaginado();
+        if (!document.getElementById("view-usuarios")?.classList.contains("hidden")) return renderUsuariosPaginado();
+    };
+
+    const navegarAbaBasePagVisual = typeof navegarAba === "function" ? navegarAba : null;
+    if (navegarAbaBasePagVisual) {
+        navegarAba = function navegarAbaComPaginacaoVisual(abaId, botaoTarget) {
+            const r = navegarAbaBasePagVisual.apply(this, arguments);
+            setTimeout(() => {
+                if (abaId === "importar") renderResultadosPaginado();
+                if (abaId === "calendario") renderCronogramaPaginado();
+                if (abaId === "alunos") renderAlunosPaginado();
+                if (abaId === "cidades") renderCidadesPaginado();
+                if (abaId === "escolas") renderEscolasPaginado();
+                if (abaId === "usuarios") renderUsuariosPaginado();
+            }, 80);
+            return r;
+        };
+        window.navegarAba = navegarAba;
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
         setTimeout(() => {
             ["filterResultadoNome", "filterResultadoCidade", "filterResultadoEscola", "filterResultadoPremio"].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.addEventListener(id === "filterResultadoNome" ? "input" : "change", () => { resetarEstado("resultados"); renderResultadosDemanda(); });
+                const el = document.getElementById(id); if (el) el.addEventListener(id === "filterResultadoNome" ? "input" : "change", () => { resetPagina("resultados"); renderResultadosPaginado(); });
             });
             ["filterCronogramaGrupoEtapa", "filterCronogramaEtapa", "filterCronogramaOlimpiada", "filterCronogramaMes"].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.addEventListener("change", () => { resetarEstado("cronograma"); renderCronogramaDemanda(); });
+                const el = document.getElementById(id); if (el) el.addEventListener("change", () => { resetPagina("cronograma"); renderCronogramaPaginado(); });
             });
             const fa = document.getElementById("filterAlunoNome");
-            if (fa) fa.addEventListener("input", () => { resetarEstado("alunos"); renderAlunosDemanda(); });
-        }, 800);
+            if (fa) fa.addEventListener("input", () => { resetPagina("alunos"); renderAlunosPaginado(); });
+        }, 900);
     });
 
     console.log(TAG, "patch carregado");
