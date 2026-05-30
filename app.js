@@ -18716,3 +18716,154 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   setTimeout(marcarPronto, 1600);
   console.log(TAG, "ativo");
 })();
+
+
+// ============================================================
+// PATCH — Auth Gate definitivo para app_questoes e coleções protegidas
+// Evita aviso falso antes do login/Auth estar pronto.
+// ============================================================
+(function patchAuthGateQuestoesFirestore(){
+  const TAG = "[AuthGate Questões]";
+  const PROTEGIDAS = new Set([
+    "app_questoes", "app_banco_questoes", "app_cronograma", "app_premiados",
+    "app_plataforma", "app_materiais", "app_aulas", "app_simulados", "app_simulados_envios",
+    "app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_listas_suspensas"
+  ]);
+  const SEM_ALERTA_PRE_LOGIN = new Set(["app_questoes", "app_banco_questoes"]);
+
+  function anoAtual(){ try { return typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026"; } catch(_) { return "2026"; } }
+  function baseColecao(chave){
+    try { if (typeof getFirebaseCollectionBaseName === "function") return getFirebaseCollectionBaseName(chave); } catch(_) {}
+    const mapa = { app_banco_questoes: "sistema_banco_questoes", app_materiais: "sistema_materiais" };
+    return mapa[chave] || String(chave || "").replace(/^app_/, "sistema_");
+  }
+  function caminhosColecao(chave){
+    const base = baseColecao(chave);
+    if (chave === "app_usuarios") return ["sistema_usuarios", "usuarios"];
+    return Array.from(new Set([`anos/${anoAtual()}/${base}`, base].filter(Boolean)));
+  }
+  function arrFallback(fallback){ return Array.isArray(fallback) ? fallback : []; }
+  function setLocalSeguro(chave, valor){
+    try { if (typeof setStorageLocal === "function") setStorageLocal(chave, Array.isArray(valor) ? valor : []); } catch(_) {}
+  }
+  function getLocalSeguro(chave){
+    try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; }
+  }
+  function erroPermissao(erro){
+    const s = String(erro?.code || erro?.message || erro || "").toLowerCase();
+    return s.includes("permission") || s.includes("denied") || s.includes("insufficient");
+  }
+  async function authPronto(timeoutMs = 5500){
+    try { if (typeof initFirebase === "function") initFirebase(); } catch(_) {}
+    if (!firebaseAuth) return false;
+    if (firebaseAuth.currentUser) return true;
+    return await new Promise(resolve => {
+      let done = false;
+      let unsub = null;
+      const finish = (ok) => { if (done) return; done = true; try { if (unsub) unsub(); } catch(_) {} resolve(!!ok); };
+      try { unsub = firebaseAuth.onAuthStateChanged(u => finish(!!u)); } catch(_) { finish(false); }
+      setTimeout(() => finish(!!firebaseAuth.currentUser), timeoutMs);
+    });
+  }
+  async function lerPath(path){
+    const snap = await firebaseFirestore.collection(path).get();
+    const arr = [];
+    snap.forEach(doc => { const data = doc.data() || {}; arr.push({ id: data.id || doc.id, ...data }); });
+    return arr;
+  }
+
+  const carregadorAnterior = window.carregarChaveFirebase || (typeof carregarChaveFirebase === "function" ? carregarChaveFirebase : null);
+
+  async function carregarProtegidaSemFalsoAlerta(chave, fallback = []){
+    try { if (typeof initFirebase === "function") initFirebase(); } catch(_) {}
+    if (!firebaseFirestore) {
+      const local = arrFallback(fallback);
+      setLocalSeguro(chave, local);
+      return local;
+    }
+
+    const localAtual = getLocalSeguro(chave);
+    const temAuth = await authPronto(5500);
+
+    // O caso que gerava o popup: algum timer ou render oculto tentava ler app_questoes na tela de login.
+    // Antes do usuário estar autenticado, não tenta Firestore e não mostra modal.
+    if (!temAuth && !usuarioLogado) {
+      if (SEM_ALERTA_PRE_LOGIN.has(chave)) console.info(TAG, `${chave}: leitura ignorada antes do login/Auth ficar pronto.`);
+      const local = localAtual.length ? localAtual : arrFallback(fallback);
+      setLocalSeguro(chave, local);
+      return local;
+    }
+
+    const erros = [];
+    for (const path of caminhosColecao(chave)) {
+      try {
+        const arr = await lerPath(path);
+        if (arr.length) {
+          setLocalSeguro(chave, arr);
+          console.info(TAG, `${chave} carregado de ${path}: ${arr.length} registro(s).`);
+          return arr;
+        }
+      } catch(erro) {
+        erros.push({path, erro});
+        console.warn(TAG, `${chave}: falha ao ler ${path}`, erro?.message || erro);
+      }
+    }
+
+    // Se chegou aqui por permissão, não abre modal automático para app_questoes.
+    // Mantém a tela funcionando e deixa a evidência no console.
+    if (erros.some(e => erroPermissao(e.erro))) {
+      console.error(TAG, `${chave}: permissão negada em todas as rotas.`, erros);
+      const local = localAtual.length ? localAtual : arrFallback(fallback);
+      setLocalSeguro(chave, local);
+      return local;
+    }
+
+    const local = localAtual.length ? localAtual : arrFallback(fallback);
+    setLocalSeguro(chave, local);
+    return local;
+  }
+
+  window.carregarChaveFirebase = async function carregarChaveFirebaseAuthGate(chave, fallback = []){
+    if (PROTEGIDAS.has(chave)) return await carregarProtegidaSemFalsoAlerta(chave, fallback);
+    if (typeof carregadorAnterior === "function") return await carregadorAnterior.apply(this, arguments);
+    return arrFallback(fallback);
+  };
+  try { carregarChaveFirebase = window.carregarChaveFirebase; } catch(_) {}
+
+  // Bloqueia renderização/carga do banco enquanto a aba não estiver visível ou enquanto não houver login.
+  const renderBancoAnterior = window.renderizarBancoQuestoes || (typeof renderizarBancoQuestoes === "function" ? renderizarBancoQuestoes : null);
+  if (typeof renderBancoAnterior === "function" && !renderBancoAnterior.__authGateQuestoes) {
+    const wrapped = async function renderizarBancoQuestoesAuthGate(){
+      const view = document.getElementById("view-questoes");
+      if (!usuarioLogado || (view && view.classList.contains("hidden"))) {
+        console.info(TAG, "renderizarBancoQuestoes ignorado: usuário não logado ou aba escondida.");
+        return;
+      }
+      await window.carregarChaveFirebase("app_questoes", []);
+      return renderBancoAnterior.apply(this, arguments);
+    };
+    wrapped.__authGateQuestoes = true;
+    window.renderizarBancoQuestoes = wrapped;
+    try { renderizarBancoQuestoes = wrapped; } catch(_) {}
+  }
+
+  // Diagnóstico rápido no console, caso precise validar depois:
+  window.diagnosticarFirestoreQuestoes = async function diagnosticarFirestoreQuestoes(){
+    try { if (typeof initFirebase === "function") initFirebase(); } catch(_) {}
+    const info = {
+      projectId: (() => { try { return firebase?.app?.().options?.projectId || firebase?.app?.().options?.authDomain || ""; } catch(_) { return ""; } })(),
+      authUid: firebaseAuth?.currentUser?.uid || null,
+      authEmail: firebaseAuth?.currentUser?.email || null,
+      usuarioLogado: usuarioLogado ? {id: usuarioLogado.id, authUid: usuarioLogado.authUid, nivel: usuarioLogado.nivel, email: usuarioLogado.email || usuarioLogado.authEmail} : null,
+      caminhos: caminhosColecao("app_questoes")
+    };
+    for (const p of info.caminhos) {
+      try { const snap = await firebaseFirestore.collection(p).limit(1).get(); info[p] = {ok:true, size:snap.size}; }
+      catch(e) { info[p] = {ok:false, code:e.code || "", message:e.message || String(e)}; }
+    }
+    console.table ? console.table(info) : console.log(info);
+    return info;
+  };
+
+  console.info(TAG, "ativo — app_questoes não gera mais popup falso antes do login.");
+})();
