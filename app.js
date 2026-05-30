@@ -19111,3 +19111,257 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   document.addEventListener('DOMContentLoaded', () => setTimeout(()=>{ removerCentralCriativaResidual(); if(!document.getElementById('view-dashboard')?.classList.contains('hidden')) window.renderizarPlataformaDashboard(); }, 600));
   console.log(TAG, 'ativo');
 })();
+
+
+// ============================================================
+// CALENDÁRIO OLÍMPICO LIMPO — seleção manual + exibição única
+// Corrige:
+// 1) Selects vazios em "Adicionar evento manual".
+// 2) Paginações/exibições concorrentes no calendário.
+// 3) Filtros repopulando enquanto o usuário está usando a lista suspensa.
+// ============================================================
+(function calendarioOlimpicoLimpoFinal(){
+  const TAG = '[Calendário Olímpico Limpo]';
+  const STATE = { page:1, pageSize:5, carregando:false, basesOk:false };
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function' ? normalizarTexto(v) : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const ano = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
+
+  function getArr(chave){ try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; } }
+  function setLocal(chave, arr){ try { if (typeof setStorageLocal === 'function') setStorageLocal(chave, arr); } catch(_) {} }
+  async function lerColecao(path){
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore) return [];
+      const snap = await firebaseFirestore.collection(path).get();
+      const arr=[]; snap.forEach(d => arr.push({id:d.id, ...(d.data()||{})}));
+      return arr;
+    } catch(e) { console.warn(TAG, 'falha ao ler', path, e?.message || e); return []; }
+  }
+  async function carregarChaveRobusta(chave, force=false){
+    const atual = getArr(chave);
+    if (!force && atual.length) return atual;
+    try {
+      if (typeof carregarChaveFirebase === 'function') {
+        const arr = await carregarChaveFirebase(chave, []);
+        if (Array.isArray(arr) && arr.length) return arr;
+      }
+    } catch(e) { console.warn(TAG, 'carregarChaveFirebase', chave, e?.message || e); }
+    const base = String(chave).replace(/^app_/, 'sistema_');
+    const paths = [`anos/${ano()}/${base}`, base];
+    for (const p of paths) {
+      const arr = await lerColecao(p);
+      if (arr.length) { setLocal(chave, arr); return arr; }
+    }
+    return getArr(chave);
+  }
+  async function garantirBases(force=false){
+    if (STATE.carregando) return;
+    STATE.carregando = true;
+    try {
+      await Promise.all([
+        carregarChaveRobusta('app_olimpiadas', force),
+        carregarChaveRobusta('app_cronograma', force)
+      ]);
+      STATE.basesOk = true;
+    } finally { STATE.carregando = false; }
+  }
+
+  function etapasTaxonomia(){
+    if (typeof TAXONOMIA_ETAPAS !== 'undefined' && Array.isArray(TAXONOMIA_ETAPAS)) return TAXONOMIA_ETAPAS;
+    return [
+      {grupoCodigo:'inscricao', grupoNome:'Inscrições', etapas:[{codigo:'01', nome:'Abertura das Inscrições'},{codigo:'02', nome:'Encerramento das Inscrições'}]},
+      {grupoCodigo:'prova', grupoNome:'Provas', etapas:[{codigo:'03', nome:'Aplicação da Prova'},{codigo:'04', nome:'2ª Fase'},{codigo:'05', nome:'Fase Final'}]},
+      {grupoCodigo:'resultado', grupoNome:'Resultados', etapas:[{codigo:'06', nome:'Divulgação de Gabarito'},{codigo:'07', nome:'Divulgação de Resultado'}]},
+      {grupoCodigo:'premiacao', grupoNome:'Premiação', etapas:[{codigo:'08', nome:'Premiação'},{codigo:'09', nome:'Certificados'}]}
+    ];
+  }
+  function optionsEtapas(valor='', placeholder='Selecione a etapa/fase...'){
+    const atual = String(valor || '');
+    let html = `<option value="">${esc(placeholder)}</option>`;
+    etapasTaxonomia().forEach(g => {
+      html += `<optgroup label="${esc(g.grupoNome || g.grupoCodigo || 'Etapas')}">`;
+      (g.etapas||[]).forEach(e => {
+        const nome = e.nome || e.label || e.codigo || '';
+        html += `<option value="${esc(nome)}" ${nome===atual?'selected':''}>${esc(e.codigo ? e.codigo + ' · ' : '')}${esc(nome)}</option>`;
+      });
+      html += '</optgroup>';
+    });
+    if (atual && !html.includes(`value="${esc(atual)}"`)) html = `<option value="${esc(atual)}" selected>${esc(atual)}</option>` + html;
+    return html;
+  }
+  function optOlimpiadas(valor='', filtro=false){
+    const olis = getArr('app_olimpiadas').slice().sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR',{sensitivity:'base'}));
+    const first = filtro ? `<option value="TODOS">-- Todas as olimpíadas --</option>` : `<option value="">Selecione a olimpíada homologada...</option>`;
+    return first + olis.map(o => `<option value="${esc(o.id)}" ${String(o.id)===String(valor)?'selected':''}>${esc(o.nome || o.id)}</option>`).join('');
+  }
+  function setSelectHtml(id, html, valor, {force=false}={}){
+    const el = document.getElementById(id); if (!el) return;
+    if (!force && document.activeElement === el) return;
+    if (el.dataset.calHtml !== html) { el.innerHTML = html; el.dataset.calHtml = html; }
+    if (valor !== undefined && Array.from(el.options).some(o => String(o.value) === String(valor))) el.value = valor;
+  }
+
+  function preencherManualCalendario(){
+    const ol = document.getElementById('addCroOlimpiadaSelect');
+    if (ol) setSelectHtml('addCroOlimpiadaSelect', optOlimpiadas(ol.value, false), ol.value, {force:true});
+    const et = document.getElementById('addCroEtapa');
+    if (et) setSelectHtml('addCroEtapa', optionsEtapas(et.value, 'Selecione a etapa/fase...'), et.value, {force:true});
+  }
+  function preencherFiltrosCalendarioLimpo(){
+    const fO = document.getElementById('filterCronogramaOlimpiada');
+    const fM = document.getElementById('filterCronogramaMes');
+    const fG = document.getElementById('filterCronogramaGrupoEtapa');
+    const fE = document.getElementById('filterCronogramaEtapa');
+    if (fO) setSelectHtml('filterCronogramaOlimpiada', optOlimpiadas(fO.value || 'TODOS', true), fO.value || 'TODOS');
+    if (fM) {
+      const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      const html = `<option value="TODOS">-- Todos os meses --</option>` + meses.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
+      setSelectHtml('filterCronogramaMes', html, fM.value || 'TODOS');
+    }
+    if (fG) {
+      const html = `<option value="TODOS">-- Todos os grupos de etapa --</option>` + etapasTaxonomia().map(g=>`<option value="${esc(g.grupoCodigo)}">${esc(g.grupoNome)}</option>`).join('') + `<option value="NAO_PADRONIZADA">⚠ Etapas não padronizadas</option>`;
+      setSelectHtml('filterCronogramaGrupoEtapa', html, fG.value || 'TODOS');
+    }
+    if (fE) {
+      const grupo = fG?.value || 'TODOS';
+      const grupos = grupo === 'TODOS' || grupo === 'NAO_PADRONIZADA' ? etapasTaxonomia() : etapasTaxonomia().filter(g => g.grupoCodigo === grupo);
+      let html = `<option value="TODOS">-- Todas as etapas --</option>`;
+      grupos.forEach(g => {
+        html += `<optgroup label="${esc(g.grupoNome || g.grupoCodigo)}">`;
+        (g.etapas||[]).forEach(e => html += `<option value="${esc(e.nome)}">${esc(e.codigo ? e.codigo + ' · ' : '')}${esc(e.nome)}</option>`);
+        html += '</optgroup>';
+      });
+      setSelectHtml('filterCronogramaEtapa', html, fE.value || 'TODOS');
+    }
+  }
+
+  function removerControlesConcorrentes(){
+    ['controle_pagvis_cronograma','controleCalendarioOlimpico'].forEach(id => document.getElementById(id)?.remove());
+  }
+  function garantirControleUnico(){
+    const tbody = document.getElementById('tableCronogramaCorpo'); if (!tbody) return;
+    removerControlesConcorrentes();
+    if (document.getElementById('calendarioLimpoControle')) return;
+    const table = tbody.closest('table'); const host = table?.parentElement || table; if (!host) return;
+    host.insertAdjacentHTML('beforebegin', `<div id="calendarioLimpoControle" class="mb-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div><p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Exibição do Calendário Olímpico</p><p id="calendarioLimpoInfo" class="text-xs text-gray-400 mt-1">Carregando calendário...</p></div>
+      <div class="flex flex-wrap items-center gap-2"><label class="text-[10px] uppercase font-bold text-gray-500">Por página</label><select id="calendarioLimpoPageSize" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">${[5,10,20,50,100].map(n=>`<option value="${n}" ${n===STATE.pageSize?'selected':''}>${n}</option>`).join('')}</select><button type="button" id="calendarioLimpoPrev" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold">Anterior</button><button type="button" id="calendarioLimpoNext" class="px-3 py-2 rounded-xl bg-blue-700 text-white text-xs font-black">Próxima</button></div>
+    </div>`);
+    document.getElementById('calendarioLimpoPageSize').onchange = () => { STATE.pageSize = Number(document.getElementById('calendarioLimpoPageSize').value || 5); STATE.page = 1; window.renderizarCronograma(); };
+    document.getElementById('calendarioLimpoPrev').onclick = () => { if (STATE.page > 1) { STATE.page--; window.renderizarCronograma(); } };
+    document.getElementById('calendarioLimpoNext').onclick = () => { STATE.page++; window.renderizarCronograma(); };
+  }
+
+  function etapaInfo(c){
+    try { if (typeof normalizarEtapaCronograma === 'function') return normalizarEtapaCronograma(c.etapa); } catch(_) {}
+    return {etapa:String(c.etapa||''), etapaGrupo:'', padronizada:false};
+  }
+  function periodo(c){ try { return typeof formatarPeriodoCronograma === 'function' ? formatarPeriodoCronograma(c) : (c.data || c.periodo || ''); } catch(_) { return c.data || c.periodo || ''; } }
+  function badge(c){ try { return typeof badgeTemporalCronograma === 'function' ? badgeTemporalCronograma(c) : ''; } catch(_) { return ''; } }
+  function passaMes(c, mes){
+    if (mes === 'TODOS') return true;
+    try { if (typeof cronogramaEventoNoMes === 'function') return cronogramaEventoNoMes(c, mes); } catch(_) {}
+    const m = String(c.data || c.periodo || '').match(/\/(\d{2})\//);
+    return !m || m[1] === mes;
+  }
+  function ordenar(lista){ try { return typeof ordenarCronogramaPorModo === 'function' ? ordenarCronogramaPorModo(lista) : lista; } catch(_) { return lista; } }
+  function listaFiltrada(){
+    const cron = getArr('app_cronograma');
+    const grupo = document.getElementById('filterCronogramaGrupoEtapa')?.value || 'TODOS';
+    const etapa = document.getElementById('filterCronogramaEtapa')?.value || 'TODOS';
+    const olimp = document.getElementById('filterCronogramaOlimpiada')?.value || 'TODOS';
+    const mes = document.getElementById('filterCronogramaMes')?.value || 'TODOS';
+    return ordenar(cron.filter(c => {
+      const info = etapaInfo(c);
+      const okGrupo = grupo === 'TODOS' || (grupo === 'NAO_PADRONIZADA' ? !info.padronizada : info.etapaGrupo === grupo);
+      const okEtapa = etapa === 'TODOS' || norm(info.etapa) === norm(etapa);
+      const okOli = olimp === 'TODOS' || String(c.olimpiadaId) === String(olimp);
+      return okGrupo && okEtapa && okOli && passaMes(c, mes);
+    }));
+  }
+  function renderTabelaCalendarioLimpo(){
+    const tbody = document.getElementById('tableCronogramaCorpo'); if (!tbody) return;
+    const lista = listaFiltrada();
+    const maxPage = Math.max(1, Math.ceil(lista.length / STATE.pageSize));
+    if (STATE.page > maxPage) STATE.page = maxPage;
+    const inicio = (STATE.page - 1) * STATE.pageSize;
+    const page = lista.slice(inicio, inicio + STATE.pageSize);
+    const olis = getArr('app_olimpiadas');
+    const podeEditar = (typeof permissao === 'function') ? permissao('calendario.podeEditar') : false;
+    if (!page.length) tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-500">Nenhum evento encontrado para os filtros selecionados.</td></tr>`;
+    else tbody.innerHTML = page.map(c => {
+      const oli = olis.find(o => String(o.id) === String(c.olimpiadaId));
+      const etapaHtml = (typeof etapaVisualCronograma === 'function') ? etapaVisualCronograma(c) : esc(c.etapa || '—');
+      const tituloRelato = `${oli?.nome || 'Calendário'} — ${c.etapa || c.acao || 'Evento'}`;
+      const relatar = typeof abrirModalProblemaCalendario === 'function'
+        ? `abrirModalProblemaCalendario('${esc(c.id)}')`
+        : `abrirRelatoProblemaGeral('Calendário','${esc(c.id)}','${esc(tituloRelato)}')`;
+      return `<tr class="hover:bg-gray-800/40 transition"><td class="p-4 font-bold text-white">${esc(oli?.nome || 'Desconhecida')}</td><td class="p-4 text-xs font-semibold">${etapaHtml}</td><td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i>${esc(periodo(c))}${badge(c)}</td><td class="p-4 text-xs text-gray-400 font-medium">${esc(c.segmento || '')}</td><td class="p-4 text-gray-400 text-xs leading-relaxed">${esc(c.acao || '')}</td><td class="p-4 text-right"><div class="flex flex-wrap justify-end gap-1">${podeEditar ? `<button onclick="editarCronograma('${esc(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar</button>` : ''}<button onclick="${relatar}" class="px-2 py-1 rounded-lg border border-amber-900/50 text-amber-300 hover:bg-amber-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-flag mr-1"></i>Relatar</button></div></td></tr>`;
+    }).join('');
+    const info = document.getElementById('calendarioLimpoInfo');
+    if (info) {
+      const fim = lista.length ? Math.min(lista.length, inicio + STATE.pageSize) : 0;
+      info.innerHTML = `Página <b class="text-white">${STATE.page}</b> de <b class="text-white">${maxPage}</b> · exibindo <b class="text-white">${lista.length ? inicio+1 : 0}–${fim}</b> de <b class="text-white">${lista.length}</b> evento(s)`;
+    }
+  }
+
+  window.renderizarCronograma = async function renderizarCronogramaLimpoFinal(){
+    if (document.getElementById('view-calendario')?.classList.contains('hidden')) return;
+    await garantirBases(false);
+    preencherManualCalendario();
+    preencherFiltrosCalendarioLimpo();
+    garantirControleUnico();
+    renderTabelaCalendarioLimpo();
+  };
+  try { renderizarCronograma = window.renderizarCronograma; } catch(_) {}
+
+  document.addEventListener('change', (e) => {
+    const ids = ['filterCronogramaGrupoEtapa','filterCronogramaEtapa','filterCronogramaOlimpiada','filterCronogramaMes'];
+    if (!ids.includes(e.target?.id)) return;
+    e.stopImmediatePropagation();
+    STATE.page = 1;
+    setTimeout(() => window.renderizarCronograma(), 20);
+  }, true);
+
+  const rvBase = window.renderizarPaginadoVisual;
+  window.renderizarPaginadoVisual = function(id){ if (id === 'cronograma') return window.renderizarCronograma(); return typeof rvBase === 'function' ? rvBase.apply(this, arguments) : undefined; };
+  ['paginacaoVisualAlterarTamanho','paginacaoVisualAnterior','paginacaoVisualProxima','paginacaoVisualRecarregar'].forEach(fn => {
+    const old = window[fn];
+    window[fn] = function(id){ if (id === 'cronograma') return window.renderizarCronograma(); return typeof old === 'function' ? old.apply(this, arguments) : undefined; };
+  });
+
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__calendarioLimpoNav) {
+    window.__calendarioLimpoNav = true;
+    const nav = function(aba, btn){
+      const r = navBase.apply(this, arguments);
+      setTimeout(async () => { if (aba === 'calendario') { await garantirBases(true); window.renderizarCronograma(); } }, 180);
+      return r;
+    };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+
+  document.addEventListener('click', e => {
+    const txt = String(e.target?.textContent || e.target?.closest?.('button')?.textContent || '');
+    if (/expandir|recolher|adicionar evento/i.test(txt)) setTimeout(async()=>{ await garantirBases(false); preencherManualCalendario(); }, 120);
+  });
+
+  document.addEventListener('DOMContentLoaded', () => setTimeout(async()=>{
+    if (!document.getElementById('view-calendario')?.classList.contains('hidden')) { await garantirBases(true); window.renderizarCronograma(); }
+  }, 800));
+
+  window.diagnosticarCalendarioLimpo = function diagnosticarCalendarioLimpo(){
+    const r = {
+      olimpiadas:getArr('app_olimpiadas').length,
+      eventos:getArr('app_cronograma').length,
+      addOlimpiadaOptions:document.getElementById('addCroOlimpiadaSelect')?.options.length || 0,
+      addEtapaOptions:document.getElementById('addCroEtapa')?.options.length || 0,
+      controleLimpo:!!document.getElementById('calendarioLimpoControle'),
+      controlePagvis:!!document.getElementById('controle_pagvis_cronograma'),
+      controleAntigo:!!document.getElementById('controleCalendarioOlimpico')
+    };
+    console.table(r); return r;
+  };
+  console.log(TAG, 'ativo. Use diagnosticarCalendarioLimpo() para conferir.');
+})();
