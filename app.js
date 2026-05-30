@@ -19614,3 +19614,299 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   });
   console.log(TAG, "carregado");
 })();
+
+// ============================================================
+// PATCH DEFINITIVO — Simulados sempre listados + editor/preview de layouts coerente
+// ============================================================
+(function patchDefinitivoSimuladosLayout(){
+  const TAG = "[patch-definitivo-simulados-layout]";
+  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr || []).map(v => String(v || "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base",numeric:true}));
+  const getArr = (chave) => { try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; } };
+  const setLocal = (chave, valor) => { try { if (typeof setStorageLocal === "function") setStorageLocal(chave, valor); } catch(_) {} };
+  const podeGerSim = () => { try { return typeof podeGerenciarSimulados === "function" ? podeGerenciarSimulados() : ["ADM","Staff","Monitor","Professor/Orientador"].includes(usuarioLogado?.nivel); } catch(_) { return ["ADM","Staff","Monitor","Professor/Orientador"].includes(usuarioLogado?.nivel); } };
+
+  async function lerColecao(path) {
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (!firebaseFirestore) return [];
+      const snap = await firebaseFirestore.collection(path).get();
+      const arr = [];
+      snap.forEach(doc => arr.push({ id: (doc.data() || {}).id || doc.id, ...(doc.data() || {}) }));
+      return arr;
+    } catch (e) {
+      console.warn(TAG, "falha ao ler", path, e?.message || e);
+      return [];
+    }
+  }
+  async function carregarColecaoDef(chave, force=false) {
+    const atual = getArr(chave);
+    if (!force && atual.length) return atual;
+    const base = String(chave).replace(/^app_/, "sistema_");
+    const paths = chave === "app_usuarios" ? [base] : [`anos/${ANO()}/${base}`, base];
+    for (const p of paths) {
+      const arr = await lerColecao(p);
+      if (arr.length) { setLocal(chave, arr); return arr; }
+    }
+    return atual;
+  }
+
+  // =========================
+  // SIMULADOS: render independente, sem depender dos patches antigos
+  // =========================
+  const simState = { page: 1, pageSize: 5, loading: false };
+
+  function garantirFiltrosExtrasSim() {
+    const filtroGrid = document.querySelector('#view-simulados .bg-gray-800\\/40 .grid') || document.querySelector('#view-simulados .grid');
+    if (!filtroGrid) return;
+    if (!document.getElementById('filtroSimArea')) {
+      const temaBox = document.getElementById('filtroSimTema')?.closest('div');
+      const html = `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Área</label><select id="filtroSimArea" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha uma disciplina primeiro</option></select></div>`;
+      if (temaBox) temaBox.insertAdjacentHTML('beforebegin', html); else filtroGrid.insertAdjacentHTML('beforeend', html);
+    }
+    if (!document.getElementById('filtroSimTema')) {
+      filtroGrid.insertAdjacentHTML('beforeend', `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tema</label><select id="filtroSimTema" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha uma área primeiro</option></select></div>`);
+    }
+    if (!document.getElementById('filtroSimSubtema')) {
+      filtroGrid.insertAdjacentHTML('beforeend', `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Subtema</label><select id="filtroSimSubtema" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha um tema primeiro</option></select></div>`);
+    }
+  }
+  function setOptions(id, valores, label, disabled=false) {
+    const el = document.getElementById(id); if (!el) return;
+    const atual = el.value || 'TODOS';
+    el.innerHTML = `<option value="TODOS">${esc(label)}</option>` + uniq(valores).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    el.disabled = !!disabled;
+    if (Array.from(el.options).some(o => o.value === atual)) el.value = atual;
+  }
+  function valoresSimCampo(sim, campo) {
+    const vals = [];
+    if (sim?.[campo]) vals.push(sim[campo]);
+    if (Array.isArray(sim?.questoesBanco)) sim.questoesBanco.forEach(q => { if (q?.[campo]) vals.push(q[campo]); });
+    return vals;
+  }
+  function atualizarFiltrosSimuladosDef(sims) {
+    garantirFiltrosExtrasSim();
+    const fd = document.getElementById('filtroSimDisciplina')?.value || 'TODOS';
+    const fa = document.getElementById('filtroSimArea')?.value || 'TODOS';
+    const ft = document.getElementById('filtroSimTema')?.value || 'TODOS';
+    setOptions('filtroSimDisciplina', sims.flatMap(s => valoresSimCampo(s,'disciplina')), 'Todas');
+    setOptions('filtroSimNivel', sims.flatMap(s => valoresSimCampo(s,'nivel')), 'Todos');
+    const baseDisc = fd === 'TODOS' ? [] : sims.filter(s => valoresSimCampo(s,'disciplina').includes(fd));
+    setOptions('filtroSimArea', baseDisc.flatMap(s => valoresSimCampo(s,'area')), fd === 'TODOS' ? 'Escolha uma disciplina primeiro' : 'Todas', fd === 'TODOS');
+    const baseArea = fa === 'TODOS' ? [] : baseDisc.filter(s => valoresSimCampo(s,'area').includes(fa));
+    setOptions('filtroSimTema', baseArea.flatMap(s => valoresSimCampo(s,'tema')), fa === 'TODOS' ? 'Escolha uma área primeiro' : 'Todos', fd === 'TODOS' || fa === 'TODOS');
+    const baseTema = ft === 'TODOS' ? [] : baseArea.filter(s => valoresSimCampo(s,'tema').includes(ft));
+    setOptions('filtroSimSubtema', baseTema.flatMap(s => valoresSimCampo(s,'subtema')), ft === 'TODOS' ? 'Escolha um tema primeiro' : 'Todos', fd === 'TODOS' || fa === 'TODOS' || ft === 'TODOS');
+  }
+  function simFiltroDestino(s) {
+    if (podeGerSim()) return true;
+    try { if (typeof simuladoDestinadoAoUsuario === 'function') return simuladoDestinadoAoUsuario(s); } catch(_) {}
+    return true;
+  }
+  function filtrarSims(sims) {
+    const fd = document.getElementById('filtroSimDisciplina')?.value || 'TODOS';
+    const fn = document.getElementById('filtroSimNivel')?.value || 'TODOS';
+    const ff = document.getElementById('filtroSimFormato')?.value || 'TODOS';
+    const fs = document.getElementById('filtroSimStatus')?.value || 'TODOS';
+    const fa = document.getElementById('filtroSimArea')?.value || 'TODOS';
+    const ft = document.getElementById('filtroSimTema')?.value || 'TODOS';
+    const fsub = document.getElementById('filtroSimSubtema')?.value || 'TODOS';
+    const busca = norm(document.getElementById('filtroSimBusca')?.value || '');
+    return sims.filter(s => {
+      if (!simFiltroDestino(s)) return false;
+      if (fd !== 'TODOS' && !valoresSimCampo(s,'disciplina').includes(fd)) return false;
+      if (fn !== 'TODOS' && !valoresSimCampo(s,'nivel').includes(fn)) return false;
+      if (ff !== 'TODOS' && String(s.formato || '') !== ff) return false;
+      if (fa !== 'TODOS' && !valoresSimCampo(s,'area').includes(fa)) return false;
+      if (ft !== 'TODOS' && !valoresSimCampo(s,'tema').includes(ft)) return false;
+      if (fsub !== 'TODOS' && !valoresSimCampo(s,'subtema').includes(fsub)) return false;
+      if (busca && !norm([s.titulo,s.descricao,s.disciplina,s.nivel,s.area,s.tema,s.subtema].join(' ')).includes(busca)) return false;
+      if (fs !== 'TODOS') {
+        let resp = false;
+        try { resp = !!(typeof envioSimuladoUsuario === 'function' && envioSimuladoUsuario(s)); } catch(_) {}
+        if (fs === 'RESPONDIDOS' && !resp) return false;
+        if (fs === 'PENDENTES' && resp) return false;
+      }
+      return true;
+    }).sort((a,b) => Number(b.criadoEm || b.atualizadoEm || 0) - Number(a.criadoEm || a.atualizadoEm || 0));
+  }
+  function garantirControlesSimulados() {
+    const grid = document.getElementById('gridSimulados'); if (!grid) return;
+    document.getElementById('controleSimuladosPaginacao')?.remove();
+    if (document.getElementById('simuladosDefControles')) return;
+    grid.insertAdjacentHTML('beforebegin', `<div id="simuladosDefControles" class="my-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div><p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Exibição dos simulados</p><p id="simuladosDefInfo" class="text-xs text-gray-400 mt-1">Carregando...</p></div>
+      <div class="flex flex-wrap items-center gap-2"><label class="text-[10px] uppercase font-bold text-gray-500">Por página</label><select id="simuladosDefPageSize" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">${[5,10,20,50,100].map(n=>`<option value="${n}" ${n===simState.pageSize?'selected':''}>${n}</option>`).join('')}</select><button type="button" id="simuladosDefPrev" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold">Anterior</button><button type="button" id="simuladosDefNext" class="px-3 py-2 rounded-xl bg-blue-700 text-white text-xs font-black">Próxima</button></div>
+    </div>`);
+    document.getElementById('simuladosDefPageSize').onchange = () => { simState.pageSize = Number(document.getElementById('simuladosDefPageSize').value || 5); simState.page = 1; renderizarSimulados(); };
+    document.getElementById('simuladosDefPrev').onclick = () => { if (simState.page > 1) { simState.page--; renderizarSimulados(); } };
+    document.getElementById('simuladosDefNext').onclick = () => { simState.page++; renderizarSimulados(); };
+  }
+  function statusBadgeSim(s) {
+    let encerrado=false, futuro=false;
+    try { encerrado = typeof simuladoPrazoEncerrado === 'function' && simuladoPrazoEncerrado(s); } catch(_) {}
+    try { futuro = typeof simuladoAindaNaoAbriu === 'function' && simuladoAindaNaoAbriu(s); } catch(_) {}
+    if (encerrado) return `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Prazo encerrado</span>`;
+    if (futuro) return `<span class="px-2 py-1 rounded-lg bg-blue-900/30 text-blue-300 text-[10px] font-bold uppercase">Ainda não abriu</span>`;
+    return `<span class="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold uppercase">Aberto</span>`;
+  }
+  function cardSim(s) {
+    let envio = null, enviosQtd = 0, prazo = '';
+    try { envio = typeof envioSimuladoUsuario === 'function' ? envioSimuladoUsuario(s) : null; } catch(_) {}
+    try { enviosQtd = typeof enviosDoSimulado === 'function' ? enviosDoSimulado(s).length : (Array.isArray(s.envios) ? s.envios.length : 0); } catch(_) {}
+    try { prazo = typeof textoPrazoSimulado === 'function' ? textoPrazoSimulado(s) : (s.dataFim || 'Sem prazo definido'); } catch(_) { prazo = s.dataFim || 'Sem prazo definido'; }
+    const qtd = s.quantidadeQuestoes || s.questoesBanco?.length || s.questoesManuais?.length || s.gabaritoObjetivo?.length || '—';
+    const respondido = envio ? `<span class="px-2 py-1 rounded-lg bg-emerald-900/40 text-emerald-300 text-[10px] font-bold uppercase">Respondido</span>` : `<span class="px-2 py-1 rounded-lg bg-amber-900/40 text-amber-300 text-[10px] font-bold uppercase">Pendente</span>`;
+    const ger = podeGerSim();
+    let alunoBtn = '';
+    if (!ger) {
+      let pode = true;
+      try { pode = typeof podeIniciarSimulado === 'function' ? podeIniciarSimulado(s) : true; } catch(_) {}
+      alunoBtn = pode ? `<button onclick="abrirAmbienteSimulado('${esc(s.id)}')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-stopwatch mr-1"></i>Entrar no simulado</button>` : `<button disabled class="px-4 py-2.5 rounded-xl bg-gray-700 text-gray-400 text-xs font-black uppercase cursor-not-allowed"><i class="fa-solid fa-lock mr-1"></i>Indisponível</button>`;
+    }
+    const botoesGer = ger ? `<button onclick="previsualizarSimulado('${esc(s.id)}')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"><i class="fa-solid fa-eye mr-1"></i>Pré-visualizar</button><button onclick="abrirRelatorioCorrecaoSimulado('${esc(s.id)}')" class="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black"><i class="fa-solid fa-clipboard-list mr-1"></i>Respostas / correção</button><button onclick="prepararEdicaoSimulado('${esc(s.id)}')" class="px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold"><i class="fa-solid fa-pen mr-1"></i>Editar</button>${s.publico ? `<button onclick="copiarLinkSimuladoPublico('${esc(s.id)}')" class="px-3 py-2 rounded-xl bg-indigo-900/40 text-indigo-200 border border-indigo-800/40 text-xs font-bold"><i class="fa-solid fa-link mr-1"></i>Copiar link</button>` : ''}<button onclick="excluirSimulado('${esc(s.id)}')" class="px-3 py-2 rounded-xl bg-red-900/30 text-red-300 border border-red-900/40 text-xs font-bold"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>` : alunoBtn;
+    return `<article class="rounded-2xl border border-gray-700 bg-gray-800 p-5 shadow-xl">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4"><div class="space-y-2 flex-1"><div class="flex flex-wrap items-center gap-2">${statusBadgeSim(s)}${respondido}<span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-300 text-[10px] font-bold uppercase">${esc(s.formato || 'simulado')}</span>${s.hardcore ? `<span class="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold uppercase">Hardcore</span>` : ''}</div><h3 class="text-lg font-black text-white leading-tight">${esc(s.titulo || 'Simulado sem título')}</h3><p class="text-xs text-gray-400 leading-relaxed">${esc(s.descricao || 'Sem descrição cadastrada.')}</p><div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px] text-gray-400"><div><b class="text-gray-300">Disciplina:</b> ${esc(s.disciplina || 'Geral')}</div><div><b class="text-gray-300">Nível:</b> ${esc(s.nivel || 'Geral')}</div><div><b class="text-gray-300">Questões:</b> ${esc(qtd)}</div><div><b class="text-gray-300">Envios:</b> ${esc(enviosQtd)}</div></div><p class="text-[11px] text-blue-300 font-semibold"><i class="fa-regular fa-clock mr-1"></i>${esc(prazo)}</p></div><div class="flex flex-wrap justify-start lg:justify-end gap-2 min-w-[260px]">${botoesGer}</div></div>
+    </article>`;
+  }
+  window.renderizarSimulados = async function renderizarSimuladosDefinitivo() {
+    const grid = document.getElementById('gridSimulados'); if (!grid) return;
+    garantirControlesSimulados();
+    let sims = getArr('app_simulados');
+    if (!sims.length && !simState.loading) {
+      simState.loading = true;
+      grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando simulados do Firestore...</p></div>`;
+      sims = await carregarColecaoDef('app_simulados', true);
+      simState.loading = false;
+    }
+    atualizarFiltrosSimuladosDef(sims);
+    if (typeof atualizarSelectRankingSimulados === 'function') { try { atualizarSelectRankingSimulados(); } catch(_) {} }
+    const filtrados = filtrarSims(sims);
+    const total = filtrados.length;
+    const maxPage = Math.max(1, Math.ceil(total / simState.pageSize));
+    if (simState.page > maxPage) simState.page = maxPage;
+    const ini = (simState.page - 1) * simState.pageSize;
+    const pagina = filtrados.slice(ini, ini + simState.pageSize);
+    const info = document.getElementById('simuladosDefInfo');
+    if (info) info.innerHTML = `Página <b class="text-white">${simState.page}</b> de <b class="text-white">${maxPage}</b> · ${total} simulado(s) filtrado(s) · ${sims.length} carregado(s)`;
+    if (!sims.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 opacity-40"></i><p>Nenhum simulado carregado do banco.</p><p class="text-xs mt-2">Verifique se existem documentos em <b>anos/${ANO()}/sistema_simulados</b>.</p></div>`; return; }
+    if (!pagina.length) { grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-filter text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p><p class="text-xs mt-2">Foram carregados ${sims.length} simulado(s). Limpe os filtros para visualizar todos.</p></div>`; return; }
+    grid.innerHTML = pagina.map(cardSim).join('');
+  };
+  try { renderizarSimulados = window.renderizarSimulados; } catch(_) {}
+  document.addEventListener('change', e => {
+    if (['filtroSimDisciplina','filtroSimArea','filtroSimTema','filtroSimSubtema','filtroSimNivel','filtroSimFormato','filtroSimStatus'].includes(e.target?.id)) { simState.page = 1; setTimeout(() => window.renderizarSimulados(), 30); }
+  });
+  document.addEventListener('input', e => { if (e.target?.id === 'filtroSimBusca') { simState.page = 1; setTimeout(() => window.renderizarSimulados(), 80); } });
+
+  // =========================
+  // LAYOUTS: um único motor para editor, preview e PDF
+  // =========================
+  const DOC_LAYOUT = 'listas_questoes';
+  const layoutDefaults = () => ([
+    {id:'avance_lista_classica', nome:'Avance — Lista clássica', tipo:'lista', estiloVisual:'classico', titulo:'Avance Olímpico', subtitulo:'Lista de Exercícios', cabecalhoTexto:'Aluno(a): ________________________________    Turma: __________    Data: ____/____/______', rodapeTexto:'', logoUrl:'', marcaDaguaTexto:'AVANCE OLÍMPICO', mostrarMarcaDagua:true, mostrarAssinatura:false, mostrarMetadados:true, mostrarAlternativas:true, linhasResposta:false, questaoPorPagina:false, corPrimaria:'#6d28d9', corSecundaria:'#a855f7', logoTamanho:76, fonteBase:12, marcaOpacidade:7, margem:12, bordaLateral:true, fundoSuave:true, compacto:false},
+    {id:'avance_simulado_formal', nome:'Avance — Simulado formal', tipo:'simulado', estiloVisual:'formal', titulo:'Avance Olímpico', subtitulo:'Caderno de Questões / Simulado', cabecalhoTexto:'Aluno(a): ________________________________    Turma: __________    Data: ____/____/______\nProfessor(a): _____________________________    Nota: ___________', rodapeTexto:'', logoUrl:'', marcaDaguaTexto:'SIMULADO', mostrarMarcaDagua:true, mostrarAssinatura:true, mostrarMetadados:false, mostrarAlternativas:true, linhasResposta:true, questaoPorPagina:false, corPrimaria:'#4c1d95', corSecundaria:'#7c3aed', logoTamanho:76, fonteBase:12, marcaOpacidade:6, margem:12, bordaLateral:true, fundoSuave:false, compacto:false}
+  ]);
+  function normalLayout(l) { return {...layoutDefaults()[0], ...(l || {}), id:String(l?.id || `layout_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g,'_')}; }
+  async function carregarLayoutsDef() {
+    let layouts = layoutDefaults();
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      if (firebaseFirestore) {
+        const doc = await firebaseFirestore.collection('sistema_layout').doc(DOC_LAYOUT).get();
+        if (doc.exists && Array.isArray((doc.data()||{}).layouts)) {
+          const salvos = doc.data().layouts;
+          const ids = new Set(salvos.map(l => l.id));
+          layouts = [...layoutDefaults().filter(l => !ids.has(l.id)), ...salvos];
+        }
+      }
+    } catch(e) { console.warn(TAG, 'layouts', e); }
+    return layouts.map(normalLayout);
+  }
+  async function salvarLayoutsDef(layouts) {
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+    await firebaseFirestore.collection('sistema_layout').doc(DOC_LAYOUT).set({id:DOC_LAYOUT, tipoDocumento:'layouts_mini_listas_questoes', layouts:layouts.map(normalLayout), atualizadoEm:Date.now(), atualizadoPorNome:usuarioLogado?.nome || ''}, {merge:true});
+  }
+  function qFake() { return [
+    {codigo:'MAT-N2-ARI-DIV-0001', disciplina:'Matemática', nivel:'N2 — 8º/9º Ano', area:'Aritmética', tema:'Divisibilidade', subtema:'Critérios de divisibilidade', dificuldade:'Médio', enunciado:'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Em uma situação-problema, analise as informações e determine a alternativa correta.', alternativas:{A:'Alternativa A do modelo.',B:'Alternativa B do modelo.',C:'Alternativa C do modelo.',D:'Alternativa D do modelo.',E:'Alternativa E do modelo.'}},
+    {codigo:'FIS-EM-MEC-CIN-0002', disciplina:'Física', nivel:'Ensino Médio', area:'Mecânica', tema:'Cinemática', subtema:'Velocidade média', dificuldade:'Fácil', enunciado:'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. O objetivo é visualizar quebras de linha, metadados e espaço de resposta.', alternativas:{A:'20 km/h',B:'35 km/h',C:'50 km/h',D:'70 km/h',E:'90 km/h'}}
+  ]; }
+  function layoutFromForm() {
+    const v = id => document.getElementById(id)?.value;
+    const c = id => !!document.getElementById(id)?.checked;
+    return normalLayout({id:v('layoutListaId'), nome:v('layoutListaNome'), tipo:v('layoutListaTipo'), estiloVisual:v('layoutListaEstilo'), titulo:v('layoutListaTitulo'), subtitulo:v('layoutListaSubtitulo'), logoUrl:v('layoutListaLogoUrl'), marcaDaguaTexto:v('layoutListaMarcaDagua'), cabecalhoTexto:v('layoutListaCabecalho'), rodapeTexto:v('layoutListaRodape'), mostrarMetadados:c('layoutListaMetadados'), mostrarAlternativas:c('layoutListaAlternativas'), linhasResposta:c('layoutListaLinhasResposta'), questaoPorPagina:c('layoutListaQuestaoPorPagina'), mostrarMarcaDagua:c('layoutListaMostrarMarcaDagua'), mostrarAssinatura:c('layoutListaAssinatura'), corPrimaria:v('layoutListaCorPrimaria'), corSecundaria:v('layoutListaCorSecundaria'), logoTamanho:Number(v('layoutListaLogoTamanho')||76), fonteBase:Number(v('layoutListaFonteBase')||12), marcaOpacidade:Number(v('layoutListaMarcaOpacidade')||7), margem:Number(v('layoutListaMargem')||12), bordaLateral:c('layoutListaBordaLateral'), fundoSuave:c('layoutListaFundoSuave'), compacto:c('layoutListaCompacto')});
+  }
+  function setForm(l) {
+    l = normalLayout(l);
+    const set = (id,val) => { const el=document.getElementById(id); if (el) el.value = val ?? ''; };
+    const chk = (id,val) => { const el=document.getElementById(id); if (el) el.checked = !!val; };
+    set('layoutListaId',l.id); set('layoutListaNome',l.nome); set('layoutListaTipo',l.tipo); set('layoutListaEstilo',l.estiloVisual); set('layoutListaTitulo',l.titulo); set('layoutListaSubtitulo',l.subtitulo); set('layoutListaLogoUrl',l.logoUrl); set('layoutListaMarcaDagua',l.marcaDaguaTexto); set('layoutListaCabecalho',l.cabecalhoTexto); set('layoutListaRodape',l.rodapeTexto); set('layoutListaCorPrimaria',l.corPrimaria); set('layoutListaCorSecundaria',l.corSecundaria); set('layoutListaLogoTamanho',l.logoTamanho); set('layoutListaFonteBase',l.fonteBase); set('layoutListaMarcaOpacidade',l.marcaOpacidade); set('layoutListaMargem',l.margem);
+    chk('layoutListaMetadados',l.mostrarMetadados); chk('layoutListaAlternativas',l.mostrarAlternativas); chk('layoutListaLinhasResposta',l.linhasResposta); chk('layoutListaQuestaoPorPagina',l.questaoPorPagina); chk('layoutListaMostrarMarcaDagua',l.mostrarMarcaDagua); chk('layoutListaAssinatura',l.mostrarAssinatura); chk('layoutListaBordaLateral',l.bordaLateral); chk('layoutListaFundoSuave',l.fundoSuave); chk('layoutListaCompacto',l.compacto);
+  }
+  function campo({id,label,help,type='text',options='',textarea=false,attrs=''}) {
+    const control = textarea ? `<textarea id="${id}" rows="3" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100 resize-y" ${attrs}></textarea>` : (type==='select' ? `<select id="${id}" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100" ${attrs}>${options}</select>` : `<input id="${id}" type="${type}" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100" ${attrs}>`);
+    return `<div class="rounded-xl border border-gray-800 bg-gray-900/50 p-3"><label class="block text-[11px] font-black uppercase tracking-wider text-purple-200 mb-1">${label}</label>${control}<p class="text-[10px] text-gray-500 mt-1 leading-snug">${help}</p></div>`;
+  }
+  function check(id,label,help) { return `<label class="rounded-xl border border-gray-800 bg-gray-900/50 p-3 flex items-start gap-2 cursor-pointer"><input id="${id}" type="checkbox" class="mt-0.5 accent-purple-500"><span><span class="block text-[11px] font-black uppercase tracking-wider text-gray-200">${label}</span><span class="block text-[10px] text-gray-500 mt-1 leading-snug">${help}</span></span></label>`; }
+  async function popularSelectLayoutsDef() {
+    const sel = document.getElementById('layoutListaSelect'); if (!sel) return;
+    const layouts = await carregarLayoutsDef();
+    sel.innerHTML = layouts.map(l => `<option value="${esc(l.id)}">${esc(l.nome)} · ${esc(l.tipo)}</option>`).join('');
+    setForm(layouts[0]); atualizarPreviewLayoutDef();
+  }
+  function htmlDocumentoLayout(qs, l, preview=true) {
+    l = normalLayout(l);
+    const px = preview ? '18px' : `${l.margem}mm`;
+    const marca = l.mostrarMarcaDagua && l.marcaDaguaTexto ? `<div style="position:absolute;left:7%;top:42%;transform:rotate(-28deg);font-size:54px;font-weight:900;letter-spacing:.08em;color:${l.corPrimaria};opacity:${Math.max(0,Math.min(18,l.marcaOpacidade))/100};white-space:nowrap;pointer-events:none">${esc(l.marcaDaguaTexto)}</div>` : '';
+    const altHtml = q => l.mostrarAlternativas && q.alternativas ? `<ol style="margin:10px 0 0 22px;padding:0">${['A','B','C','D','E'].filter(k=>q.alternativas[k]).map(k=>`<li style="margin:4px 0"><b>${k})</b> ${esc(q.alternativas[k])}</li>`).join('')}</ol>` : '';
+    const linhas = l.linhasResposta ? `<div style="margin-top:10px">${Array.from({length:l.compacto?3:5}).map(()=>`<div style="border-bottom:1px solid #d1d5db;height:${l.compacto?16:22}px"></div>`).join('')}</div>` : '';
+    const body = qs.map((q,i)=>`<article style="break-inside:avoid;page-break-inside:avoid;${l.questaoPorPagina?'page-break-after:always;':''}border:1px solid #e5e7eb;${l.bordaLateral?`border-left:5px solid ${l.corPrimaria};`:''}border-radius:14px;padding:${l.compacto?10:14}px;margin-bottom:${l.compacto?10:14}px;background:#fff"><div style="font-weight:800;color:#111827;margin-bottom:6px">Questão ${i+1}</div>${l.mostrarMetadados?`<div style="font-size:11px;color:${l.corPrimaria};font-weight:700;margin-bottom:7px">${esc([q.codigo,q.disciplina,q.area,q.tema,q.dificuldade].filter(Boolean).join(' · '))}</div>`:''}<div style="font-size:${Number(l.fonteBase)+1}px;line-height:1.45;color:#111827">${q.enunciadoHtml || esc(q.enunciado || '').replace(/\n/g,'<br>')}</div>${altHtml(q)}${linhas}</article>`).join('');
+    return `<div class="avance-layout-doc" style="position:relative;box-sizing:border-box;background:#fff;color:#111827;font-family:Arial,sans-serif;font-size:${l.fonteBase}px;line-height:1.42;padding:${px};width:${preview?'100%':'auto'};min-height:${preview?'920px':'0'};overflow:hidden">${marca}<header style="position:relative;z-index:1;border:1px solid #e9d5ff;border-radius:18px;overflow:hidden;margin-bottom:18px;${l.fundoSuave?'background:linear-gradient(180deg,#faf5ff 0%,#fff 55%);':''}"><div style="height:14px;background:linear-gradient(90deg,${l.corPrimaria},${l.corSecundaria})"></div><div style="display:flex;align-items:center;gap:16px;padding:16px"><div style="width:${l.logoTamanho}px;height:${l.logoTamanho}px;border-radius:18px;border:2px solid #ddd6fe;display:flex;align-items:center;justify-content:center;color:${l.corPrimaria};font-weight:900;font-size:${Math.max(18,l.logoTamanho/3)}px;background:white">${l.logoUrl?`<img src="${esc(l.logoUrl)}" style="max-width:90%;max-height:90%;object-fit:contain">`:'AO'}</div><div style="flex:1"><div style="font-size:11px;color:${l.corPrimaria};font-weight:900;letter-spacing:.18em">AVANCE OLÍMPICO</div><h1 style="margin:4px 0 0;color:#2e1065;font-size:24px;text-transform:uppercase">${esc(l.titulo)}</h1><p style="margin:4px 0 0;color:${l.corPrimaria};font-weight:700">${esc(l.subtitulo)}</p></div></div>${l.cabecalhoTexto?`<div style="margin:0 16px 16px;border:1px solid #ddd6fe;border-radius:12px;background:#faf5ff;padding:10px;color:#3b0764;font-size:12px">${esc(l.cabecalhoTexto).replace(/\n/g,'<br>')}</div>`:''}</header><main style="position:relative;z-index:1">${body}</main>${l.mostrarAssinatura?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px;font-size:11px;color:#4b5563"><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Assinatura do estudante</div><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Professor(a) / Correção</div></div>`:''}${l.rodapeTexto?`<footer style="border-top:1px solid #ddd6fe;margin-top:16px;padding-top:8px;color:#6b7280;font-size:11px">${esc(l.rodapeTexto).replace(/\n/g,'<br>')}</footer>`:''}</div>`;
+  }
+  function atualizarPreviewLayoutDef() {
+    const alvo = document.getElementById('previewLayoutLiveCorpo');
+    if (alvo) alvo.innerHTML = htmlDocumentoLayout(qFake(), layoutFromForm(), true);
+  }
+  function reconstruirEditorLayoutDef() {
+    const painel = document.getElementById('painelLayoutsMiniListaQuestoes');
+    if (!painel || painel.dataset.editorDefinitivo === 'true') return;
+    painel.dataset.editorDefinitivo = 'true';
+    painel.className = 'bg-gray-800/50 border border-purple-900/50 rounded-2xl p-5 shadow-xl space-y-4';
+    painel.innerHTML = `<div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 border-b border-gray-700 pb-4"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-purple-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">Editor guiado: cada caixa explica exatamente o que muda. A prévia à direita usa o mesmo motor do PDF.</p></div><div class="flex flex-wrap gap-2"><select id="layoutListaSelect" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[260px]"></select><button type="button" id="btnNovoLayoutDef" class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Novo</button><button type="button" id="btnSalvarLayoutDef" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-black uppercase">Salvar</button><button type="button" id="btnExcluirLayoutDef" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold uppercase">Excluir</button></div></div><div class="grid grid-cols-1 2xl:grid-cols-[minmax(520px,1fr)_minmax(420px,0.85fr)] gap-5"><div class="space-y-4"><section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">1. Identificação do modelo</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${campo({id:'layoutListaId',label:'ID interno',help:'Código interno do modelo. Não aparece para o aluno.'})}${campo({id:'layoutListaNome',label:'Nome do modelo',help:'Nome que aparece no seletor de layouts.'})}${campo({id:'layoutListaTipo',label:'Tipo',help:'Lista ou simulado. Muda textos e comportamento padrão.',type:'select',options:'<option value="lista">Lista</option><option value="simulado">Simulado</option>'})}${campo({id:'layoutListaEstilo',label:'Estilo visual',help:'Variação estética do documento.',type:'select',options:'<option value="classico">Clássico roxo</option><option value="estudo">Estudo</option><option value="resposta">Com resposta</option><option value="formal">Formal</option><option value="caderno">Caderno enxuto</option>'})}</div></section><section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">2. Cabeçalho impresso</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${campo({id:'layoutListaTitulo',label:'Título principal',help:'Texto grande no topo do documento.'})}${campo({id:'layoutListaSubtitulo',label:'Subtítulo',help:'Linha menor abaixo do título.'})}${campo({id:'layoutListaLogoUrl',label:'URL da logo',help:'Cole a URL da logo. Se vazio, aparece o monograma AO.'})}${campo({id:'layoutListaMarcaDagua',label:'Marca d\'água',help:'Texto grande e transparente no fundo da página.'})}</div><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">${campo({id:'layoutListaCabecalho',label:'Campos do cabeçalho',help:'Aluno, turma, data, professor etc.',textarea:true})}${campo({id:'layoutListaRodape',label:'Rodapé/instruções',help:'Texto final. Deixe vazio para não imprimir rodapé interno.',textarea:true})}</div></section><section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">3. Aparência</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-3">${campo({id:'layoutListaCorPrimaria',label:'Cor principal',help:'Faixas, bordas e detalhes principais.',type:'color'})}${campo({id:'layoutListaCorSecundaria',label:'Cor secundária',help:'Segunda cor do degradê.',type:'color'})}${campo({id:'layoutListaLogoTamanho',label:'Tamanho da logo',help:'Controla o tamanho do bloco da logo.',type:'range',attrs:'min="40" max="120"'})}${campo({id:'layoutListaFonteBase',label:'Fonte base',help:'Tamanho geral do texto.',type:'range',attrs:'min="10" max="16"'})}${campo({id:'layoutListaMarcaOpacidade',label:'Força da marca d\'água',help:'0 some; 18 fica mais visível.',type:'range',attrs:'min="0" max="18"'})}${campo({id:'layoutListaMargem',label:'Margem A4',help:'Margem de impressão em milímetros.',type:'range',attrs:'min="6" max="22"'})}</div></section><section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">4. Conteúdo das questões</h4><div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${check('layoutListaMetadados','Mostrar metadados','Código, disciplina, área, tema e dificuldade.')}${check('layoutListaAlternativas','Mostrar alternativas','Exibe A–E quando a questão tiver alternativas.')}${check('layoutListaLinhasResposta','Espaço para resposta','Adiciona linhas abaixo da questão.')}${check('layoutListaQuestaoPorPagina','Uma questão por página','Bom para simulado formal.')}${check('layoutListaMostrarMarcaDagua','Marca d\'água','Liga/desliga o texto de fundo.')}${check('layoutListaAssinatura','Campo de assinatura','Adiciona assinatura do aluno/professor.')}${check('layoutListaBordaLateral','Borda lateral','Traço roxo do lado da questão.')}${check('layoutListaFundoSuave','Fundo suave','Deixa o cabeçalho com fundo lilás claro.')}${check('layoutListaCompacto','Modo compacto','Reduz espaçamentos para caber mais questões.')}</div></section></div><aside class="rounded-2xl border border-purple-900/50 bg-purple-950/10 p-4"><div class="flex items-center justify-between gap-3 mb-3"><div><h4 class="text-xs font-black text-purple-200 uppercase">Pré-visualização perfeita</h4><p class="text-[10px] text-gray-400">A prévia usa o mesmo HTML que será impresso.</p></div><button type="button" onclick="atualizarPreviewLayoutLiveFinal()" class="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-[10px] font-black uppercase"><i class="fa-solid fa-rotate mr-1"></i>Atualizar</button></div><div id="previewLayoutLiveCorpo" class="bg-white rounded-xl overflow-hidden max-h-[980px] overflow-y-auto"></div></aside></div>`;
+    document.getElementById('layoutListaSelect').onchange = async () => { const layouts = await carregarLayoutsDef(); setForm(layouts.find(l=>l.id===document.getElementById('layoutListaSelect').value) || layouts[0]); atualizarPreviewLayoutDef(); };
+    document.getElementById('btnNovoLayoutDef').onclick = () => { setForm({...layoutDefaults()[0], id:`layout_${Date.now()}`, nome:'Novo layout'}); atualizarPreviewLayoutDef(); };
+    document.getElementById('btnSalvarLayoutDef').onclick = async () => { const layouts = await carregarLayoutsDef(); const l = layoutFromForm(); const idx = layouts.findIndex(x=>x.id===l.id); if (idx>=0) layouts[idx]=l; else layouts.push(l); await salvarLayoutsDef(layouts); await popularSelectLayoutsDef(); document.getElementById('layoutListaSelect').value = l.id; setForm(l); atualizarPreviewLayoutDef(); alert('Layout salvo.'); };
+    document.getElementById('btnExcluirLayoutDef').onclick = async () => { const id = document.getElementById('layoutListaSelect').value; if (!confirm(`Excluir o layout ${id}?`)) return; const layouts = (await carregarLayoutsDef()).filter(l=>l.id!==id); await salvarLayoutsDef(layouts.length?layouts:layoutDefaults()); await popularSelectLayoutsDef(); };
+    painel.addEventListener('input', e => { if (String(e.target?.id||'').startsWith('layoutLista')) atualizarPreviewLayoutDef(); });
+    painel.addEventListener('change', e => { if (String(e.target?.id||'').startsWith('layoutLista')) atualizarPreviewLayoutDef(); });
+    popularSelectLayoutsDef();
+  }
+  window.atualizarPreviewLayoutLiveFinal = atualizarPreviewLayoutDef;
+  window.prepararPreviewLiveLayout = function(){ reconstruirEditorLayoutDef(); atualizarPreviewLayoutDef(); };
+  function miniKey() { return `avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || 'anon'}_${ANO()}`; }
+  function miniQuestoes() { try { const ids = new Set(JSON.parse(localStorage.getItem(miniKey())||'[]').map(String)); return getArr('app_questoes').filter(q=>ids.has(String(q.id))); } catch(_) { return []; } }
+  window.renderizarPreviewMiniListaLayout = async function(){ const layouts = await carregarLayoutsDef(); const id = document.getElementById('miniListaLayout')?.value || ''; const l = layouts.find(x=>x.id===id) || layouts[0] || layoutDefaults()[0]; const qs = miniQuestoes(); const html = htmlDocumentoLayout(qs.length?qs:qFake(), l, false); const corpo=document.getElementById('miniListaQuestoesCorpoAvancado'); const print=document.getElementById('printMiniListaQuestoesAvancada'); if(corpo) corpo.innerHTML = html; if(print) print.innerHTML = html; };
+  window.imprimirMiniListaQuestoes = function(){ renderizarPreviewMiniListaLayout(); const old=document.title; document.title='Avance Olímpico'; document.body.classList.add('print-mini-lista-avancada'); setTimeout(()=>{window.print(); setTimeout(()=>{document.body.classList.remove('print-mini-lista-avancada'); document.title=old;},500);},150); };
+
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__navDefinitivoSimLayout) {
+    window.__navDefinitivoSimLayout = true;
+    const nav = function(aba, btn) {
+      const r = navBase.apply(this, arguments);
+      setTimeout(async () => {
+        if (aba === 'simulados') { await carregarColecaoDef('app_simulados', true); window.renderizarSimulados(); }
+        if (aba === 'questoes' || aba === 'plataforma') { await carregarColecaoDef('app_questoes', false); setTimeout(()=>reconstruirEditorLayoutDef(),200); }
+      }, 180);
+      return r;
+    };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+  document.addEventListener('DOMContentLoaded', () => setInterval(() => {
+    if (!document.getElementById('view-simulados')?.classList.contains('hidden')) window.renderizarSimulados();
+    if (document.getElementById('painelLayoutsMiniListaQuestoes') && !document.getElementById('previewLayoutLiveCorpo')) reconstruirEditorLayoutDef();
+  }, 1800));
+  console.log(TAG, 'carregado');
+})();
