@@ -17309,3 +17309,440 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   document.addEventListener("DOMContentLoaded", () => setTimeout(inserirBotao, 1800));
   setInterval(() => { if (pode()) badge(); }, 120000);
 })();
+
+// ============================================================
+// PATCH — Wake Lock no Simulado Hardcore + Gerador de Listas na Plataforma
+// e refinamento de impressão timbrada Avance Olímpico.
+// ============================================================
+(function patchWakeLockListasPlataformaAvance(){
+  const TAG = "[WakeLock/Listas Plataforma]";
+  let wakeLockSentinel = null;
+  let wakeLockAtivoSolicitado = false;
+  let finalizacaoToleranciaTimer = null;
+  const TOLERANCIA_BLOQUEIO_MS = 4500;
+
+  function esc(v) {
+    if (typeof textoSeguro === "function") return textoSeguro(v);
+    return String(v ?? "").replace(/[&<>\"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'\"':"&quot;","'":"&#39;"}[s]));
+  }
+
+  function simuladoAtualLogado() {
+    try {
+      if (!simuladoSessaoAtual?.simuladoId) return null;
+      return (getStorage("app_simulados", []) || []).find(s => String(s.id) === String(simuladoSessaoAtual.simuladoId)) || null;
+    } catch (_) { return null; }
+  }
+
+  function simuladoAtualPublico() {
+    try { return window.simuladoPublicoSessaoAtual?.sim || simuladoPublicoSessaoAtual?.sim || null; }
+    catch (_) { return null; }
+  }
+
+  function simuladoHardcoreAtivo() {
+    const simLogado = simuladoAtualLogado();
+    const logadoAtivo = !!(simLogado && simuladoSessaoAtual?.iniciado && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simLogado));
+    const simPub = simuladoAtualPublico();
+    const pubSess = window.simuladoPublicoSessaoAtual || (typeof simuladoPublicoSessaoAtual !== "undefined" ? simuladoPublicoSessaoAtual : null);
+    const publicoAtivo = !!(simPub && pubSess?.iniciado && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(simPub));
+    return logadoAtivo || publicoAtivo;
+  }
+
+  async function solicitarWakeLockSimulado() {
+    wakeLockAtivoSolicitado = true;
+    try {
+      if (!("wakeLock" in navigator) || !navigator.wakeLock?.request) {
+        console.warn(TAG, "Screen Wake Lock API não disponível neste navegador.");
+        atualizarStatusWakeLock(false, "indisponível");
+        return false;
+      }
+      if (wakeLockSentinel && !wakeLockSentinel.released) {
+        atualizarStatusWakeLock(true, "ativo");
+        return true;
+      }
+      wakeLockSentinel = await navigator.wakeLock.request("screen");
+      wakeLockSentinel.addEventListener("release", () => {
+        atualizarStatusWakeLock(false, "liberado pelo navegador");
+        wakeLockSentinel = null;
+      });
+      atualizarStatusWakeLock(true, "ativo");
+      return true;
+    } catch (erro) {
+      console.warn(TAG, "não foi possível ativar Wake Lock", erro);
+      atualizarStatusWakeLock(false, "bloqueado pelo navegador");
+      return false;
+    }
+  }
+
+  async function liberarWakeLockSimulado() {
+    wakeLockAtivoSolicitado = false;
+    try {
+      if (wakeLockSentinel && !wakeLockSentinel.released) await wakeLockSentinel.release();
+    } catch (erro) {
+      console.warn(TAG, "falha ao liberar Wake Lock", erro);
+    } finally {
+      wakeLockSentinel = null;
+      atualizarStatusWakeLock(false, "encerrado");
+    }
+  }
+
+  function atualizarStatusWakeLock(ativo, texto = "") {
+    const alvo = document.getElementById("simuladoWakeLockStatus");
+    if (!alvo) return;
+    alvo.className = `px-3 py-1.5 rounded-xl border text-[11px] font-black uppercase ${ativo ? "bg-emerald-950/40 border-emerald-800/50 text-emerald-200" : "bg-amber-950/40 border-amber-800/50 text-amber-200"}`;
+    alvo.innerHTML = ativo
+      ? `<i class="fa-solid fa-sun mr-1"></i>Tela sempre ativa`
+      : `<i class="fa-solid fa-triangle-exclamation mr-1"></i>Wake Lock ${esc(texto || "inativo")}`;
+  }
+
+  function inserirAvisoWakeLockNoPreInicio() {
+    const box = document.getElementById("simuladoAmbienteConteudo");
+    if (!box || document.getElementById("avisoWakeLockSimulado")) return;
+    const sim = simuladoAtualLogado();
+    if (!sim || simuladoSessaoAtual?.iniciado || !(typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim))) return;
+    const div = document.createElement("div");
+    div.id = "avisoWakeLockSimulado";
+    div.className = "max-w-3xl mx-auto mt-4 rounded-2xl border border-purple-800/60 bg-purple-950/25 p-4 text-sm text-purple-100";
+    div.innerHTML = `<i class="fa-solid fa-sun mr-2 text-amber-300"></i><b>Tela sempre ativa:</b> ao iniciar este simulado em modo Hardcore, a plataforma tentará manter a tela ligada para evitar suspensão automática ou bloqueio por inatividade. Se o aluno forçar o bloqueio/desligamento, sair da tela cheia ou trocar de aba, o simulado <b>poderá ser encerrado</b>. Há apenas uma tolerância curta para oscilações do navegador/dispositivo.`;
+    box.appendChild(div);
+  }
+
+  function inserirStatusWakeLockEmProva() {
+    const container = document.querySelector("#simuladoAmbienteConteudo .sticky .flex.flex-wrap.items-center.gap-2");
+    if (!container || document.getElementById("simuladoWakeLockStatus") || !simuladoHardcoreAtivo()) return;
+    const span = document.createElement("span");
+    span.id = "simuladoWakeLockStatus";
+    container.insertBefore(span, container.firstChild);
+    atualizarStatusWakeLock(!!(wakeLockSentinel && !wakeLockSentinel.released), wakeLockSentinel ? "ativo" : "aguardando");
+  }
+
+  function inserirAvisoWakeLockPublico() {
+    const box = document.getElementById("simuladoPublicoConteudo") || document.getElementById("simuladoPublicoOverlay");
+    if (!box || document.getElementById("avisoWakeLockSimuladoPublico")) return;
+    const sim = simuladoAtualPublico();
+    if (!sim || !(typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim))) return;
+    const alvo = box.querySelector("button[onclick*='iniciarSimuladoPublicoTelaCheia']")?.parentElement || box.querySelector(".space-y-5") || box;
+    const div = document.createElement("div");
+    div.id = "avisoWakeLockSimuladoPublico";
+    div.className = "rounded-2xl border border-purple-800/60 bg-purple-950/25 p-4 text-sm text-purple-100";
+    div.innerHTML = `<i class="fa-solid fa-sun mr-2 text-amber-300"></i><b>Tela sempre ativa:</b> durante a prova, a plataforma tentará impedir suspensão automática da tela. Bloqueio forçado, saída da tela cheia ou troca de aba poderão encerrar o simulado.`;
+    alvo.appendChild(div);
+  }
+
+  const renderAmbienteBase = typeof renderizarAmbienteSimulado === "function" ? renderizarAmbienteSimulado : null;
+  if (renderAmbienteBase) {
+    renderizarAmbienteSimulado = function renderizarAmbienteSimuladoComWakeLock() {
+      const r = renderAmbienteBase.apply(this, arguments);
+      setTimeout(() => { inserirAvisoWakeLockNoPreInicio(); inserirStatusWakeLockEmProva(); }, 40);
+      return r;
+    };
+    window.renderizarAmbienteSimulado = renderizarAmbienteSimulado;
+  }
+
+  async function confirmarInicioHardcoreComWakeLock() {
+    const sim = simuladoAtualLogado();
+    if (!sim || !(typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim))) return true;
+    const msg = "Este simulado está em modo HARDCORE.\n\nAo iniciar, a plataforma tentará manter a tela ligada usando o recurso de tela sempre ativa do navegador. Isso ajuda a evitar suspensão automática do computador/celular por inatividade.\n\nSe você forçar o bloqueio/desligamento, sair da tela cheia, trocar de aba ou minimizar, o simulado PODERÁ ser encerrado e o que estiver respondido será enviado.\n\nAntes de iniciar, conecte o carregador se necessário e desative economia extrema de bateria.";
+    if (typeof confirmarPlataforma === "function") return await confirmarPlataforma(msg, "Atenção: Simulado Hardcore", "Iniciar prova", "Voltar");
+    return confirm(msg);
+  }
+
+  const iniciarBase = typeof iniciarSimuladoCronometrado === "function" ? iniciarSimuladoCronometrado : null;
+  if (iniciarBase) {
+    iniciarSimuladoCronometrado = async function iniciarSimuladoCronometradoWakeLock() {
+      const sim = simuladoAtualLogado();
+      const hardcore = !!(sim && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim));
+      if (hardcore && !simuladoSessaoAtual?.__wakeLockConfirmado) {
+        const ok = await confirmarInicioHardcoreComWakeLock();
+        if (!ok) return;
+        simuladoSessaoAtual.__wakeLockConfirmado = true;
+      }
+      const r = await iniciarBase.apply(this, arguments);
+      if (hardcore) {
+        await solicitarWakeLockSimulado();
+        setTimeout(inserirStatusWakeLockEmProva, 200);
+      }
+      return r;
+    };
+    window.iniciarSimuladoCronometrado = iniciarSimuladoCronometrado;
+  }
+
+  const iniciarPublicoBase = typeof window.iniciarSimuladoPublicoTelaCheia === "function" ? window.iniciarSimuladoPublicoTelaCheia : null;
+  if (iniciarPublicoBase) {
+    window.iniciarSimuladoPublicoTelaCheia = async function iniciarSimuladoPublicoTelaCheiaWakeLock(simuladoId, ano) {
+      const r = await iniciarPublicoBase.apply(this, arguments);
+      const sim = simuladoAtualPublico();
+      if (sim && typeof simuladoEhHardcore === "function" && simuladoEhHardcore(sim)) await solicitarWakeLockSimulado();
+      return r;
+    };
+  }
+
+  const finalizarBase = typeof finalizarSimuladoAmbiente === "function" ? finalizarSimuladoAmbiente : null;
+  if (finalizarBase) {
+    finalizarSimuladoAmbiente = async function finalizarSimuladoAmbienteWakeLock() {
+      const r = await finalizarBase.apply(this, arguments);
+      await liberarWakeLockSimulado();
+      return r;
+    };
+    window.finalizarSimuladoAmbiente = finalizarSimuladoAmbiente;
+  }
+
+  const limparBase = typeof limparAmbienteSimulado === "function" ? limparAmbienteSimulado : null;
+  if (limparBase) {
+    limparAmbienteSimulado = function limparAmbienteSimuladoWakeLock() {
+      const r = limparBase.apply(this, arguments);
+      liberarWakeLockSimulado();
+      return r;
+    };
+    window.limparAmbienteSimulado = limparAmbienteSimulado;
+  }
+
+  const enviarPublicoBase = typeof window.enviarSimuladoPublico === "function" ? window.enviarSimuladoPublico : null;
+  if (enviarPublicoBase) {
+    window.enviarSimuladoPublico = async function enviarSimuladoPublicoWakeLock() {
+      const r = await enviarPublicoBase.apply(this, arguments);
+      await liberarWakeLockSimulado();
+      return r;
+    };
+  }
+
+  async function restaurarProtecoesAposRetorno() {
+    if (!simuladoHardcoreAtivo()) return;
+    await solicitarWakeLockSimulado();
+    try {
+      if (!document.fullscreenElement && typeof solicitarTelaCheiaSimuladoSeguro === "function") {
+        await solicitarTelaCheiaSimuladoSeguro();
+        if (typeof simuladoTelaCheiaAtiva !== "undefined" && simuladoSessaoAtual?.iniciado) simuladoTelaCheiaAtiva = !!document.fullscreenElement;
+        if (typeof simuladoPublicoTelaCheiaAtiva !== "undefined" && (window.simuladoPublicoSessaoAtual?.iniciado || simuladoPublicoSessaoAtual?.iniciado)) simuladoPublicoTelaCheiaAtiva = !!document.fullscreenElement;
+      }
+    } catch (e) { console.warn(TAG, "falha ao restaurar tela cheia", e); }
+    inserirStatusWakeLockEmProva();
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && wakeLockAtivoSolicitado && simuladoHardcoreAtivo()) {
+      setTimeout(restaurarProtecoesAposRetorno, 300);
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    if (wakeLockAtivoSolicitado && simuladoHardcoreAtivo()) setTimeout(restaurarProtecoesAposRetorno, 250);
+  });
+
+  function motivoToleravel(motivo) {
+    const m = String(motivo || "").toLowerCase();
+    return m.includes("tela_cheia") || m.includes("aba") || m.includes("minimiz") || m.includes("foco");
+  }
+
+  function agendarFinalizacaoComTolerancia(fn, args, publico = false) {
+    if (finalizacaoToleranciaTimer) clearTimeout(finalizacaoToleranciaTimer);
+    const startedAt = Date.now();
+    finalizacaoToleranciaTimer = setTimeout(() => {
+      const aindaAtivo = publico
+        ? !!((window.simuladoPublicoSessaoAtual || simuladoPublicoSessaoAtual)?.iniciado)
+        : !!simuladoSessaoAtual?.iniciado;
+      const voltou = document.visibilityState === "visible" && document.hasFocus() && document.fullscreenElement;
+      if (aindaAtivo && !voltou) fn.apply(window, args);
+      else if (aindaAtivo) restaurarProtecoesAposRetorno();
+      console.info(TAG, "tolerância de bloqueio avaliada", { publico, ms: Date.now() - startedAt, voltou });
+    }, TOLERANCIA_BLOQUEIO_MS);
+  }
+
+  const finalizacaoIndevidaBase = typeof finalizarSimuladoPorSaidaIndevida === "function" ? finalizarSimuladoPorSaidaIndevida : null;
+  if (finalizacaoIndevidaBase) {
+    finalizarSimuladoPorSaidaIndevida = function finalizarSimuladoPorSaidaIndevidaWakeLock(motivo) {
+      if (simuladoHardcoreAtivo() && motivoToleravel(motivo)) {
+        agendarFinalizacaoComTolerancia(finalizacaoIndevidaBase, arguments, false);
+        return;
+      }
+      return finalizacaoIndevidaBase.apply(this, arguments);
+    };
+    window.finalizarSimuladoPorSaidaIndevida = finalizarSimuladoPorSaidaIndevida;
+  }
+
+  const finalizacaoPublicaBase = typeof finalizarSimuladoPublicoPorSaidaIndevida === "function" ? finalizarSimuladoPublicoPorSaidaIndevida : null;
+  if (finalizacaoPublicaBase) {
+    finalizarSimuladoPublicoPorSaidaIndevida = function finalizarSimuladoPublicoPorSaidaIndevidaWakeLock(motivo) {
+      if (simuladoHardcoreAtivo() && motivoToleravel(motivo)) {
+        agendarFinalizacaoComTolerancia(finalizacaoPublicaBase, arguments, true);
+        return;
+      }
+      return finalizacaoPublicaBase.apply(this, arguments);
+    };
+    window.finalizarSimuladoPublicoPorSaidaIndevida = finalizarSimuladoPublicoPorSaidaIndevida;
+  }
+
+  // ---------- Gerador de listas pelo banco dentro da aba Plataforma ----------
+  function podeGerarListasNaPlataforma() {
+    return !!usuarioLogado && ["ADM", "Staff", "Professor/Orientador", "Monitor"].includes(usuarioLogado.nivel);
+  }
+
+  async function carregarQuestoesParaListasPlataforma() {
+    const btn = document.getElementById("btnPlataformaCarregarQuestoesLista");
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando banco...'; }
+      if (typeof carregarChaveFirebase === "function") await carregarChaveFirebase("app_questoes", []);
+      const total = (getStorage("app_questoes", []) || []).length;
+      const resumo = document.getElementById("plataformaResumoGeradorListas");
+      if (resumo) resumo.innerHTML = `<span class="text-emerald-300 font-bold">${total}</span> questão(ões) disponíveis para montagem de listas.`;
+      return total;
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao carregar banco de questões.\n\n${erro.message || erro}`);
+      return 0;
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-database mr-2"></i>Carregar banco'; }
+    }
+  }
+
+  window.carregarQuestoesParaListasPlataforma = carregarQuestoesParaListasPlataforma;
+
+  window.abrirGeradorListasBancoPlataforma = async function abrirGeradorListasBancoPlataforma() {
+    const total = (getStorage("app_questoes", []) || []).length || await carregarQuestoesParaListasPlataforma();
+    if (!total) return alert("Nenhuma questão disponível no banco.");
+    if (typeof abrirGeradorMiniListaAleatoria === "function") abrirGeradorMiniListaAleatoria();
+    else if (typeof navegarAba === "function") navegarAba("questoes", document.getElementById("btnNav-questoes"));
+  };
+
+  window.abrirPDFMiniListaPlataforma = async function abrirPDFMiniListaPlataforma() {
+    const total = (getStorage("app_questoes", []) || []).length || await carregarQuestoesParaListasPlataforma();
+    if (!total) return alert("Nenhuma questão disponível no banco.");
+    if (typeof abrirMiniListaQuestoes === "function") abrirMiniListaQuestoes();
+    else alert("Adicione questões à mini-lista primeiro pelo Banco de Questões.");
+  };
+
+  function inserirPainelGeradorListasPlataforma() {
+    const view = document.getElementById("view-plataforma");
+    if (!view || !podeGerarListasNaPlataforma() || document.getElementById("painelGeradorListasPlataforma")) return;
+    const painel = document.createElement("div");
+    painel.id = "painelGeradorListasPlataforma";
+    painel.className = "rounded-2xl border border-purple-900/50 bg-gradient-to-r from-purple-950/35 to-gray-900/80 p-5 shadow-xl";
+    painel.innerHTML = `<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div>
+        <p class="text-[10px] uppercase tracking-widest text-purple-300 font-black">Banco de Questões</p>
+        <h3 class="text-lg font-black text-white mt-1"><i class="fa-solid fa-wand-magic-sparkles text-purple-300 mr-2"></i>Gerador de listas pela plataforma</h3>
+        <p class="text-xs text-gray-400 mt-1">Monte listas em formato de exercício ou simulado usando os templates timbrados da Avance Olímpico.</p>
+        <p id="plataformaResumoGeradorListas" class="text-xs text-gray-500 mt-2">O banco de questões será carregado apenas quando você solicitar.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="btnPlataformaCarregarQuestoesLista" type="button" onclick="carregarQuestoesParaListasPlataforma()" class="px-4 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-gray-200 hover:bg-gray-800 text-xs font-bold uppercase"><i class="fa-solid fa-database mr-2"></i>Carregar banco</button>
+        <button type="button" onclick="abrirGeradorListasBancoPlataforma()" class="px-4 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-shuffle mr-2"></i>Lista aleatória</button>
+        <button type="button" onclick="abrirPDFMiniListaPlataforma()" class="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-file-pdf mr-2"></i>Ver/Gerar PDF</button>
+      </div>
+    </div>`;
+    const primeiro = view.firstElementChild;
+    if (primeiro) view.insertBefore(painel, primeiro); else view.appendChild(painel);
+  }
+
+  const renderPlataformaBase = typeof renderizarPlataformaEnsino === "function" ? renderizarPlataformaEnsino : null;
+  if (renderPlataformaBase) {
+    renderizarPlataformaEnsino = async function renderizarPlataformaEnsinoComGeradorListas() {
+      const r = await renderPlataformaBase.apply(this, arguments);
+      setTimeout(inserirPainelGeradorListasPlataforma, 80);
+      return r;
+    };
+    window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
+  }
+
+  const navegarBase = typeof navegarAba === "function" ? navegarAba : null;
+  if (navegarBase) {
+    navegarAba = function navegarAbaComGeradorListasPlataforma(abaId, botao) {
+      const r = navegarBase.apply(this, arguments);
+      if (abaId === "plataforma") setTimeout(inserirPainelGeradorListasPlataforma, 180);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+
+  // ---------- Refinamento visual de impressão das listas ----------
+  function garantirEstiloTimbradoAvancePlus() {
+    if (document.getElementById("styleAvancePrintPlus")) return;
+    const st = document.createElement("style");
+    st.id = "styleAvancePrintPlus";
+    st.textContent = `
+      @media print {
+        @page { size: A4; margin: 11mm; }
+        #printMiniListaQuestoesAvancada { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+        #printMiniListaQuestoesAvancada .ml-page {
+          font-family: Arial, Helvetica, sans-serif !important;
+          background: #fff !important;
+          color: #111827 !important;
+          border-left: 5px solid #6d28d9 !important;
+          padding-left: 11px !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-header {
+          border: 1.5px solid #ddd6fe !important;
+          border-radius: 18px !important;
+          background: linear-gradient(135deg, #faf5ff 0%, #ffffff 48%, #f5f3ff 100%) !important;
+          box-shadow: 0 3px 0 rgba(109,40,217,.08) !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-timbre-faixa {
+          background: linear-gradient(90deg, #3b0764 0%, #6d28d9 45%, #a855f7 100%) !important;
+          height: 16px !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-brand { color: #6d28d9 !important; letter-spacing: .22em !important; }
+        #printMiniListaQuestoesAvancada .ml-header h1 { color: #2e1065 !important; }
+        #printMiniListaQuestoesAvancada .ml-cabecalho {
+          background: #faf5ff !important;
+          border: 1px solid #ddd6fe !important;
+          color: #3b0764 !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-questao {
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+          -webkit-column-break-inside: avoid !important;
+          overflow: visible !important;
+          border: 1px solid #e5e7eb !important;
+          border-left: 4px solid #7c3aed !important;
+          border-radius: 14px !important;
+          margin: 0 0 13px !important;
+          background: #ffffff !important;
+          box-shadow: 0 2px 0 rgba(109,40,217,.06) !important;
+          orphans: 3;
+          widows: 3;
+        }
+        #printMiniListaQuestoesAvancada .ml-qmeta {
+          color: #6d28d9 !important;
+          font-weight: 700 !important;
+          border-bottom: 1px dashed #ddd6fe !important;
+          padding-bottom: 5px !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-enunciado { font-size: 13.2px !important; line-height: 1.48 !important; }
+        #printMiniListaQuestoesAvancada .ml-enunciado img,
+        #printMiniListaQuestoesAvancada .ml-img-anexo {
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+          max-height: 360px !important;
+          border: 1px solid #ddd6fe !important;
+          border-radius: 12px !important;
+          padding: 3px !important;
+          background: #fff !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-watermark {
+          color: rgba(91,33,182,.045) !important;
+          font-size: 58px !important;
+        }
+        #printMiniListaQuestoesAvancada .ml-assinaturas div { border-color: #a78bfa !important; }
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  const abrirMiniListaBase = typeof window.abrirMiniListaQuestoes === "function" ? window.abrirMiniListaQuestoes : null;
+  if (abrirMiniListaBase) {
+    window.abrirMiniListaQuestoes = async function abrirMiniListaQuestoesAvancePlus() {
+      garantirEstiloTimbradoAvancePlus();
+      return await abrirMiniListaBase.apply(this, arguments);
+    };
+  }
+
+  const imprimirMiniListaBase = typeof window.imprimirMiniListaQuestoes === "function" ? window.imprimirMiniListaQuestoes : null;
+  if (imprimirMiniListaBase) {
+    window.imprimirMiniListaQuestoes = function imprimirMiniListaQuestoesAvancePlus() {
+      garantirEstiloTimbradoAvancePlus();
+      return imprimirMiniListaBase.apply(this, arguments);
+    };
+  }
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { inserirPainelGeradorListasPlataforma(); garantirEstiloTimbradoAvancePlus(); }, 1500));
+  console.log(TAG, "patch carregado");
+})();
