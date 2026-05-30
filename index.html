@@ -105,8 +105,23 @@ body.login-visual-ready #loginScreen > div {
   transition: opacity .18s ease, transform .18s ease;
 }
 </style>
+
+<style id="styleLoginFinalSemFlicker">
+/* Bloqueia a exibição da tela de login até o layout visual definitivo estar aplicado. */
+body.login-final-pending:not(.login-final-ready) #loginScreen {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+body.login-final-ready #loginScreen {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .16s ease;
+}
+</style>
+
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans login-visual-pending">
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans login-visual-pending login-final-pending">
 
     <!-- ===================== TELA DE LOGIN ===================== -->
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
@@ -307,6 +322,7 @@ body.login-visual-ready #loginScreen > div {
                             <option value="2030">2030</option>
                         </select>
                     </div>
+                    <div id="slotProblemasHeaderLimpo" class="hidden"></div>
                     <button id="btnToggleTema" type="button" class="px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-950 text-xs font-bold text-gray-300 hover:text-white hover:border-blue-700 transition"><i class="fa-solid fa-sun mr-2"></i>Tema claro</button>
                     <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>

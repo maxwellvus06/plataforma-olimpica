@@ -18836,244 +18836,266 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 })();
 
 
+
+
+// [REMOVIDO] Patch antigo de botão Problemas fixo por fora do header.
+
+
+
+
 // ============================================================
-// PATCH FINAL — PROBLEMAS FIXO SEM PISCAR
-// Objetivo: parar definitivamente o botão "Problemas" de aparecer/sumir.
-// Estratégia:
-// 1) Usar o MESMO id oficial da central limpa: btnProblemasCentralLimpa.
-// 2) Tirar o botão de dentro do header dinâmico e prender em um host fixo no body.
-// 3) Proteger o botão contra remove() de patches antigos.
-// 4) Remover/higienizar qualquer outro botão legado.
+// PATCH DEFINITIVO — Login sem duas telas + Problemas no header correto
 // ============================================================
-(function problemasBotaoFixoSemPiscar(){
+(function patchLoginProblemasHeaderDefinitivo(){
+  const TAG = '[Login/Problemas header definitivo]';
+  const SLOT_ID = 'slotProblemasHeaderLimpo';
   const BTN_ID = 'btnProblemasCentralLimpa';
   const BADGE_ID = 'badgeProblemasCentralLimpa';
-  const HOST_ID = 'problemasCentralFixoHost';
+  const FIXED_HOST_ID = 'problemasCentralFixoHost';
   const LEGACY_IDS = [
-    'btnProblemasQuestoes',
-    'btnProblemasCalendario',
-    'btnProblemasUnificado',
-    'btnProblemasUnicoRevisao',
-    'btnCentralProblemas',
-    'btnProblemasCalendarioAdmin',
-    'badgeProblemasQuestoes',
-    'badgeProblemasCalendario',
-    'badgeProblemasUnificado'
+    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado',
+    'btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin'
   ];
+  const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
+  const mainVisivel = () => {
+    const main = document.getElementById('mainPanel');
+    return !!main && !main.classList.contains('hidden');
+  };
 
-  function nivelEquipeAtual(){
+  function markLoginReady(){
     try {
-      const n = String(usuarioLogado?.nivel || '');
-      return n === 'ADM' || n === 'Staff';
-    } catch(_) { return false; }
+      document.body?.classList.add('login-final-ready');
+      document.body?.classList.remove('login-final-pending');
+      document.body?.classList.add('login-visual-ready');
+      document.body?.classList.remove('login-visual-pending');
+    } catch(_) {}
+  }
+  function normalizarLoginTexto(){
+    try {
+      const sub = document.getElementById('brandLoginSubtitle');
+      if (sub && String(sub.textContent || '').trim().toLowerCase() === 'plataforma avance olímpico') {
+        sub.textContent = 'Plataforma de Resultados 2026';
+      }
+    } catch(_) {}
   }
 
-  // Protege o botão fixo contra módulos antigos que chamam .remove()
-  if (!window.__PROBLEMAS_REMOVE_GUARD__) {
-    window.__PROBLEMAS_REMOVE_GUARD__ = true;
-    const originalRemove = Element.prototype.remove;
-    Element.prototype.remove = function removeComGuardaProblemas(){
+  // Reforça o carregamento visual: só libera a tela depois de aplicar o layout.
+  const carregarLayoutBase = window.carregarLayoutVisual || (typeof carregarLayoutVisual === 'function' ? carregarLayoutVisual : null);
+  if (typeof carregarLayoutBase === 'function' && !window.__carregarLayoutVisualDefinitivoSemFlicker) {
+    window.__carregarLayoutVisualDefinitivoSemFlicker = true;
+    const wrapped = async function carregarLayoutVisualDefinitivoSemFlicker(){
       try {
-        if ((this.id === BTN_ID || this.id === HOST_ID) && this.dataset?.problemasFixo === 'true') {
-          return; // bloqueia remoção do botão/host oficial
-        }
-      } catch(_) {}
-      return originalRemove.call(this);
+        const r = await carregarLayoutBase.apply(this, arguments);
+        normalizarLoginTexto();
+        markLoginReady();
+        return r;
+      } catch(e) {
+        normalizarLoginTexto();
+        // Libera mesmo com falha de layout para não travar login; mas já com texto normalizado.
+        markLoginReady();
+        throw e;
+      }
     };
+    window.carregarLayoutVisual = wrapped;
+    try { carregarLayoutVisual = wrapped; } catch(_) {}
   }
 
-  function ensureStyle(){
-    if (document.getElementById('styleProblemasBotaoFixoSemPiscar')) return;
-    const st = document.createElement('style');
-    st.id = 'styleProblemasBotaoFixoSemPiscar';
-    st.textContent = `
-      #${HOST_ID}{
-        position:fixed!important;
-        top:13px!important;
-        right:230px!important;
-        z-index:10050!important;
-        display:flex!important;
-        align-items:center!important;
-        pointer-events:auto!important;
-      }
-      #${HOST_ID}.problemas-hidden{display:none!important;}
-      #${BTN_ID}{
-        position:relative!important;
-        display:inline-flex!important;
-        align-items:center!important;
-        justify-content:center!important;
-        gap:6px!important;
-        height:32px!important;
-        padding:0 14px!important;
-        border-radius:12px!important;
-        background:rgba(69,10,10,.82)!important;
-        border:1px solid rgba(248,113,113,.55)!important;
-        color:#fee2e2!important;
-        font-size:11px!important;
-        font-weight:900!important;
-        text-transform:uppercase!important;
-        letter-spacing:.04em!important;
-        box-shadow:0 8px 24px rgba(0,0,0,.18)!important;
-        white-space:nowrap!important;
-      }
-      #${BTN_ID}:hover{background:rgba(127,29,29,.9)!important;}
-      #${BADGE_ID}{
-        position:absolute!important;
-        top:-8px!important;
-        right:-8px!important;
-        min-width:20px!important;
-        height:20px!important;
-        padding:0 5px!important;
-        border-radius:999px!important;
-        background:#dc2626!important;
-        color:white!important;
-        font-size:10px!important;
-        font-weight:900!important;
-        display:flex!important;
-        align-items:center!important;
-        justify-content:center!important;
-      }
-      #${BADGE_ID}.hidden{display:none!important;}
-      ${LEGACY_IDS.map(id => `#${id}`).join(',')}{display:none!important;visibility:hidden!important;pointer-events:none!important;}
-      @media (max-width: 900px){
-        #${HOST_ID}{right:150px!important;top:10px!important;}
-        #${BTN_ID}{padding:0 10px!important;font-size:10px!important;}
-      }
-    `;
-    document.head?.appendChild(st);
+  const aplicarLayoutBase = window.aplicarLayoutVisual || (typeof aplicarLayoutVisual === 'function' ? aplicarLayoutVisual : null);
+  if (typeof aplicarLayoutBase === 'function' && !window.__aplicarLayoutVisualDefinitivoSemFlicker) {
+    window.__aplicarLayoutVisualDefinitivoSemFlicker = true;
+    const wrappedApply = function aplicarLayoutVisualDefinitivoSemFlicker(){
+      const r = aplicarLayoutBase.apply(this, arguments);
+      normalizarLoginTexto();
+      markLoginReady();
+      return r;
+    };
+    window.aplicarLayoutVisual = wrappedApply;
+    try { aplicarLayoutVisual = wrappedApply; } catch(_) {}
   }
 
-  function removeLegacy(){
+  // Fallback seguro: se o layout demorar demais, mostra uma única versão normalizada.
+  document.addEventListener('DOMContentLoaded', () => {
+    try { document.body?.classList.add('login-final-pending'); } catch(_) {}
+    normalizarLoginTexto();
+    setTimeout(() => {
+      if (!document.body?.classList.contains('login-final-ready')) {
+        normalizarLoginTexto();
+        markLoginReady();
+      }
+    }, 2600);
+  });
+
+  function garantirSlot(){
+    let slot = document.getElementById(SLOT_ID);
+    if (slot) return slot;
+    const themeBtn = document.getElementById('btnToggleTema');
+    if (!themeBtn || !themeBtn.parentElement) return null;
+    slot = document.createElement('div');
+    slot.id = SLOT_ID;
+    slot.className = 'hidden';
+    themeBtn.parentElement.insertBefore(slot, themeBtn);
+    return slot;
+  }
+
+  function removerHostFixo(){
+    const h = document.getElementById(FIXED_HOST_ID);
+    if (h) {
+      try {
+        h.dataset.problemasFixo = 'false';
+        h.remove();
+      } catch(_) {
+        try { h.style.display = 'none'; } catch(__) {}
+      }
+    }
+  }
+
+  function limparBotoesProblemasLegados(){
+    removerHostFixo();
+
     LEGACY_IDS.forEach(id => {
       const el = document.getElementById(id);
-      if (el && el.id !== BTN_ID) {
-        try { el.dataset.problemasFixo = 'false'; el.remove(); } catch(_) {}
+      if (el) {
+        try { el.remove(); } catch(_) { try { el.style.display = 'none'; } catch(__) {} }
       }
     });
 
-    // Remove clones/duplicatas com mesmo id que não estejam no host fixo.
-    document.querySelectorAll(`[id="${BTN_ID}"]`).forEach(el => {
-      if (el.closest(`#${HOST_ID}`)) return;
-      try { el.dataset.problemasFixo = 'false'; el.remove(); } catch(_) {}
+    // Se existir mais de um botão oficial, mantém apenas o que está no slot.
+    const slot = document.getElementById(SLOT_ID);
+    const oficiais = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`));
+    oficiais.forEach(el => {
+      if (slot && slot.contains(el)) return;
+      try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
     });
 
-    // Remove botões antigos no header que tenham cara de problema.
-    document.querySelectorAll('header button, header a, .topbar button, .topbar a').forEach(el => {
-      if (el.id === BTN_ID || el.closest(`#${HOST_ID}`)) return;
+    // Limpa botões soltos no header que tenham texto Problemas e não sejam o oficial no slot.
+    document.querySelectorAll('header button, header a').forEach(el => {
+      if (el.id === BTN_ID && slot && slot.contains(el)) return;
       const txt = String(el.textContent || '');
       const id = String(el.id || '');
-      const cls = String(el.className || '');
-      if (/problemas?/i.test(txt + ' ' + id) && /(bell|triangle|amber|red|problema|warning|alert)/i.test(id + ' ' + cls + ' ' + txt)) {
-        try { el.remove(); } catch(_) {}
+      if (/problemas?/i.test(txt + ' ' + id)) {
+        try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
       }
     });
   }
 
-  function ensureHost(){
-    ensureStyle();
-    let host = document.getElementById(HOST_ID);
-    if (!host) {
-      host = document.createElement('div');
-      host.id = HOST_ID;
-      host.dataset.problemasFixo = 'true';
-      document.body.appendChild(host);
-    }
-    host.dataset.problemasFixo = 'true';
+  function montarBotaoNoHeader(){
+    const slot = garantirSlot();
+    if (!slot) return;
 
-    let btn = host.querySelector(`#${BTN_ID}`);
+    limparBotoesProblemasLegados();
+
+    if (!isEquipe() || !mainVisivel()) {
+      slot.classList.add('hidden');
+      slot.innerHTML = '';
+      return;
+    }
+
+    slot.classList.remove('hidden');
+    let btn = slot.querySelector(`#${BTN_ID}`);
     if (!btn) {
       btn = document.createElement('button');
       btn.id = BTN_ID;
       btn.type = 'button';
-      btn.dataset.problemasFixo = 'true';
-      btn.innerHTML = `<i class="fa-solid fa-bell"></i><span>Problemas</span><span id="${BADGE_ID}" class="hidden">0</span>`;
-      btn.onclick = function(){
-        if (typeof window.abrirCentralProblemasLimpa === 'function') {
-          window.abrirCentralProblemasLimpa(true);
-        } else if (typeof window.abrirCentralProblemasUnificada === 'function') {
-          window.abrirCentralProblemasUnificada(true);
-        } else {
-          alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
-        }
+      btn.className = 'relative px-3 py-1.5 rounded-lg border border-red-900/70 bg-red-950/45 text-xs font-black text-red-100 hover:bg-red-900/60 transition uppercase';
+      btn.innerHTML = `<i class="fa-solid fa-bell mr-2"></i>Problemas <span id="${BADGE_ID}" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+      btn.onclick = () => {
+        if (typeof window.abrirCentralProblemasLimpa === 'function') return window.abrirCentralProblemasLimpa(true);
+        if (typeof window.abrirCentralProblemasUnificada === 'function') return window.abrirCentralProblemasUnificada(true);
+        alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
       };
-      host.appendChild(btn);
+      slot.appendChild(btn);
     }
-    btn.dataset.problemasFixo = 'true';
 
-    if (nivelEquipeAtual()) host.classList.remove('problemas-hidden');
-    else host.classList.add('problemas-hidden');
-
-    removeLegacy();
-    return btn;
+    if (typeof window.atualizarBadgeCentral === 'function') {
+      try { window.atualizarBadgeCentral(false); } catch(_) {}
+    }
   }
 
-  function killLegacyProblemIntervalsHard(){
+  function matarTimersProblemasLegados(){
     try {
       (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
         const src = String(item.src || '');
-        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|inserirBotaoCentralProblemas|garantirBotaoProblemas|badgeProblemas|btnCentralProblemas/i.test(src)) {
+        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|btnCentralProblemas|garantirBotaoProblemas|problemasBotaoFixoSemPiscar/i.test(src)) {
           clearInterval(item.id);
-          item.killedByProblemasFixo = true;
+          item.killedByHeaderDefinitivo = true;
         }
       });
     } catch(_) {}
   }
 
-  let scheduled = false;
-  function schedule(){
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(() => {
-      scheduled = false;
-      killLegacyProblemIntervalsHard();
-      ensureHost();
-    });
+  const logarBase = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
+  if (typeof logarBase === 'function' && !window.__logarSucessoHeaderProblemasDefinitivo) {
+    window.__logarSucessoHeaderProblemasDefinitivo = true;
+    const wrappedLogin = async function logarSucessoHeaderProblemasDefinitivo(){
+      const r = await logarBase.apply(this, arguments);
+      markLoginReady();
+      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 120);
+      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 800);
+      return r;
+    };
+    window.logarSucesso = wrappedLogin;
+    try { logarSucesso = wrappedLogin; } catch(_) {}
   }
 
-  // Reaplica em eventos naturais, mas sem loop agressivo.
+  const logoutBase = window.logout || (typeof logout === 'function' ? logout : null);
+  if (typeof logoutBase === 'function' && !window.__logoutHeaderProblemasDefinitivo) {
+    window.__logoutHeaderProblemasDefinitivo = true;
+    const wrappedLogout = function logoutHeaderProblemasDefinitivo(){
+      const r = logoutBase.apply(this, arguments);
+      setTimeout(() => { limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 80);
+      return r;
+    };
+    window.logout = wrappedLogout;
+    try { logout = wrappedLogout; } catch(_) {}
+  }
+
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__navHeaderProblemasDefinitivo) {
+    window.__navHeaderProblemasDefinitivo = true;
+    const navWrapped = function navegarAbaHeaderProblemasDefinitivo(){
+      const r = navBase.apply(this, arguments);
+      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 80);
+      return r;
+    };
+    window.navegarAba = navWrapped;
+    try { navegarAba = navWrapped; } catch(_) {}
+  }
+
+  let scheduled = false;
+  function scheduleClean(){
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => {
+      scheduled = false;
+      // Só mexe no botão se já estiver logado/painel visível, para não aparecer na tela de login.
+      if (mainVisivel()) montarBotaoNoHeader();
+      else limparBotoesProblemasLegados();
+    }, 120);
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
-    ensureHost();
-    setTimeout(ensureHost, 300);
-    setTimeout(ensureHost, 1200);
-    setTimeout(ensureHost, 2500);
+    setTimeout(() => { matarTimersProblemasLegados(); limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 250);
+    setTimeout(() => { matarTimersProblemasLegados(); limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 1300);
     try {
-      const obs = new MutationObserver(schedule);
-      obs.observe(document.body, {childList:true, subtree:true});
-      window.__PROBLEMAS_FIXO_OBSERVER__ = obs;
+      const obs = new MutationObserver(scheduleClean);
+      obs.observe(document.body, { childList:true, subtree:true });
+      window.__HEADER_PROBLEMAS_OBSERVER__ = obs;
     } catch(_) {}
   });
 
-  // Compatibilidade com navegação: depois que a aba muda, garante botão fixo.
-  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
-  if (typeof navBase === 'function' && !window.__PROBLEMAS_FIXO_NAV__) {
-    window.__PROBLEMAS_FIXO_NAV__ = true;
-    const nav = function(){
-      const r = navBase.apply(this, arguments);
-      setTimeout(ensureHost, 80);
-      return r;
-    };
-    window.navegarAba = nav;
-    try { navegarAba = nav; } catch(_) {}
-  }
-
-  window.problemasBotaoFixoDiagnostico = function problemasBotaoFixoDiagnostico(){
-    const host = document.getElementById(HOST_ID);
-    const btns = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`)).map((el,idx)=>({
-      idx,
-      noHost: !!el.closest(`#${HOST_ID}`),
-      visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
-      text: el.textContent.trim()
+  window.diagnosticarLoginProblemasHeader = function diagnosticarLoginProblemasHeader(){
+    const slot = document.getElementById(SLOT_ID);
+    const fixedHost = document.getElementById(FIXED_HOST_ID);
+    const botoes = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`)).map((el,i)=>({
+      i, noSlot: !!(slot && slot.contains(el)), visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length), text: el.textContent.trim()
     }));
     const legados = LEGACY_IDS.filter(id => !!document.getElementById(id));
-    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(i => /Problemas|btnProblemas|problemas/i.test(String(i.src || ''))).map(i => ({
-      id:i.id, delay:i.delay, killedByProblemasFixo:!!i.killedByProblemasFixo, killedByProblemasCentralLimpa:!!i.killedByProblemasCentralLimpa, src:String(i.src || '').slice(0,160)
-    }));
-    console.table({host:!!host, equipe:nivelEquipeAtual(), duplicatasBotao:btns.length, legados:legados.join(',') || 'nenhum'});
-    console.table(btns);
+    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(t => /Problemas|btnProblemas|problemas/i.test(String(t.src || ''))).map(t => ({id:t.id, delay:t.delay, killed:!!t.killedByHeaderDefinitivo, src:String(t.src || '').slice(0,160)}));
+    console.table({mainVisivel:mainVisivel(), equipe:isEquipe(), slot:!!slot, fixedHost:!!fixedHost, botoes:botoes.length, legados:legados.join(',') || 'nenhum', loginReady:document.body?.classList.contains('login-final-ready')});
+    console.table(botoes);
     console.table(timers);
-    return {host:!!host, equipe:nivelEquipeAtual(), botoes:btns, legados, timers};
+    return {mainVisivel:mainVisivel(), equipe:isEquipe(), slot:!!slot, fixedHost:!!fixedHost, botoes, legados, timers};
   };
 
-  // Primeira tentativa imediata caso este patch seja carregado após o DOM.
-  try { if (document.body) ensureHost(); } catch(_) {}
+  console.log(TAG, 'ativo. Rode diagnosticarLoginProblemasHeader() se precisar conferir.');
 })();
