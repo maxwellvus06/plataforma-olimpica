@@ -17,6 +17,22 @@
   };
 })();
 
+
+
+// ============================================================
+// PROBLEMAS — higienização visual imediata de botões antigos
+// Oculta botões legados antes da central limpa ser montada.
+// ============================================================
+(function problemasHideLegacyButtonsEarly(){
+  try {
+    const css = `#btnProblemasQuestoes,#btnProblemasCalendario,#btnProblemasUnificado,#btnProblemasUnicoRevisao,#btnCentralProblemas,#btnProblemasCalendarioAdmin{display:none!important;visibility:hidden!important;pointer-events:none!important}`;
+    const st = document.createElement('style');
+    st.id = 'styleProblemasCentralLimpa';
+    st.textContent = css;
+    document.head ? document.head.appendChild(st) : document.documentElement.appendChild(st);
+  } catch(_) {}
+})();
+
 // Gerenciador e Inteligência do Sistema Olímpico 2026
 let chartInstance = null;
 
@@ -16040,20 +16056,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       console.warn(TAG, "não foi possível atualizar relatos", erro);
     }
   }
-  function inserirBotaoProblemasQuestoesHeader() {
-    if (!podeGerenciarRelatosQuestoes()) return;
-    if (document.getElementById("btnProblemasQuestoes")) return;
-    const parent = document.getElementById("btnToggleTema")?.parentElement || document.querySelector("header div.flex.items-center.gap-3");
-    if (!parent) return;
-    const btn = document.createElement("button");
-    btn.id = "btnProblemasQuestoes";
-    btn.type = "button";
-    btn.onclick = () => abrirPainelProblemasQuestoes();
-    btn.className = "relative px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-950 text-xs font-bold text-gray-300 hover:text-white hover:border-red-700 transition";
-    btn.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasQuestoes" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-    parent.insertBefore(btn, document.getElementById("btnToggleTema") || parent.firstChild);
-    setTimeout(atualizarBadgeProblemasQuestoes, 200);
-  }
+  function inserirBotaoProblemasQuestoesHeader() { return; /* central limpa substitui botão legado */ }
   function garantirModalRelatarProblemaQuestao() {
     if (document.getElementById("modalRelatarProblemaQuestao")) return;
     const modal = document.createElement("div");
@@ -17280,59 +17283,8 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 })();
 
 // ============================================================
-// PATCH — Central de relatos do Calendário Olímpico para ADM/Staff
-// ============================================================
-(function patchCentralProblemasCalendario(){
-  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
-  const pode = () => !!usuarioLogado && ["ADM", "Staff"].includes(usuarioLogado.nivel);
-  const col = () => `anos/${typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026"}/sistema_cronograma_problemas`;
-  let cache = [];
-  async function carregar(force=false){
-    if (!pode()) return [];
-    if (cache.length && !force) return cache;
-    if (typeof initFirebase === "function") initFirebase();
-    const snap = await firebaseFirestore.collection(col()).orderBy("criadoEm", "desc").limit(250).get();
-    cache = []; snap.forEach(d => cache.push({id:d.id, ...(d.data()||{})}));
-    return cache;
-  }
-  async function badge(){
-    if (!pode()) return;
-    const arr = await carregar(true);
-    const abertos = arr.filter(p => !["Resolvido","Descartado"].includes(String(p.status||""))).length;
-    const b = document.getElementById("badgeProblemasCalendario");
-    if (b) { b.textContent = abertos; b.classList.toggle("hidden", !abertos); }
-  }
-  function inserirBotao(){
-    if (!pode() || document.getElementById("btnProblemasCalendario")) return;
-    const header = document.querySelector("header .flex.items-center.gap-3") || document.querySelector("header div:last-child") || document.querySelector("header");
-    if (!header) return;
-    const btn = document.createElement("button");
-    btn.id = "btnProblemasCalendario";
-    btn.type = "button";
-    btn.className = "relative px-3 py-2 rounded-xl bg-amber-900/30 border border-amber-800/40 text-amber-200 text-xs font-black uppercase hover:bg-amber-900/50";
-    btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-2"></i>Calendário <span id="badgeProblemasCalendario" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-    btn.onclick = abrir;
-    header.prepend(btn);
-    badge();
-  }
-  async function abrir(){
-    const arr = await carregar(true);
-    document.getElementById("modalProblemasCalendarioAdmin")?.remove();
-    const modal = document.createElement("div");
-    modal.id = "modalProblemasCalendarioAdmin";
-    modal.className = "fixed inset-0 z-[96] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
-    const itens = arr.length ? arr.map(p => `<div class="rounded-xl border border-gray-700 bg-gray-950/70 p-4"><div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><p class="text-[10px] text-amber-300 uppercase font-black">${esc(p.status || "Aberto")}</p><h4 class="text-sm font-black text-white mt-1">${esc(p.eventoResumo || "Evento")}</h4><p class="text-xs text-gray-400 mt-1">${esc((p.tipos || []).join(", ") || "Relato")}</p><p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap">${esc(p.comentario || "Sem comentário adicional.")}</p><p class="text-[10px] text-gray-500 mt-2">Por ${esc(p.usuarioNome || "usuário")} · ${p.criadoEm ? new Date(p.criadoEm).toLocaleString("pt-BR") : ""}</p></div><div class="flex flex-wrap gap-2"><button onclick="resolverProblemaCalendario('${esc(p.id)}','Em análise')" class="px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold">Em análise</button><button onclick="resolverProblemaCalendario('${esc(p.id)}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold">Resolvido</button><button onclick="resolverProblemaCalendario('${esc(p.id)}','Descartado')" class="px-3 py-2 rounded-xl bg-red-900/40 text-red-200 text-xs font-bold">Descartar</button></div></div></div>`).join("") : `<div class="p-8 text-center text-gray-500">Nenhum problema relatado no calendário.</div>`;
-    modal.innerHTML = `<div class="absolute inset-0" onclick="this.closest('#modalProblemasCalendarioAdmin').remove()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>Problemas relatados no Calendário</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff podem acompanhar, resolver ou descartar os relatos.</p></div><button type="button" onclick="this.closest('#modalProblemasCalendarioAdmin').remove()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div>${itens}</div>`;
-    document.body.appendChild(modal);
-  }
-  window.resolverProblemaCalendario = async function(id,status){
-    try { await firebaseFirestore.collection(col()).doc(String(id)).set({status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || ""}, {merge:true}); cache = cache.map(p => String(p.id) === String(id) ? {...p,status} : p); document.getElementById("modalProblemasCalendarioAdmin")?.remove(); badge(); abrir(); }
-    catch(e){ alert(`Erro ao atualizar relato.\n\n${e.message || e}`); }
-  };
-  document.addEventListener("DOMContentLoaded", () => setTimeout(inserirBotao, 1800));
-  setInterval(() => { if (pode()) badge(); }, 120000);
-})();
 
+// [REMOVIDO] bloco legado removido: // PATCH — Central de relatos do Calendário Olímpico para ADM/Staff
 // ============================================================
 // PATCH — Wake Lock no Simulado Hardcore + Gerador de Listas na Plataforma
 // e refinamento de impressão timbrada Avance Olímpico.
@@ -18075,313 +18027,8 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
 
 // ============================================================
-// PATCH — Navegação ativa e Central única de Problemas
-// Corrige: ícone do Calendário, destaque da aba Simulados e unifica relatos.
-// ============================================================
-(function patchNavEProblemasUnificados(){
-  const TAG = "[Nav/Problemas]";
-  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
-  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
-  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  const equipeCentral = () => !!usuarioLogado && ["ADM", "Staff"].includes(usuarioLogado.nivel);
-  const colGeral = () => `anos/${ANO()}/sistema_problemas`;
-  const colQuestoes = () => `anos/${ANO()}/sistema_questoes_problemas`;
-  const colCalendario = () => `anos/${ANO()}/sistema_cronograma_problemas`;
 
-  function corrigirIconeCalendario() {
-    const btn = document.getElementById("btnNav-calendario");
-    if (!btn) return;
-    const ativo = btn.classList.contains("text-blue-400") || btn.classList.contains("bg-blue-500/10");
-    btn.innerHTML = '<i class="fa-solid fa-calendar-days text-base w-5 text-center"></i> Calendário Olímpico';
-    if (ativo) {
-      btn.classList.remove("text-gray-400");
-      btn.classList.add("text-blue-400", "bg-blue-500/10");
-    }
-  }
-
-  function botaoDaAba(aba) {
-    return document.getElementById(`btnNav-${aba}`) || ({
-      alunos: document.getElementById("btnNavAlunos"),
-      usuarios: document.getElementById("btnNavUsuarios"),
-      olimpiadas: document.getElementById("btnNavOlimpiadas"),
-      cidades: document.getElementById("btnNavCidades"),
-      escolas: document.getElementById("btnNavEscolas"),
-      layout: document.getElementById("btnNavLayout")
-    })[aba] || null;
-  }
-
-  function marcarAbaAtiva(aba) {
-    document.querySelectorAll(".nav-item").forEach(btn => {
-      btn.classList.remove("text-blue-400", "bg-blue-500/10");
-      btn.classList.add("text-gray-400");
-    });
-    const btn = botaoDaAba(aba);
-    if (btn) {
-      btn.classList.remove("text-gray-400");
-      btn.classList.add("text-blue-400", "bg-blue-500/10");
-    }
-    corrigirIconeCalendario();
-  }
-
-  const navegarBase = typeof navegarAba === "function" ? navegarAba : null;
-  if (navegarBase && !window.__navProblemasPatchAplicado) {
-    window.__navProblemasPatchAplicado = true;
-    navegarAba = function navegarAbaComAtivoCorrigido(abaId, botaoTarget) {
-      const r = navegarBase.apply(this, arguments);
-      setTimeout(() => {
-        marcarAbaAtiva(abaId);
-        corrigirIconeCalendario();
-        removerBotaoCalendarioSeparado();
-        inserirBotaoCentralProblemas();
-        injetarBotoesRelatoContextuais();
-      }, 80);
-      return r;
-    };
-    window.navegarAba = navegarAba;
-  }
-
-  function tiposPorCategoria(cat) {
-    const mapa = {
-      questoes: ["Gabarito incorreto", "Falta imagem/anexo", "Imagem não abre", "Enunciado errado", "Sem solução", "Tema/subtema errado", "Disciplina/nível errado", "Questão duplicada", "Erro de digitação", "Outro"],
-      calendario: ["Data incorreta", "Horário/período incorreto", "Evento duplicado", "Descrição confusa", "Olimpíada errada", "Link/informação faltando", "Outro"],
-      resultados: ["Resultado errado", "Premiação incorreta", "Aluno/escola incorreto", "Certificado errado", "Certificado não abre", "Olimpíada incorreta", "Outro"],
-      plataforma: ["Link quebrado", "Arquivo não abre", "Material errado", "Falta gabarito/resolução", "Imagem/áudio/vídeo ruim", "Descrição confusa", "Outro"],
-      aulas: ["Áudio ruim", "Vídeo não abre", "Imagem/visibilidade ruim", "Link quebrado", "Aula no tema errado", "Descrição errada", "Outro"],
-      simulados: ["Simulado não abre", "Arquivo ausente", "Questão/gabarito errado", "Prazo incorreto", "Problema no envio", "Modo hardcore com problema", "Outro"]
-    };
-    return mapa[cat] || ["Informação incorreta", "Link/arquivo com problema", "Outro"];
-  }
-
-  const rotuloCat = (cat) => ({questoes:"Questões", calendario:"Calendário", resultados:"Resultados", plataforma:"Plataforma", aulas:"Aulas", simulados:"Simulados"}[cat] || cat);
-
-  function garantirModalRelatoGeral() {
-    if (document.getElementById("modalRelatoProblemaGeral")) return;
-    const modal = document.createElement("div");
-    modal.id = "modalRelatoProblemaGeral";
-    modal.className = "hidden fixed inset-0 z-[99996] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
-    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharRelatoProblemaGeral()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 id="relatoGeralTitulo" class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-flag text-amber-400 mr-2"></i>Relatar problema</h3><p id="relatoGeralSubtitulo" class="text-xs text-gray-400 mt-1">Informe o problema encontrado.</p></div><button type="button" onclick="fecharRelatoProblemaGeral()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><input type="hidden" id="relatoGeralCategoria"><input type="hidden" id="relatoGeralAlvoId"><input type="hidden" id="relatoGeralAlvoTitulo"><div id="relatoGeralTipos" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300"></div><textarea id="relatoGeralComentario" rows="4" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o problema percebido..."></textarea><button type="button" onclick="enviarRelatoProblemaGeral()" class="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-2"></i>Enviar relato</button></div>`;
-    document.body.appendChild(modal);
-  }
-
-  window.abrirRelatoProblemaGeral = function(categoria, alvoId = "", titulo = "", contexto = "") {
-    garantirModalRelatoGeral();
-    document.getElementById("relatoGeralCategoria").value = categoria || "geral";
-    document.getElementById("relatoGeralAlvoId").value = alvoId || "";
-    document.getElementById("relatoGeralAlvoTitulo").value = titulo || "";
-    document.getElementById("relatoGeralTitulo").innerHTML = `<i class="fa-solid fa-flag text-amber-400 mr-2"></i>Relatar problema — ${esc(rotuloCat(categoria))}`;
-    document.getElementById("relatoGeralSubtitulo").textContent = titulo || contexto || "Informe o problema encontrado.";
-    document.getElementById("relatoGeralComentario").value = "";
-    document.getElementById("relatoGeralTipos").innerHTML = tiposPorCategoria(categoria).map(t => `<label class="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-950/40 px-3 py-2"><input type="checkbox" name="relatoGeralTipo" value="${esc(t)}" class="accent-amber-500">${esc(t)}</label>`).join("");
-    const modal = document.getElementById("modalRelatoProblemaGeral");
-    modal.classList.remove("hidden"); modal.classList.add("flex");
-  };
-
-  window.fecharRelatoProblemaGeral = function() {
-    const modal = document.getElementById("modalRelatoProblemaGeral");
-    modal?.classList.add("hidden"); modal?.classList.remove("flex");
-  };
-
-  window.enviarRelatoProblemaGeral = async function() {
-    try {
-      if (typeof initFirebase === "function") initFirebase();
-      if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
-      const categoria = document.getElementById("relatoGeralCategoria")?.value || "geral";
-      const alvoId = document.getElementById("relatoGeralAlvoId")?.value || "";
-      const alvoTitulo = document.getElementById("relatoGeralAlvoTitulo")?.value || "";
-      const tipos = Array.from(document.querySelectorAll('input[name="relatoGeralTipo"]:checked')).map(x => x.value);
-      const comentario = document.getElementById("relatoGeralComentario")?.value.trim() || "";
-      if (!tipos.length && !comentario) return alert("Marque ao menos um tipo de problema ou escreva um comentário.");
-      const id = `${categoria}_${alvoId || "sem_id"}_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g,"_");
-      await firebaseFirestore.collection(colGeral()).doc(id).set({
-        id, categoria, alvoId, alvoTitulo, tipos, comentario, status: "Aberto", origem: "central_unificada",
-        criadoEm: Date.now(), criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || ""
-      }, { merge: true });
-      fecharRelatoProblemaGeral();
-      alert("Relato enviado. Obrigado por avisar.");
-      if (equipeCentral()) atualizarBadgeProblemasUnificado();
-    } catch (erro) {
-      console.error(erro);
-      alert(`Erro ao enviar relato.\n\n${erro.message || erro}`);
-    }
-  };
-
-  function removerBotaoCalendarioSeparado() {
-    document.getElementById("btnProblemasCalendario")?.remove();
-  }
-
-  function inserirBotaoCentralProblemas() {
-    if (!equipeCentral()) return;
-    removerBotaoCalendarioSeparado();
-    const antigo = document.getElementById("btnProblemasQuestoes");
-    if (antigo) {
-      antigo.id = "btnProblemasUnificado";
-      antigo.onclick = () => abrirCentralProblemasUnificada();
-      antigo.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasUnificado" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-      atualizarBadgeProblemasUnificado();
-      return;
-    }
-    if (document.getElementById("btnProblemasUnificado")) return;
-    const alvo = document.getElementById("btnToggleTema") || document.getElementById("selectAnoDados") || document.querySelector("header .flex.items-center.gap-3, header div");
-    const btn = document.createElement("button");
-    btn.id = "btnProblemasUnificado";
-    btn.type = "button";
-    btn.className = "relative px-3 py-2 rounded-xl bg-gray-950 border border-gray-800 text-gray-200 text-xs font-bold hover:bg-gray-900";
-    btn.onclick = () => abrirCentralProblemasUnificada();
-    btn.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasUnificado" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-    if (alvo) alvo.insertAdjacentElement("beforebegin", btn);
-    atualizarBadgeProblemasUnificado();
-  }
-
-  async function carregarProblemasUnificados() {
-    if (typeof initFirebase === "function") initFirebase();
-    if (!firebaseFirestore || !equipeCentral()) return [];
-    const todos = [];
-    async function puxar(col, categoriaFallback) {
-      try {
-        const snap = await firebaseFirestore.collection(col).orderBy("criadoEm", "desc").limit(250).get();
-        snap.forEach(doc => todos.push({ id: doc.id, categoria: categoriaFallback, ...(doc.data() || {}) }));
-      } catch (e) { console.warn(TAG, "Falha ao carregar", col, e); }
-    }
-    await puxar(colGeral(), "geral");
-    await puxar(colQuestoes(), "questoes");
-    await puxar(colCalendario(), "calendario");
-    return todos.sort((a,b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
-  }
-
-  async function atualizarBadgeProblemasUnificado() {
-    const b = document.getElementById("badgeProblemasUnificado");
-    if (!b || !equipeCentral()) return;
-    const arr = await carregarProblemasUnificados();
-    const abertos = arr.filter(p => !["Resolvido", "Descartado"].includes(p.status)).length;
-    b.textContent = String(abertos);
-    b.classList.toggle("hidden", abertos <= 0);
-  }
-
-  function garantirModalCentral() {
-    if (document.getElementById("modalProblemasUnificado")) return;
-    const modal = document.createElement("div");
-    modal.id = "modalProblemasUnificado";
-    modal.className = "hidden fixed inset-0 z-[99995] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
-    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharCentralProblemasUnificada()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-400 mr-2"></i>Central de Problemas</h3><p class="text-xs text-gray-400 mt-1">Relatos de questões, calendário, resultados, plataforma, aulas e simulados.</p></div><div class="flex flex-wrap gap-2"><select id="filtroProblemasUnificadoCategoria" onchange="renderizarCentralProblemasUnificada()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="TODOS">Todas as áreas</option><option value="questoes">Questões</option><option value="calendario">Calendário</option><option value="resultados">Resultados</option><option value="plataforma">Plataforma</option><option value="aulas">Aulas</option><option value="simulados">Simulados</option></select><select id="filtroProblemasUnificadoStatus" onchange="renderizarCentralProblemasUnificada()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option value="Resolvido">Resolvidos</option><option value="Descartado">Descartados</option></select><button onclick="abrirCentralProblemasUnificada(true)" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button><button onclick="fecharCentralProblemasUnificada()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div><div id="listaProblemasUnificado" class="space-y-3"></div></div>`;
-    document.body.appendChild(modal);
-  }
-
-  window.__problemasUnificadosCache = [];
-  window.abrirCentralProblemasUnificada = async function(force = false) {
-    garantirModalCentral();
-    const modal = document.getElementById("modalProblemasUnificado");
-    modal.classList.remove("hidden"); modal.classList.add("flex");
-    if (force || !window.__problemasUnificadosCache.length) window.__problemasUnificadosCache = await carregarProblemasUnificados();
-    renderizarCentralProblemasUnificada();
-    atualizarBadgeProblemasUnificado();
-  };
-
-  window.fecharCentralProblemasUnificada = function(){ const modal = document.getElementById("modalProblemasUnificado"); modal?.classList.add("hidden"); modal?.classList.remove("flex"); };
-
-  window.renderizarCentralProblemasUnificada = function() {
-    const box = document.getElementById("listaProblemasUnificado");
-    if (!box) return;
-    const cat = document.getElementById("filtroProblemasUnificadoCategoria")?.value || "TODOS";
-    const st = document.getElementById("filtroProblemasUnificadoStatus")?.value || "ABERTOS";
-    let arr = window.__problemasUnificadosCache || [];
-    if (cat !== "TODOS") arr = arr.filter(p => (p.categoria || "geral") === cat);
-    if (st === "ABERTOS") arr = arr.filter(p => !["Resolvido", "Descartado"].includes(p.status));
-    else if (st !== "TODOS") arr = arr.filter(p => p.status === st);
-    if (!arr.length) { box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-900 p-8 text-center text-gray-500">Nenhum relato encontrado para este filtro.</div>`; return; }
-    box.innerHTML = arr.map(p => `<div class="rounded-2xl border border-gray-700 bg-gray-900/80 p-4"><div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div class="min-w-0"><div class="flex flex-wrap gap-2 mb-2"><span class="px-2 py-1 rounded-lg bg-red-950/40 text-red-300 text-[10px] font-bold uppercase">${esc(rotuloCat(p.categoria || "geral"))}</span><span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-300 text-[10px] font-bold uppercase">${esc(p.status || "Aberto")}</span></div><h4 class="text-sm font-black text-white">${esc(p.alvoTitulo || p.questaoTitulo || p.eventoTitulo || p.eventoEtapa || p.alvoId || p.questaoId || p.eventoId || "Item relatado")}</h4><p class="text-xs text-gray-400 mt-1">${esc((p.tipos || p.tiposProblema || []).join ? (p.tipos || p.tiposProblema || []).join(", ") : (p.tipo || ""))}</p>${p.comentario ? `<p class="text-sm text-gray-300 mt-3 whitespace-pre-wrap">${esc(p.comentario)}</p>` : ""}<p class="text-[10px] text-gray-500 mt-3">Por ${esc(p.criadoPorNome || p.usuarioNome || "usuário")} · ${p.criadoEm ? new Date(p.criadoEm).toLocaleString("pt-BR") : ""}</p></div><div class="flex flex-wrap gap-2"><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Em análise')" class="px-3 py-2 rounded-xl bg-amber-900/40 text-amber-200 text-xs font-bold">Em análise</button><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold">Resolver</button><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Descartado')" class="px-3 py-2 rounded-xl bg-red-900/40 text-red-200 text-xs font-bold">Descartar</button></div></div></div>`).join("");
-  };
-
-  window.atualizarStatusProblemaUnificado = async function(id, categoria, status) {
-    try {
-      if (typeof initFirebase === "function") initFirebase();
-      let col = colGeral();
-      if (categoria === "questoes") col = colQuestoes();
-      if (categoria === "calendario") col = colCalendario();
-      await firebaseFirestore.collection(col).doc(String(id)).set({ status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || "" }, { merge: true });
-      window.__problemasUnificadosCache = (window.__problemasUnificadosCache || []).map(p => String(p.id) === String(id) ? { ...p, status } : p);
-      renderizarCentralProblemasUnificada(); atualizarBadgeProblemasUnificado();
-    } catch (e) { console.error(e); alert(`Erro ao atualizar status.\n\n${e.message || e}`); }
-  };
-
-  function botaoRelato(categoria, alvoId, titulo) {
-    return `<button type="button" onclick="abrirRelatoProblemaGeral('${esc(categoria)}','${esc(alvoId || titulo || "")}', '${esc(titulo || "Item")}' )" class="btn-relato-geral px-2.5 py-1.5 rounded-lg border border-amber-900/50 text-amber-300 hover:bg-amber-950/30 text-[11px] font-bold"><i class="fa-solid fa-flag mr-1"></i>Relatar problema</button>`;
-  }
-
-  function injetarResultados() {
-    document.querySelectorAll("#tableResultadosImportacaoCorpo tr").forEach((tr, i) => {
-      if (tr.querySelector(".btn-relato-geral")) return;
-      const tds = tr.querySelectorAll("td");
-      if (tds.length < 2) return;
-      const titulo = `${tds[0]?.innerText || "Resultado"} — ${tds[5]?.innerText || ""} — ${tds[6]?.innerText || ""}`.trim();
-      const alvo = `resultado_${norm(titulo).slice(0,80)}_${i}`;
-      tds[tds.length - 1].insertAdjacentHTML("beforeend", `<div class="mt-1">${botaoRelato("resultados", alvo, titulo)}</div>`);
-    });
-  }
-
-  function injetarSimulados() {
-    document.querySelectorAll("#gridSimulados > div").forEach((card, i) => {
-      if (card.querySelector(".btn-relato-geral")) return;
-      const titulo = card.querySelector("h3")?.innerText || `Simulado ${i+1}`;
-      const alvo = `simulado_${norm(titulo).slice(0,80)}_${i}`;
-      const area = card.querySelector(".flex.flex-wrap.gap-2.mt-4") || card;
-      area.insertAdjacentHTML("beforeend", botaoRelato("simulados", alvo, titulo));
-    });
-  }
-
-  function injetarMateriais() {
-    document.querySelectorAll("#gridMateriais .bg-gray-800.border.border-gray-700.rounded-2xl.p-5").forEach((card, i) => {
-      if (card.querySelector(".btn-relato-geral")) return;
-      const titulo = card.querySelector("h4")?.innerText || `Material ${i+1}`;
-      const alvo = `material_${norm(titulo).slice(0,80)}_${i}`;
-      card.insertAdjacentHTML("beforeend", `<div class="pt-2 border-t border-gray-800">${botaoRelato("plataforma", alvo, titulo)}</div>`);
-    });
-  }
-
-  function injetarAulas() {
-    document.querySelectorAll("#gridAulas .p-5.grid").forEach((card, i) => {
-      if (card.querySelector(".btn-relato-geral")) return;
-      const titulo = card.querySelector("h4")?.innerText || `Aula ${i+1}`;
-      const alvo = `aula_${norm(titulo).slice(0,80)}_${i}`;
-      const acoes = card.querySelector(".mt-3.flex") || card.querySelector("div");
-      acoes?.insertAdjacentHTML("beforeend", botaoRelato("aulas", alvo, titulo));
-    });
-  }
-
-  function injetarBotoesRelatoContextuais() {
-    try { injetarResultados(); } catch(e) { console.warn(TAG, e); }
-    try { injetarSimulados(); } catch(e) { console.warn(TAG, e); }
-    try { injetarMateriais(); } catch(e) { console.warn(TAG, e); }
-    try { injetarAulas(); } catch(e) { console.warn(TAG, e); }
-  }
-  window.injetarBotoesRelatoContextuais = injetarBotoesRelatoContextuais;
-
-  // Envolve renderizadores principais para reinjetar botões após cada render.
-  ["renderizarResultadosImportacao", "renderizarSimulados", "renderizarPlataformaEnsino", "renderizarAulas"].forEach(nome => {
-    const fn = window[nome] || (typeof globalThis !== "undefined" ? globalThis[nome] : null);
-    if (typeof fn !== "function" || fn.__problemasWrapped) return;
-    const wrap = async function() {
-      const r = await fn.apply(this, arguments);
-      setTimeout(injetarBotoesRelatoContextuais, 120);
-      return r;
-    };
-    wrap.__problemasWrapped = true;
-    window[nome] = wrap;
-    try { eval(`${nome} = window[nome];`); } catch(_) {}
-  });
-
-  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
-    corrigirIconeCalendario();
-    marcarAbaAtiva(document.querySelector(".tab-view:not(.hidden)")?.id?.replace(/^view-/, "") || "dashboard");
-    inserirBotaoCentralProblemas();
-    removerBotaoCalendarioSeparado();
-    injetarBotoesRelatoContextuais();
-  }, 1600));
-  setInterval(() => { if (equipeCentral()) { removerBotaoCalendarioSeparado(); inserirBotaoCentralProblemas(); } }, 60000);
-
-  console.log(TAG, "patch carregado");
-})();
-
-// ============================================================
+// [REMOVIDO] bloco legado removido: Navegação ativa e Central única de Problemas
 
 // ============================================================
 // PATCH CONSOLIDADO — Revisão geral estabilizada
@@ -18503,20 +18150,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     }).join("");
     corpo.innerHTML = cards || `<div class="rounded-xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-500">Nenhum problema encontrado.</div>`;
   };
-  function garantirBotaoProblemas() {
-    if (!isAdmin()) { document.getElementById("btnProblemasUnicoRevisao")?.remove(); return; }
-    removerBotoesProblemasDuplicados();
-    if (document.getElementById("btnProblemasUnicoRevisao")) return;
-    const alvo = document.querySelector("header .flex.items-center.gap-3") || document.querySelector("header div:last-child") || document.querySelector("header");
-    if (!alvo) return;
-    const btn = document.createElement("button");
-    btn.id = "btnProblemasUnicoRevisao";
-    btn.type = "button";
-    btn.onclick = window.abrirCentralProblemasRevisao;
-    btn.className = "px-3 py-2 rounded-xl bg-red-950/50 border border-red-800/60 text-red-100 text-xs font-black uppercase hover:bg-red-900/60";
-    btn.innerHTML = `<i class="fa-solid fa-bell mr-2"></i>Problemas`;
-    alvo.prepend(btn);
-  }
+  function garantirBotaoProblemas() { return; /* central limpa substitui botão legado */ }
 
   // ------------------------------------------------------------------
   // 3) Simulados: mantém a versão robusta sem ficar renderizando sozinha.
@@ -18866,4 +18500,337 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
 
   console.info(TAG, "ativo — app_questoes não gera mais popup falso antes do login.");
+})();
+
+
+// ============================================================
+// PROBLEMAS — CENTRAL LIMPA E ÚNICA
+// Este módulo substitui todos os botões superiores antigos de problemas.
+// Mantém os botões/funções de "Relatar problema" dentro dos módulos.
+// ============================================================
+(function problemasCentralLimpaFinal(){
+  const TAG = '[Problemas Central Limpa]';
+  const BTN_ID = 'btnProblemasCentralLimpa';
+  const BADGE_ID = 'badgeProblemasCentralLimpa';
+  const MODAL_ID = 'modalProblemasCentralLimpa';
+  const ANO = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
+  const now = () => Date.now();
+  let cache = [];
+  let loadedAt = 0;
+
+  const oldIds = [
+    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado','btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin',
+    'badgeProblemasQuestoes','badgeProblemasCalendario','badgeProblemasUnificado'
+  ];
+  const oldModalIds = ['modalProblemasQuestoes','modalProblemasCalendarioAdmin','modalProblemasUnificado','modalProblemasRevisao'];
+
+  function collectionPaths() {
+    const ano = ANO();
+    return [
+      {path:`anos/${ano}/sistema_problemas`, categoria:'Geral'},
+      {path:`anos/${ano}/sistema_questoes_problemas`, categoria:'Questões'},
+      {path:`anos/${ano}/sistema_cronograma_problemas`, categoria:'Calendário'},
+      {path:`anos/${ano}/sistema_resultados_problemas`, categoria:'Resultados'},
+      {path:`anos/${ano}/sistema_plataforma_problemas`, categoria:'Plataforma'},
+      {path:`anos/${ano}/sistema_aulas_problemas`, categoria:'Aulas'},
+      {path:`anos/${ano}/sistema_simulados_problemas`, categoria:'Simulados'},
+      {path:'sistema_problemas', categoria:'Geral'}
+    ];
+  }
+
+  function inferCategoria(p, fallback='Geral') {
+    const raw = String(p.modulo || p.tipoModulo || p.categoria || p.area || p.origem || p.origemPath || fallback || 'Geral').toLowerCase();
+    if (raw.includes('quest')) return 'Questões';
+    if (raw.includes('cronograma') || raw.includes('calend')) return 'Calendário';
+    if (raw.includes('result')) return 'Resultados';
+    if (raw.includes('plataforma') || raw.includes('material')) return 'Plataforma';
+    if (raw.includes('aula')) return 'Aulas';
+    if (raw.includes('simulado')) return 'Simulados';
+    return fallback || 'Geral';
+  }
+  function isAberto(p) {
+    return !['Resolvido','Descartado'].includes(String(p.status || 'Aberto'));
+  }
+  function tituloProblema(p) {
+    return p.titulo || p.itemTitulo || p.questaoTitulo || p.eventoResumo || p.simuladoTitulo || p.materialTitulo || p.aulaTitulo || p.alvoTitulo || p.tipo || p.id || 'Relato de problema';
+  }
+  function textoProblema(p) {
+    return p.descricao || p.comentario || p.detalhe || p.relato || p.resolucaoComentario || p.observacao || (Array.isArray(p.tipos) ? p.tipos.join(', ') : '') || 'Sem descrição detalhada.';
+  }
+
+  function cleanupOldProblemButtons() {
+    oldIds.forEach(id => document.getElementById(id)?.remove());
+    // Remove qualquer botão antigo no header que seja claramente de problema e não seja o novo.
+    document.querySelectorAll('header button, header a, .topbar button').forEach(el => {
+      const id = String(el.id || '');
+      const txt = String(el.textContent || '');
+      const cls = String(el.className || '');
+      if (id === BTN_ID) return;
+      if (/problemas?|calend[aá]rio/i.test(txt) && /problema|bell|triangle|red|amber/i.test(id + ' ' + cls + ' ' + txt)) {
+        el.remove();
+      }
+    });
+  }
+
+  function killLegacyProblemIntervals() {
+    try {
+      (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
+        const src = String(item.src || '');
+        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|inserirBotaoCentralProblemas|garantirBotaoProblemas|badgeProblemas/i.test(src)) {
+          clearInterval(item.id);
+          item.killedByProblemasCentralLimpa = true;
+        }
+      });
+    } catch(e) { console.warn(TAG, 'interval cleanup', e); }
+  }
+
+  async function fetchCollection(path, categoriaFallback) {
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore || !isEquipe()) return [];
+      const snap = await firebaseFirestore.collection(path).orderBy('criadoEm','desc').limit(300).get();
+      const arr = [];
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        arr.push({ id: doc.id, ...data, origemPath: path, categoria: inferCategoria(data, categoriaFallback), categoriaFallback });
+      });
+      return arr;
+    } catch(e) {
+      // Não estoura popup por coleção que ainda não existe/sem índice. Só ignora.
+      console.warn(TAG, 'falha ao carregar', path, e?.message || e);
+      return [];
+    }
+  }
+
+  async function carregarProblemasCentral(force=false) {
+    if (!isEquipe()) return [];
+    if (!force && cache.length && (now() - loadedAt < 45000)) return cache;
+    const listas = await Promise.all(collectionPaths().map(c => fetchCollection(c.path, c.categoria)));
+    const map = new Map();
+    listas.flat().forEach(p => {
+      const key = `${p.origemPath}::${p.id}`;
+      if (!map.has(key)) map.set(key, p);
+    });
+    cache = Array.from(map.values()).sort((a,b)=>Number(b.criadoEm || b.atualizadoEm || 0)-Number(a.criadoEm || a.atualizadoEm || 0));
+    loadedAt = now();
+    return cache;
+  }
+
+  async function atualizarBadgeCentral(force=false) {
+    if (!isEquipe()) { document.getElementById(BTN_ID)?.remove(); return; }
+    const b = document.getElementById(BADGE_ID);
+    try {
+      const arr = await carregarProblemasCentral(force);
+      const abertos = arr.filter(isAberto).length;
+      if (b) {
+        b.textContent = String(abertos);
+        b.classList.toggle('hidden', !abertos);
+      }
+      const btn = document.getElementById(BTN_ID);
+      if (btn) btn.classList.toggle('border-red-700', !!abertos);
+    } catch(e) { console.warn(TAG, 'badge', e); }
+  }
+
+  function headerTarget() {
+    return document.getElementById('btnToggleTema')?.parentElement || document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header div:last-child') || document.querySelector('header');
+  }
+
+  function garantirBotaoCentralLimpa() {
+    cleanupOldProblemButtons();
+    if (!isEquipe()) { document.getElementById(BTN_ID)?.remove(); return; }
+    if (document.getElementById(BTN_ID)) return;
+    const parent = headerTarget();
+    if (!parent) return;
+    const btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.className = 'relative px-3 py-2 rounded-xl bg-red-950/40 border border-red-900/60 text-red-100 text-xs font-black uppercase hover:bg-red-900/60 transition';
+    btn.onclick = () => abrirCentralProblemasLimpa(true);
+    btn.innerHTML = `<i class="fa-solid fa-bell mr-2"></i>Problemas <span id="${BADGE_ID}" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+    const themeBtn = document.getElementById('btnToggleTema');
+    if (themeBtn && themeBtn.parentElement === parent) parent.insertBefore(btn, themeBtn);
+    else parent.prepend(btn);
+    atualizarBadgeCentral(false);
+  }
+
+  function garantirModalCentral() {
+    oldModalIds.forEach(id => document.getElementById(id)?.remove());
+    let modal = document.getElementById(MODAL_ID);
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = MODAL_ID;
+    modal.className = 'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharCentralProblemasLimpa()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 border-b border-gray-700 pb-4">
+          <div>
+            <h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-300 mr-2"></i>Central única de problemas</h3>
+            <p class="text-xs text-gray-400 mt-1">Questões, calendário, resultados, plataforma, aulas e simulados em uma única fila de análise.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <select id="filtroProblemasCentralCategoria" onchange="renderizarCentralProblemasLimpa()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200">
+              <option value="TODOS">Todas as áreas</option><option>Questões</option><option>Calendário</option><option>Resultados</option><option>Plataforma</option><option>Aulas</option><option>Simulados</option><option>Geral</option>
+            </select>
+            <select id="filtroProblemasCentralStatus" onchange="renderizarCentralProblemasLimpa()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200">
+              <option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option value="Em análise">Em análise</option><option value="Resolvido">Resolvidos</option><option value="Descartado">Descartados</option>
+            </select>
+            <input id="buscaProblemasCentral" oninput="renderizarCentralProblemasLimpa()" placeholder="Buscar relato..." class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[220px]">
+            <button onclick="abrirCentralProblemasLimpa(true)" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
+            <button onclick="fecharCentralProblemasLimpa()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button>
+          </div>
+        </div>
+        <div id="resumoProblemasCentral" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2"></div>
+        <div id="listaProblemasCentralLimpa" class="space-y-3"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  window.abrirCentralProblemasLimpa = async function abrirCentralProblemasLimpa(force=false) {
+    if (!isEquipe()) return alert('Apenas ADM/Staff podem acessar a central de problemas.');
+    garantirBotaoCentralLimpa();
+    const modal = garantirModalCentral();
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    const box = document.getElementById('listaProblemasCentralLimpa');
+    if (box) box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando relatos...</p></div>`;
+    cache = await carregarProblemasCentral(force);
+    renderizarCentralProblemasLimpa();
+    atualizarBadgeCentral(false);
+  };
+  window.fecharCentralProblemasLimpa = function fecharCentralProblemasLimpa(){
+    const m = document.getElementById(MODAL_ID);
+    m?.classList.add('hidden'); m?.classList.remove('flex');
+  };
+
+  window.renderizarCentralProblemasLimpa = function renderizarCentralProblemasLimpa(){
+    const box = document.getElementById('listaProblemasCentralLimpa');
+    const resumo = document.getElementById('resumoProblemasCentral');
+    if (!box) return;
+    const cat = document.getElementById('filtroProblemasCentralCategoria')?.value || 'TODOS';
+    const st = document.getElementById('filtroProblemasCentralStatus')?.value || 'ABERTOS';
+    const busca = String(document.getElementById('buscaProblemasCentral')?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    let arr = cache.slice();
+    if (cat !== 'TODOS') arr = arr.filter(p => String(p.categoria) === cat);
+    if (st === 'ABERTOS') arr = arr.filter(isAberto);
+    else if (st !== 'TODOS') arr = arr.filter(p => String(p.status || 'Aberto') === st);
+    if (busca) arr = arr.filter(p => String([p.categoria, tituloProblema(p), textoProblema(p), p.usuarioNome, p.alunoNome, p.origemPath].join(' ')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(busca));
+
+    const cats = ['Questões','Calendário','Resultados','Plataforma','Aulas','Simulados','Geral'];
+    if (resumo) resumo.innerHTML = cats.map(c => {
+      const qtd = cache.filter(p => p.categoria === c && isAberto(p)).length;
+      return `<button onclick="document.getElementById('filtroProblemasCentralCategoria').value='${c}';renderizarCentralProblemasLimpa()" class="rounded-xl border border-gray-700 bg-gray-950/70 p-3 text-left hover:border-red-700"><p class="text-[10px] uppercase text-gray-500 font-black">${c}</p><p class="text-xl font-black text-white">${qtd}</p><p class="text-[10px] text-gray-500">aberto(s)</p></button>`;
+    }).join('');
+
+    if (!arr.length) {
+      box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-10 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl text-emerald-400 mb-3"></i><p class="font-bold">Nenhum relato encontrado nessa visualização.</p></div>`;
+      return;
+    }
+    box.innerHTML = arr.map(p => cardProblema(p)).join('');
+  };
+
+  function cardProblema(p) {
+    const criado = p.criadoEm ? new Date(p.criadoEm).toLocaleString('pt-BR') : '';
+    const status = p.status || 'Aberto';
+    const statusClass = status === 'Resolvido' ? 'bg-emerald-900/40 text-emerald-200' : status === 'Descartado' ? 'bg-gray-800 text-gray-300' : status === 'Em análise' ? 'bg-blue-900/40 text-blue-200' : 'bg-red-900/40 text-red-200';
+    const tipos = Array.isArray(p.tipos) ? p.tipos.join(', ') : (p.tipoProblema || p.tipo || 'Relato');
+    return `<article class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div class="space-y-2 flex-1">
+          <div class="flex flex-wrap items-center gap-2"><span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-black uppercase">${esc(p.categoria)}</span><span class="px-2 py-1 rounded-lg ${statusClass} text-[10px] font-black uppercase">${esc(status)}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-400 text-[10px] uppercase">${esc(tipos)}</span></div>
+          <h4 class="text-sm font-black text-white">${esc(tituloProblema(p))}</h4>
+          <p class="text-sm text-gray-300 whitespace-pre-wrap">${esc(textoProblema(p))}</p>
+          <p class="text-[10px] text-gray-500">${esc(p.usuarioNome || p.alunoNome || p.criadoPorNome || 'Usuário')} ${criado ? '· ' + criado : ''} ${p.origemPath ? '· ' + esc(p.origemPath) : ''}</p>
+        </div>
+        <div class="flex flex-wrap lg:flex-col gap-2 min-w-[150px]">
+          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Em análise')" class="px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold border border-blue-800/40">Em análise</button>
+          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold border border-emerald-800/40">Resolver</button>
+          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Descartado')" class="px-3 py-2 rounded-xl bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button>
+        </div>
+      </div>
+    </article>`;
+  }
+
+  window.atualizarStatusProblemaCentral = async function atualizarStatusProblemaCentral(path, id, status) {
+    if (!isEquipe()) return alert('Apenas ADM/Staff podem atualizar problemas.');
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      await firebaseFirestore.collection(path).doc(String(id)).set({ status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || '' }, { merge:true });
+      cache = cache.map(p => p.origemPath === path && String(p.id) === String(id) ? { ...p, status, atualizadoEm: Date.now() } : p);
+      renderizarCentralProblemasLimpa();
+      atualizarBadgeCentral(false);
+    } catch(e) { alert('Erro ao atualizar problema.\n\n' + (e.message || e)); }
+  };
+
+  // Função limpa para botões "Relatar problema" genéricos em qualquer módulo.
+  window.abrirRelatoProblemaGeral = function abrirRelatoProblemaGeral(categoria='Geral', alvoId='', titulo='Item') {
+    if (!usuarioLogado) return alert('Faça login para relatar problema.');
+    document.getElementById('modalRelatoProblemaGeralLimpo')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'modalRelatoProblemaGeralLimpo';
+    modal.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    modal.innerHTML = `<div class="absolute inset-0" onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl max-w-xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase"><i class="fa-solid fa-flag text-red-300 mr-2"></i>Relatar problema</h3><p class="text-xs text-gray-400 mt-1">${esc(categoria)} · ${esc(titulo)}</p></div><button onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><input type="hidden" id="relatoGeralCategoria" value="${esc(categoria)}"><input type="hidden" id="relatoGeralAlvoId" value="${esc(alvoId)}"><input type="hidden" id="relatoGeralTitulo" value="${esc(titulo)}"><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Tipo de problema</label><select id="relatoGeralTipo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option>Informação errada</option><option>Arquivo/link não abre</option><option>Erro de data/prazo</option><option>Erro de correção/gabarito</option><option>Problema de áudio/vídeo</option><option>Problema de visualização</option><option>Duplicado</option><option>Outro</option></select></div><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Descrição</label><textarea id="relatoGeralDescricao" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o que está errado..."></textarea></div><div class="flex justify-end gap-2"><button onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()" class="px-4 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button><button onclick="enviarRelatoProblemaGeralLimpo()" class="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase">Enviar</button></div></div>`;
+    document.body.appendChild(modal);
+  };
+
+  window.enviarRelatoProblemaGeralLimpo = async function enviarRelatoProblemaGeralLimpo() {
+    const categoria = document.getElementById('relatoGeralCategoria')?.value || 'Geral';
+    const alvoId = document.getElementById('relatoGeralAlvoId')?.value || '';
+    const titulo = document.getElementById('relatoGeralTitulo')?.value || 'Item';
+    const tipo = document.getElementById('relatoGeralTipo')?.value || 'Relato';
+    const descricao = String(document.getElementById('relatoGeralDescricao')?.value || '').trim();
+    if (!descricao) return alert('Escreva uma descrição do problema.');
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      await firebaseFirestore.collection(`anos/${ANO()}/sistema_problemas`).doc(id).set({
+        id, categoria, modulo: categoria, alvoId, titulo, itemTitulo: titulo, tipo, descricao, status:'Aberto',
+        usuarioId: usuarioLogado?.id || '', usuarioNome: usuarioLogado?.nome || '', usuarioEmail: usuarioLogado?.email || '',
+        criadoEm: Date.now(), origem:'relato_geral_limpo'
+      });
+      document.getElementById('modalRelatoProblemaGeralLimpo')?.remove();
+      alert('Relato enviado. A equipe vai analisar.');
+      cache = [];
+      atualizarBadgeCentral(true);
+    } catch(e) { alert('Erro ao enviar relato.\n\n' + (e.message || e)); }
+  };
+
+  // Compatibilidade: se algum botão antigo tentar abrir centrais antigas, redireciona para a nova.
+  window.abrirCentralProblemasUnificada = window.abrirCentralProblemasLimpa;
+  window.abrirCentralProblemasRevisao = window.abrirCentralProblemasLimpa;
+  window.abrirPainelProblemasQuestoes = window.abrirCentralProblemasLimpa;
+
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__problemasCentralLimpaNav) {
+    window.__problemasCentralLimpaNav = true;
+    const nav = function(aba, btn) {
+      const r = navBase.apply(this, arguments);
+      setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 80);
+      return r;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  let obsBusy = false;
+  const obs = new MutationObserver(() => {
+    if (obsBusy) return;
+    obsBusy = true;
+    setTimeout(() => { obsBusy = false; cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 60);
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 250);
+    setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 1200);
+    try { obs.observe(document.body, { childList:true, subtree:true }); } catch(_) {}
+  });
+  window.problemasCentralLimpaDiagnostico = function problemasCentralLimpaDiagnostico() {
+    const old = oldIds.filter(id => !!document.getElementById(id));
+    const intervals = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(i => /Problemas|btnProblemas|problemas/i.test(String(i.src || ''))).map(i => ({id:i.id, delay:i.delay, killed:!!i.killedByProblemasCentralLimpa, src:String(i.src||'').slice(0,180)}));
+    console.table({botaoNovo:!!document.getElementById(BTN_ID), botoesAntigos:old.join(',') || 'nenhum', totalCache:cache.length});
+    console.table(intervals);
+    return {botaoNovo:!!document.getElementById(BTN_ID), botoesAntigos:old, intervals};
+  };
+  console.log(TAG, 'ativo. Use problemasCentralLimpaDiagnostico() para conferir.');
 })();
