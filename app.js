@@ -19721,3 +19721,444 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
   console.log(TAG, 'ativo. Use diagnosticarReuniaoEscopo() no console.');
 })();
+
+
+// ============================================================
+// PATCH — Plataforma: gerar lista pelo banco e publicar como material
+// Fluxo:
+// 1) Usuário abre "Gerador de listas pela plataforma".
+// 2) Monta lista aleatória pelo banco.
+// 3) Ao finalizar, abre etapa de publicação.
+// 4) A lista vira um material postado na Plataforma.
+// ============================================================
+(function patchPlataformaGeradorPublicaLista(){
+  const TAG = '[Plataforma Lista Publicada]';
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function' ? normalizarTexto(v) : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr||[]).map(v => String(v||'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base',numeric:true}));
+  const anoAtual = () => typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026';
+
+  function miniListaKeyPlataforma() {
+    return `avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || 'anon'}_${anoAtual()}`;
+  }
+
+  function idsMiniListaPlataforma(){
+    try { return JSON.parse(localStorage.getItem(miniListaKeyPlataforma()) || '[]').map(String); }
+    catch(_) { return []; }
+  }
+
+  function questoesMiniListaPlataforma(){
+    const ids = new Set(idsMiniListaPlataforma());
+    const qs = getStorage('app_questoes', []) || [];
+    return qs.filter(q => ids.has(String(q.id)));
+  }
+
+  function valorDominante(qs, campo, fallback='Geral'){
+    const mapa = new Map();
+    qs.forEach(q => {
+      const v = String(q?.[campo] || '').trim();
+      if (!v) return;
+      mapa.set(v, (mapa.get(v) || 0) + 1);
+    });
+    return Array.from(mapa.entries()).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0], 'pt-BR'))[0]?.[0] || fallback;
+  }
+
+  function htmlQuestaoListaPlataforma(q, idx, incluirGabarito=false) {
+    const enunciado = q.enunciadoHtml || q.enunciado || q.titulo || 'Questão sem enunciado.';
+    const alts = q.alternativas || {};
+    const temAlt = ['A','B','C','D','E'].some(k => alts[k]);
+    const altHtml = temAlt ? `<ol class="pl-lista-alternativas">${['A','B','C','D','E'].filter(k=>alts[k]).map(k=>`<li><strong>${k})</strong> ${esc(alts[k])}</li>`).join('')}</ol>` : '';
+    const meta = [q.codigo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade].filter(Boolean).join(' · ');
+    const gab = incluirGabarito && (q.gabarito || q.respostaCorreta || q.resolucao || q.resolucaoHtml) ? `
+      <details class="pl-lista-resolucao">
+        <summary>Gabarito / resolução</summary>
+        ${q.gabarito || q.respostaCorreta ? `<p><strong>Gabarito:</strong> ${esc(q.gabarito || q.respostaCorreta)}</p>` : ''}
+        ${q.resolucaoHtml ? `<div>${q.resolucaoHtml}</div>` : (q.resolucao ? `<p>${esc(q.resolucao)}</p>` : '')}
+      </details>` : '';
+    return `<article class="pl-lista-questao">
+      <div class="pl-lista-meta">${esc(meta)}</div>
+      <h4>Questão ${idx + 1}</h4>
+      <div class="pl-lista-enunciado">${q.enunciadoHtml ? enunciado : esc(enunciado).replace(/\n/g,'<br>')}</div>
+      ${altHtml}
+      ${gab}
+    </article>`;
+  }
+
+  function htmlListaPlataforma(qs, config={}) {
+    const incluirGabarito = !!config.incluirGabarito;
+    const titulo = config.titulo || 'Lista de exercícios';
+    const subtitulo = config.subtitulo || `${qs.length} questão(ões)`;
+    return `<div class="pl-lista-gerada">
+      <style>
+        .pl-lista-gerada{background:#fff;color:#111827;border-radius:18px;overflow:hidden;border:1px solid #e5e7eb;font-family:Arial,sans-serif}
+        .pl-lista-header{padding:18px 20px;border-bottom:1px solid #ddd6fe;background:linear-gradient(180deg,#faf5ff,#fff)}
+        .pl-lista-brand{font-size:11px;font-weight:900;letter-spacing:.18em;color:#6d28d9;text-transform:uppercase}
+        .pl-lista-header h2{margin:4px 0 0;color:#2e1065;font-size:22px;text-transform:uppercase}
+        .pl-lista-header p{margin:4px 0 0;color:#6b21a8;font-size:13px;font-weight:700}
+        .pl-lista-body{padding:16px 20px}
+        .pl-lista-questao{border:1px solid #e5e7eb;border-left:5px solid #7c3aed;border-radius:14px;padding:14px;margin-bottom:14px;background:#fff;break-inside:avoid}
+        .pl-lista-meta{font-size:11px;color:#6d28d9;font-weight:700;border-bottom:1px dashed #ddd6fe;padding-bottom:6px;margin-bottom:8px}
+        .pl-lista-questao h4{font-size:14px;margin:0 0 8px;color:#111827;font-weight:900}
+        .pl-lista-enunciado{font-size:13px;line-height:1.55;color:#111827}
+        .pl-lista-enunciado img{max-width:100%;max-height:420px;object-fit:contain;border:1px solid #e5e7eb;border-radius:12px;padding:4px;background:#fff;display:block;margin:10px 0}
+        .pl-lista-alternativas{margin:10px 0 0 22px;padding:0;font-size:13px;line-height:1.5}
+        .pl-lista-alternativas li{margin:4px 0}
+        .pl-lista-resolucao{margin-top:12px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:10px;color:#14532d}
+        .pl-lista-resolucao summary{cursor:pointer;font-weight:800;font-size:12px;text-transform:uppercase}
+        @media print{
+          body.print-material-lista > *:not(#printMaterialListaGerada){display:none!important}
+          #printMaterialListaGerada{display:block!important;background:white!important;color:#111827!important}
+          @page{size:A4;margin:12mm}
+        }
+      </style>
+      <div class="pl-lista-header">
+        <div class="pl-lista-brand">Avance Olímpico</div>
+        <h2>${esc(titulo)}</h2>
+        <p>${esc(subtitulo)}</p>
+      </div>
+      <div class="pl-lista-body">
+        ${qs.map((q,i)=>htmlQuestaoListaPlataforma(q,i,incluirGabarito)).join('')}
+      </div>
+    </div>`;
+  }
+
+  function garantirModalPublicarListaPlataforma(){
+    let modal = document.getElementById('modalPublicarListaPlataforma');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'modalPublicarListaPlataforma';
+    modal.className = 'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharModalPublicarListaPlataforma()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-4">
+          <div>
+            <h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-cloud-arrow-up text-emerald-300 mr-2"></i>Publicar lista na Plataforma</h3>
+            <p class="text-xs text-gray-400 mt-1">A lista gerada pelo banco será salva como material/postagem da Plataforma.</p>
+          </div>
+          <button type="button" onclick="fecharModalPublicarListaPlataforma()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-5">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Título da postagem</label>
+              <input id="pubListaTitulo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Lista de Divisibilidade — Nível 1">
+            </div>
+            <div>
+              <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Descrição / orientação para o aluno</label>
+              <textarea id="pubListaDescricao" rows="4" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Explique como o aluno deve resolver a lista..."></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Disciplina</label>
+                <select id="pubListaDisciplina" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none"></select>
+              </div>
+              <div>
+                <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Nível</label>
+                <select id="pubListaNivel" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none"></select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="flex items-start gap-2 rounded-xl border border-gray-700 bg-gray-950 p-3 text-xs text-gray-300">
+                <input id="pubListaIncluirGabarito" type="checkbox" class="accent-emerald-500 mt-1">
+                <span><b class="text-gray-100">Incluir gabarito/resolução</b><br><span class="text-gray-500">Bom para lista comentada. Desmarque para atividade dos alunos.</span></span>
+              </label>
+              <label class="flex items-start gap-2 rounded-xl border border-gray-700 bg-gray-950 p-3 text-xs text-gray-300">
+                <input id="pubListaAbrirDepois" type="checkbox" checked class="accent-blue-500 mt-1">
+                <span><b class="text-gray-100">Abrir após publicar</b><br><span class="text-gray-500">Mostra a postagem já dentro da Plataforma.</span></span>
+              </label>
+            </div>
+            <div id="pubListaResumo" class="rounded-xl border border-purple-900/50 bg-purple-950/20 p-3 text-xs text-purple-100"></div>
+            <div class="flex flex-col md:flex-row justify-end gap-2 pt-2">
+              <button type="button" onclick="fecharModalPublicarListaPlataforma()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button>
+              <button id="btnConfirmarPublicarListaPlataforma" type="button" onclick="publicarMiniListaNaPlataforma()" class="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar na plataforma</button>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="text-xs font-black uppercase text-gray-300">Prévia da postagem</h4>
+              <span id="pubListaQtdBadge" class="text-[10px] px-2 py-1 rounded-full bg-gray-950 border border-gray-700 text-gray-400">0 questão(ões)</span>
+            </div>
+            <div id="pubListaPreview" class="max-h-[620px] overflow-auto rounded-2xl border border-gray-700 bg-white p-2"></div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('input', e => {
+      if (String(e.target?.id || '').startsWith('pubLista')) atualizarPreviewPublicacaoListaPlataforma();
+    });
+    modal.addEventListener('change', e => {
+      if (String(e.target?.id || '').startsWith('pubLista')) atualizarPreviewPublicacaoListaPlataforma();
+    });
+    return modal;
+  }
+
+  function preencherSelect(id, valores, atual=''){
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const vals = uniq(valores);
+    sel.innerHTML = vals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    if (vals.includes(atual)) sel.value = atual;
+  }
+
+  window.fecharModalPublicarListaPlataforma = function fecharModalPublicarListaPlataforma(){
+    const modal = document.getElementById('modalPublicarListaPlataforma');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+  };
+
+  window.abrirModalPublicarListaPlataforma = async function abrirModalPublicarListaPlataforma(){
+    if (!usuarioLogado || !['ADM','Staff','Professor/Orientador','Monitor'].includes(String(usuarioLogado.nivel || ''))) {
+      return alert('Apenas ADM, Staff, Professor/Orientador ou Monitor podem publicar listas na Plataforma.');
+    }
+    let qs = questoesMiniListaPlataforma();
+    if (!qs.length) return alert('A mini-lista está vazia. Gere ou selecione questões antes de publicar.');
+    const modal = garantirModalPublicarListaPlataforma();
+
+    const disc = valorDominante(qs, 'disciplina', 'Geral');
+    const nivel = valorDominante(qs, 'nivel', 'Geral');
+    const tema = valorDominante(qs, 'tema', '');
+    const data = new Date().toLocaleDateString('pt-BR');
+    document.getElementById('pubListaTitulo').value = `Lista de exercícios — ${disc}${tema ? ' — ' + tema : ''}`;
+    document.getElementById('pubListaDescricao').value = `Lista gerada pelo banco de questões em ${data}.\n\nResolva com atenção e registre suas dúvidas no fórum do material.`;
+    preencherSelect('pubListaDisciplina', [disc, 'Geral', ...(typeof DISCIPLINAS_PLATAFORMA !== 'undefined' ? DISCIPLINAS_PLATAFORMA : []), ...qs.map(q=>q.disciplina)], disc);
+    preencherSelect('pubListaNivel', [nivel, 'Geral', ...(typeof NIVEIS_PLATAFORMA !== 'undefined' ? NIVEIS_PLATAFORMA : []), ...qs.map(q=>q.nivel)], nivel);
+    document.getElementById('pubListaIncluirGabarito').checked = false;
+    document.getElementById('pubListaAbrirDepois').checked = true;
+    atualizarPreviewPublicacaoListaPlataforma();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  };
+
+  window.atualizarPreviewPublicacaoListaPlataforma = function atualizarPreviewPublicacaoListaPlataforma(){
+    const qs = questoesMiniListaPlataforma();
+    const titulo = document.getElementById('pubListaTitulo')?.value || 'Lista de exercícios';
+    const incluirGabarito = !!document.getElementById('pubListaIncluirGabarito')?.checked;
+    const html = htmlListaPlataforma(qs, { titulo, subtitulo: `${qs.length} questão(ões) selecionada(s)`, incluirGabarito });
+    const prev = document.getElementById('pubListaPreview');
+    if (prev) prev.innerHTML = html;
+    const badge = document.getElementById('pubListaQtdBadge');
+    if (badge) badge.textContent = `${qs.length} questão(ões)`;
+    const resumo = document.getElementById('pubListaResumo');
+    if (resumo) {
+      resumo.innerHTML = `<b>${qs.length}</b> questão(ões) selecionada(s). Disciplina dominante: <b>${esc(valorDominante(qs,'disciplina','Geral'))}</b>. Nível dominante: <b>${esc(valorDominante(qs,'nivel','Geral'))}</b>.`;
+    }
+  };
+
+  async function salvarMaterialListaGerada(material) {
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+    const colName = typeof getMateriaisCollectionName === 'function' ? getMateriaisCollectionName() : (typeof getFirebaseCollectionName === 'function' ? getFirebaseCollectionName('app_plataforma') : `anos/${anoAtual()}/sistema_plataforma`);
+    await firebaseFirestore.collection(colName).doc(String(material.id)).set(material);
+    const atuais = getStorage('app_plataforma', []) || [];
+    const sem = atuais.filter(m => String(m.id) !== String(material.id));
+    if (typeof setStorageLocal === 'function') setStorageLocal('app_plataforma', [material, ...sem]);
+  }
+
+  window.publicarMiniListaNaPlataforma = async function publicarMiniListaNaPlataforma(){
+    const qs = questoesMiniListaPlataforma();
+    if (!qs.length) return alert('A mini-lista está vazia.');
+    const titulo = String(document.getElementById('pubListaTitulo')?.value || '').trim();
+    const descricao = String(document.getElementById('pubListaDescricao')?.value || '').trim();
+    const disciplina = document.getElementById('pubListaDisciplina')?.value || valorDominante(qs, 'disciplina', 'Geral');
+    const nivel = document.getElementById('pubListaNivel')?.value || valorDominante(qs, 'nivel', 'Geral');
+    const incluirGabarito = !!document.getElementById('pubListaIncluirGabarito')?.checked;
+    const btn = document.getElementById('btnConfirmarPublicarListaPlataforma');
+
+    if (!titulo) return alert('Informe um título para a postagem.');
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Publicando...'; }
+      const html = htmlListaPlataforma(qs, { titulo, subtitulo: `${qs.length} questão(ões)`, incluirGabarito });
+      const material = {
+        id: typeof novoId === 'function' ? novoId() : `${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+        titulo,
+        descricao,
+        disciplina,
+        area: disciplina,
+        nivel,
+        tipoMaterial: 'Lista de exercícios',
+        tipo: 'lista_gerada',
+        listaGerada: true,
+        listaHtml: html,
+        quantidadeQuestoes: qs.length,
+        questoesIds: qs.map(q => String(q.id)),
+        questoesCodigos: qs.map(q => q.codigo).filter(Boolean),
+        questoesResumo: qs.map(q => ({
+          id: q.id || '',
+          codigo: q.codigo || '',
+          titulo: q.titulo || '',
+          disciplina: q.disciplina || '',
+          nivel: q.nivel || '',
+          area: q.area || '',
+          tema: q.tema || '',
+          subtema: q.subtema || '',
+          dificuldade: q.dificuldade || ''
+        })),
+        incluiGabarito: incluirGabarito,
+        url: '',
+        arquivoUrl: '',
+        hospedagem: 'html_interno',
+        criadoPor: usuarioLogado?.nome || 'Sistema',
+        criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || '',
+        criadoPorNivel: usuarioLogado?.nivel || '',
+        criadoEm: Date.now(),
+        atualizadoEm: Date.now(),
+        interacoes: [],
+        avaliacoes: [],
+        concluidos: []
+      };
+
+      await salvarMaterialListaGerada(material);
+      fecharModalPublicarListaPlataforma();
+      try { document.getElementById('modalMiniListaAleatoria')?.classList.add('hidden'); document.getElementById('modalMiniListaAleatoria')?.classList.remove('flex'); } catch(_) {}
+      try { document.getElementById('modalMiniListaQuestoesAvancada')?.classList.add('hidden'); document.getElementById('modalMiniListaQuestoesAvancada')?.classList.remove('flex'); } catch(_) {}
+      if (typeof renderizarPlataformaEnsino === 'function') await renderizarPlataformaEnsino();
+      alert('Lista publicada na Plataforma com sucesso.');
+      if (document.getElementById('pubListaAbrirDepois')?.checked && typeof abrirAtividadePlataforma === 'function') {
+        setTimeout(() => abrirAtividadePlataforma(material.id), 250);
+      }
+      window.__geradorListaPlataformaAtivo = false;
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao publicar lista na Plataforma.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Publicar na plataforma'; }
+    }
+  };
+
+  // Botão extra no modal de mini-lista, útil quando a pessoa vê a lista antes de publicar.
+  function inserirBotaoPostarNoModalMiniLista() {
+    const modal = document.getElementById('modalMiniListaQuestoesAvancada');
+    if (!modal || document.getElementById('btnPostarMiniListaNaPlataforma')) return;
+    const alvo = modal.querySelector('.flex.gap-2') || modal.querySelector('.flex.flex-wrap.gap-2');
+    if (!alvo) return;
+    const btn = document.createElement('button');
+    btn.id = 'btnPostarMiniListaNaPlataforma';
+    btn.type = 'button';
+    btn.onclick = () => abrirModalPublicarListaPlataforma();
+    btn.className = 'flex-1 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black uppercase';
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Postar na plataforma';
+    alvo.insertBefore(btn, alvo.firstChild);
+  }
+
+  // Painel da Plataforma com botão direto de postagem.
+  function reforcarPainelGeradorPlataformaPublicacao() {
+    const painel = document.getElementById('painelGeradorListasPlataforma');
+    if (!painel || document.getElementById('btnPlataformaPublicarMiniListaAtual')) return;
+    const area = painel.querySelector('.flex.flex-wrap.gap-2');
+    if (!area) return;
+    const btn = document.createElement('button');
+    btn.id = 'btnPlataformaPublicarMiniListaAtual';
+    btn.type = 'button';
+    btn.onclick = () => abrirModalPublicarListaPlataforma();
+    btn.className = 'px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black uppercase';
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Postar lista atual';
+    area.appendChild(btn);
+
+    const resumo = document.getElementById('plataformaResumoGeradorListas');
+    if (resumo) resumo.innerHTML = 'Monte uma lista e, ao final, publique como material da Plataforma para os alunos acessarem.';
+  }
+
+  // Ao abrir o gerador pela Plataforma, ativa o fluxo de publicação.
+  const abrirGeradorBase = window.abrirGeradorListasBancoPlataforma;
+  window.abrirGeradorListasBancoPlataforma = async function abrirGeradorListasBancoPlataformaPublicavel(){
+    window.__geradorListaPlataformaAtivo = true;
+    const r = abrirGeradorBase ? await abrirGeradorBase.apply(this, arguments) : null;
+    setTimeout(() => {
+      const resumo = document.getElementById('bqRandResumo');
+      if (resumo) resumo.innerHTML = '<span class="text-purple-200 font-bold">Fluxo da Plataforma:</span> ao gerar a lista, abriremos a etapa de publicação do material.';
+    }, 250);
+    return r;
+  };
+
+  // Ao finalizar a geração aleatória pelo fluxo da Plataforma, abre publicação.
+  const gerarMiniBase = window.gerarMiniListaAleatoriaQuestoes;
+  if (gerarMiniBase) {
+    window.gerarMiniListaAleatoriaQuestoes = async function gerarMiniListaAleatoriaQuestoesPublicavel(){
+      const r = await Promise.resolve(gerarMiniBase.apply(this, arguments));
+      if (window.__geradorListaPlataformaAtivo) {
+        setTimeout(() => abrirModalPublicarListaPlataforma(), 250);
+      }
+      return r;
+    };
+    try { gerarMiniListaAleatoriaQuestoes = window.gerarMiniListaAleatoriaQuestoes; } catch(_) {}
+  }
+
+  // Se abrir a prévia/PDF pela Plataforma, também injeta botão de postagem.
+  const abrirMiniBase = window.abrirMiniListaQuestoes;
+  if (abrirMiniBase) {
+    window.abrirMiniListaQuestoes = async function abrirMiniListaQuestoesComPostagem(){
+      const r = await Promise.resolve(abrirMiniBase.apply(this, arguments));
+      setTimeout(inserirBotaoPostarNoModalMiniLista, 200);
+      return r;
+    };
+  }
+
+  // Exibição interna do material "lista_gerada".
+  const renderMidiaBase = typeof renderizarMidiaInternaMaterial === 'function' ? renderizarMidiaInternaMaterial : null;
+  if (renderMidiaBase) {
+    renderizarMidiaInternaMaterial = function renderizarMidiaInternaMaterialListaGerada(m){
+      if (m?.listaGerada || m?.tipo === 'lista_gerada') {
+        return `<div class="space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-purple-900/50 bg-purple-950/20 p-3">
+            <div class="text-xs text-purple-100"><i class="fa-solid fa-list-check mr-2"></i>Lista gerada pelo Banco de Questões · ${esc(m.quantidadeQuestoes || 0)} questão(ões)</div>
+            <button type="button" onclick="imprimirMaterialListaGerada('${esc(m.id)}')" class="px-3 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-print mr-2"></i>Imprimir / PDF</button>
+          </div>
+          <div class="rounded-2xl bg-white p-2 overflow-auto max-h-[76vh]">${m.listaHtml || htmlListaPlataforma([], {titulo:m.titulo || 'Lista'})}</div>
+        </div>`;
+      }
+      return renderMidiaBase.apply(this, arguments);
+    };
+    window.renderizarMidiaInternaMaterial = renderizarMidiaInternaMaterial;
+  }
+
+  window.imprimirMaterialListaGerada = function imprimirMaterialListaGerada(materialId){
+    const material = (getStorage('app_plataforma', []) || []).find(m => String(m.id) === String(materialId));
+    if (!material) return alert('Lista não encontrada na memória local. Recarregue a Plataforma.');
+    let box = document.getElementById('printMaterialListaGerada');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'printMaterialListaGerada';
+      box.style.display = 'none';
+      document.body.appendChild(box);
+    }
+    box.innerHTML = material.listaHtml || '';
+    document.body.classList.add('print-material-lista');
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => document.body.classList.remove('print-material-lista'), 500);
+    }, 80);
+  };
+
+  // Mantém painel e botões após renderizações da Plataforma.
+  const renderPlatBase = typeof renderizarPlataformaEnsino === 'function' ? renderizarPlataformaEnsino : null;
+  if (renderPlatBase) {
+    renderizarPlataformaEnsino = async function renderizarPlataformaEnsinoPublicaLista(){
+      const r = await renderPlatBase.apply(this, arguments);
+      setTimeout(reforcarPainelGeradorPlataformaPublicacao, 120);
+      return r;
+    };
+    window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(reforcarPainelGeradorPlataformaPublicacao, 1200);
+    setTimeout(() => {
+      if (!document.getElementById('view-plataforma')?.classList.contains('hidden')) reforcarPainelGeradorPlataformaPublicacao();
+    }, 2500);
+  });
+
+  window.diagnosticarPublicacaoListaPlataforma = function diagnosticarPublicacaoListaPlataforma(){
+    return {
+      fluxoPlataformaAtivo: !!window.__geradorListaPlataformaAtivo,
+      idsMiniLista: idsMiniListaPlataforma(),
+      quantidadeQuestoes: questoesMiniListaPlataforma().length,
+      painelExiste: !!document.getElementById('painelGeradorListasPlataforma'),
+      botaoPostarExiste: !!document.getElementById('btnPlataformaPublicarMiniListaAtual'),
+      colecaoMateriais: typeof getMateriaisCollectionName === 'function' ? getMateriaisCollectionName() : null
+    };
+  };
+
+  console.log(TAG, 'ativo. Use diagnosticarPublicacaoListaPlataforma() no console.');
+})();
