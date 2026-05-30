@@ -20701,3 +20701,235 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   }
   document.addEventListener('DOMContentLoaded', () => setTimeout(rebuildLayoutEditorEx, 500));
 })();
+
+
+// ============================================================
+// PATCH — Estabilidade final: Layouts visíveis, Problemas unificados e Dashboard útil
+// ============================================================
+(function patchEstabilidadeDashboardProblemasLayouts(){
+  const TAG = '[dashboard-problemas-layouts-final]';
+  const ANO = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>'"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
+  const norm = (v) => typeof normalizarTexto === 'function' ? normalizarTexto(v) : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr||[]).map(v => String(v||'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base',numeric:true}));
+
+  function arr(chave){ try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; } }
+  function setLocal(chave, dados){ try { if (typeof setStorageLocal === 'function') setStorageLocal(chave, dados); } catch(_) {} }
+  async function ler(path){
+    try { if (typeof initFirebase === 'function') initFirebase(); if (!firebaseFirestore) return []; const snap = await firebaseFirestore.collection(path).get(); const out=[]; snap.forEach(d => out.push({id:d.id, ...(d.data()||{})})); return out; }
+    catch(e){ console.warn(TAG, 'falha ao ler', path, e?.message || e); return []; }
+  }
+  async function carregar(chave, force=false){
+    const atual = arr(chave); if (!force && atual.length) return atual;
+    const base = String(chave).replace(/^app_/,'sistema_');
+    const paths = chave === 'app_usuarios' ? [base] : [`anos/${ANO()}/${base}`, base];
+    for (const p of paths) { const dados = await ler(p); if (dados.length) { setLocal(chave,dados); return dados; } }
+    return atual;
+  }
+  function value(id){ return document.getElementById(id)?.value || 'TODOS'; }
+  function premioTipo(p){
+    const n = norm(p);
+    if (n.includes('ouro')) return 'Ouro';
+    if (n.includes('prata')) return 'Prata';
+    if (n.includes('bronze')) return 'Bronze';
+    if (n.includes('honra') || n.includes('men')) return 'Honra/Menção';
+    return p ? 'Outros' : 'Não informado';
+  }
+  function contaPor(lista, getter, limite=10){
+    const m = new Map();
+    lista.forEach(x => { const k = String(getter(x)||'Não informado').trim() || 'Não informado'; m.set(k,(m.get(k)||0)+1); });
+    return Array.from(m.entries()).map(([nome,valor])=>({nome,valor})).sort((a,b)=>b.valor-a.valor || a.nome.localeCompare(b.nome,'pt-BR')).slice(0,limite);
+  }
+  function byNorm(a,b){ return norm(a) === norm(b); }
+  function resultadoEscopo(r){ try { return typeof resultadoDentroDoEscopoUsuario === 'function' ? resultadoDentroDoEscopoUsuario(r) : true; } catch(_) { return true; } }
+  function dadosDashboardFiltrados(){
+    const m = value('filterMunicipio'), e = value('filterEscola'), o = value('filterOlimpiada');
+    return arr('app_premiados').filter(r => {
+      if (!resultadoEscopo(r)) return false;
+      if (m !== 'TODOS' && !byNorm(r.municipio, m)) return false;
+      if (e !== 'TODOS' && !byNorm(r.escola, e)) return false;
+      if (o !== 'TODOS' && !byNorm(r.olimpiada, o)) return false;
+      return true;
+    });
+  }
+  function setOptionsPreserve(id, vals, label){
+    const el = document.getElementById(id); if (!el) return;
+    const old = el.value || 'TODOS';
+    const options = `<option value="TODOS">${esc(label)}</option>` + uniq(vals).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    el.innerHTML = options;
+    if (Array.from(el.options).some(o=>o.value===old)) el.value = old;
+  }
+  function popularFiltrosDashFinal(){
+    const dados = arr('app_premiados').filter(resultadoEscopo);
+    const mAtual = value('filterMunicipio');
+    setOptionsPreserve('filterMunicipio', dados.map(r=>r.municipio), '-- Todos os Municípios --');
+    const baseM = mAtual === 'TODOS' ? dados : dados.filter(r=>byNorm(r.municipio,mAtual));
+    setOptionsPreserve('filterEscola', baseM.map(r=>r.escola), '-- Todas as Escolas --');
+    const eAtual = value('filterEscola');
+    const baseE = eAtual === 'TODOS' ? baseM : baseM.filter(r=>byNorm(r.escola,eAtual));
+    setOptionsPreserve('filterOlimpiada', baseE.map(r=>r.olimpiada), '-- Todas as Olimpíadas --');
+  }
+  function ensureDashExtras(){
+    const cards = document.getElementById('cardTotalMedalhas')?.closest('.grid');
+    if (cards && !document.getElementById('dashResumoExecutivoFinal')) {
+      cards.insertAdjacentHTML('afterend', `<div id="dashResumoExecutivoFinal" class="grid grid-cols-1 xl:grid-cols-3 gap-4"></div>`);
+    }
+  }
+  function renderDashExtras(dados){
+    ensureDashExtras();
+    const el = document.getElementById('dashResumoExecutivoFinal'); if (!el) return;
+    const topEscolas = contaPor(dados, x=>x.escola, 5);
+    const topOlimp = contaPor(dados, x=>x.olimpiada, 5);
+    const porPremio = contaPor(dados, x=>premioTipo(x.premio), 6);
+    const alunosUnicos = new Set(dados.map(r=>norm(r.aluno || r.alunoCpf || '')).filter(Boolean)).size;
+    const ouro = dados.filter(r=>premioTipo(r.premio)==='Ouro').length;
+    const taxaOuro = dados.length ? Math.round((ouro/dados.length)*100) : 0;
+    const cardLista = (titulo, linhas, icone, cor='blue') => `<div class="rounded-2xl border border-gray-700 bg-gray-800 p-5"><h4 class="text-xs font-black uppercase tracking-wider text-${cor}-300"><i class="fa-solid ${icone} mr-2"></i>${esc(titulo)}</h4><div class="mt-3 space-y-2">${linhas.length ? linhas.map((l,i)=>`<div class="flex items-center justify-between gap-3 text-xs"><span class="text-gray-300 truncate"><b class="text-gray-500 mr-2">${i+1}º</b>${esc(l.nome)}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-white font-black">${l.valor}</span></div>`).join('') : '<p class="text-xs text-gray-500">Sem dados no filtro atual.</p>'}</div></div>`;
+    el.innerHTML = `
+      <div class="rounded-2xl border border-purple-900/50 bg-purple-950/20 p-5"><h4 class="text-xs font-black uppercase tracking-wider text-purple-200"><i class="fa-solid fa-bolt mr-2"></i>Leitura rápida</h4><div class="mt-3 grid grid-cols-2 gap-3 text-xs"><div class="bg-gray-950/60 rounded-xl p-3"><p class="text-gray-500 uppercase font-bold">Alunos únicos</p><p class="text-2xl font-black text-white">${alunosUnicos}</p></div><div class="bg-gray-950/60 rounded-xl p-3"><p class="text-gray-500 uppercase font-bold">Taxa de ouro</p><p class="text-2xl font-black text-amber-300">${taxaOuro}%</p></div></div><p class="text-xs text-gray-400 mt-3 leading-relaxed">Este painel considera exatamente os filtros ativos de município, escola e olimpíada.</p></div>
+      ${cardLista('Top escolas no filtro', topEscolas, 'fa-school', 'emerald')}
+      ${cardLista('Top olimpíadas no filtro', topOlimp, 'fa-trophy', 'amber')}
+      ${cardLista('Distribuição detalhada', porPremio, 'fa-medal', 'blue')}`;
+  }
+
+  async function renderDashboardFinal(){
+    await Promise.all([carregar('app_premiados'), carregar('app_cidades'), carregar('app_escolas'), carregar('app_olimpiadas')]);
+    dadosTrabalho = arr('app_premiados');
+    popularFiltrosDashFinal();
+    const dados = dadosDashboardFiltrados();
+    const escolasFiltro = new Set(dados.map(r=>norm(r.escola)).filter(Boolean)).size;
+    const cidadesFiltro = new Set(dados.map(r=>norm(r.municipio)).filter(Boolean)).size;
+    const ouro = dados.filter(r=>premioTipo(r.premio)==='Ouro').length;
+    const setText = (id,v)=>{ const el=document.getElementById(id); if(el) el.innerText = v; };
+    setText('cardTotalMedalhas', dados.length);
+    setText('cardTotalOuro', ouro);
+    setText('cardTotalEscolas', escolasFiltro || (value('filterEscola') !== 'TODOS' ? 1 : 0));
+    setText('cardTotalCidades', cidadesFiltro || (value('filterMunicipio') !== 'TODOS' ? 1 : 0));
+    const tbody = document.getElementById('tablePremiadosCorpo');
+    if (tbody) {
+      const list = dados.slice(0, 80);
+      tbody.innerHTML = list.length ? list.map(d=>`<tr class="hover:bg-gray-800/60 transition"><td class="p-4 font-semibold text-white"><i class="fa-solid fa-user text-blue-400 mr-2"></i>${esc(d.aluno)}</td><td class="p-4 text-gray-300">${esc(d.escola)}</td><td class="p-4 text-blue-400 font-semibold text-xs">${esc(d.municipio)}</td><td class="p-4 text-gray-300 text-xs font-semibold">${esc(d.serie || 'Não informada')}</td><td class="p-4 text-gray-400 text-xs">${esc(d.olimpiada)}</td><td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${esc(d.premio)}</span></td></tr>`).join('') : `<tr><td colspan="6" class="p-8 text-center text-gray-500">Nenhum resultado encontrado para os filtros atuais.</td></tr>`;
+    }
+    renderDashExtras(dados);
+    try { if (typeof atualizarGraficoPremios === 'function') atualizarGraficoPremios(dados); } catch(e){ console.warn(TAG, e); }
+  }
+  window.renderizarPlataformaDashboard = renderDashboardFinal;
+  try { renderizarPlataformaDashboard = renderDashboardFinal; } catch(_) {}
+  ['filterMunicipio','filterEscola','filterOlimpiada'].forEach(id => document.addEventListener('change', e => {
+    if (e.target?.id === id) { if (id === 'filterMunicipio') { const s=document.getElementById('filterEscola'); const o=document.getElementById('filterOlimpiada'); if(s)s.value='TODOS'; if(o)o.value='TODOS'; } if (id==='filterEscola') { const o=document.getElementById('filterOlimpiada'); if(o)o.value='TODOS'; } renderDashboardFinal(); }
+  }));
+
+  function montarRelatorioDashboardFinal(){
+    const dados = dadosDashboardFiltrados();
+    const topEscolas = contaPor(dados, x=>x.escola, 10);
+    const topCidades = contaPor(dados, x=>x.municipio, 10);
+    const topOlimp = contaPor(dados, x=>x.olimpiada, 10);
+    const porPremio = contaPor(dados, x=>premioTipo(x.premio), 10);
+    const alunosUnicos = new Set(dados.map(r=>norm(r.aluno || r.alunoCpf || '')).filter(Boolean)).size;
+    const ouro = dados.filter(r=>premioTipo(r.premio)==='Ouro').length;
+    const cidadeTop = topCidades[0]?.nome || 'sem cidade dominante';
+    const escolaTop = topEscolas[0]?.nome || 'sem escola dominante';
+    const olimpTop = topOlimp[0]?.nome || 'sem olimpíada dominante';
+    const escopo = [value('filterMunicipio') !== 'TODOS' ? value('filterMunicipio') : 'todos os municípios', value('filterEscola') !== 'TODOS' ? value('filterEscola') : 'todas as escolas', value('filterOlimpiada') !== 'TODOS' ? value('filterOlimpiada') : 'todas as olimpíadas'].join(' · ');
+    return {
+      titulo:'Panorama rápido do cenário olímpico', subtitulo:`Leitura gerencial baseada nos filtros ativos: ${escopo}`, tom: value('relTomCriativo') || 'gestão', periodo: ANO(), escopo, responsavel: document.getElementById('relResponsavelCriativo')?.value || usuarioLogado?.nome || 'Coordenação Olímpica', criadoEm:new Date().toLocaleString('pt-BR'),
+      cards:[{nome:'Resultados filtrados',valor:dados.length},{nome:'Alunos únicos',valor:alunosUnicos},{nome:'Ouros',valor:ouro},{nome:'Escolas com resultado',valor:topEscolas.length},{nome:'Olimpíadas com resultado',valor:topOlimp.length}],
+      insights:[
+        dados.length ? `O filtro atual reúne ${dados.length} resultado(s), envolvendo ${alunosUnicos} aluno(s) único(s).` : 'Não há resultados no filtro atual; isso pode indicar ausência de cadastro ou filtro restritivo demais.',
+        `A escola com maior presença no recorte é ${escolaTop}.`,
+        `A olimpíada com maior volume no recorte é ${olimpTop}.`,
+        `A cidade de maior destaque no recorte é ${cidadeTop}.`,
+        ouro ? `Foram identificados ${ouro} resultado(s) de ouro; vale usar esses alunos como vitrine e referência interna.` : 'Nenhum ouro aparece neste recorte; vale investigar se há potencial de evolução ou cadastro incompleto.'
+      ],
+      tabelas:[
+        {titulo:'Ranking de escolas por resultados', linhas: topEscolas.map(x=>({Escola:x.nome, Resultados:x.valor}))},
+        {titulo:'Ranking de olimpíadas por resultados', linhas: topOlimp.map(x=>({Olimpíada:x.nome, Resultados:x.valor}))},
+        {titulo:'Resultados por município', linhas: topCidades.map(x=>({Município:x.nome, Resultados:x.valor}))},
+        {titulo:'Distribuição por premiação', linhas: porPremio.map(x=>({Premiação:x.nome, Quantidade:x.valor}))},
+        {titulo:'Amostra de resultados do recorte', linhas: dados.slice(0,30).map(r=>({Aluno:r.aluno||'—', Escola:r.escola||'—', Município:r.municipio||'—', Olimpíada:r.olimpiada||'—', Resultado:r.premio||'—'}))}
+      ]
+    };
+  }
+  window.gerarRelatorioCriativo = async function gerarRelatorioCriativoFinal(){
+    const btn = document.getElementById('btnGerarRelatorioCriativo');
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Gerando...'; }
+      await renderDashboardFinal();
+      relatorioCriativoAtual = montarRelatorioDashboardFinal();
+      if (typeof renderizarPreviewRelatorioCriativo === 'function') renderizarPreviewRelatorioCriativo(relatorioCriativoAtual);
+      document.getElementById('relPreviewCriativo')?.scrollIntoView({behavior:'smooth', block:'start'});
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar peça'; }
+    }
+  };
+  try { gerarRelatorioCriativo = window.gerarRelatorioCriativo; } catch(_) {}
+
+  // CENTRAL ÚNICA DE PROBLEMAS: remove botões duplicados e mantém só um.
+  function headerArea(){ return document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header div:last-child') || document.querySelector('header'); }
+  function limparBotoesProblemaDuplicados(){
+    document.querySelectorAll('button[id^="btnProblemas"]').forEach(btn => { if (btn.id !== 'btnProblemasMasterFinal') btn.remove(); });
+    const header = headerArea(); if (!header) return;
+    Array.from(header.querySelectorAll('button')).forEach(btn => {
+      const txt = norm(btn.textContent || '');
+      if (btn.id !== 'btnProblemasMasterFinal' && (txt.includes('problemas') || txt === 'calendario' || txt.includes('calendario'))) btn.remove();
+    });
+  }
+  function garantirBotaoProblemasUnico(){
+    const header = headerArea(); if (!header) return;
+    limparBotoesProblemaDuplicados();
+    let btn = document.getElementById('btnProblemasMasterFinal');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'btnProblemasMasterFinal';
+      btn.type = 'button';
+      btn.className = 'relative px-3 py-2 rounded-xl bg-red-950/30 border border-red-900/50 text-red-200 text-xs font-black uppercase hover:bg-red-900/40';
+      btn.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasMasterFinal" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+      btn.onclick = () => { if (typeof abrirCentralProblemasUnificada === 'function') abrirCentralProblemasUnificada(true); else alert('Central de problemas ainda não carregada.'); };
+      header.prepend(btn);
+    }
+    try { if (typeof atualizarBadgeProblemasUnificado === 'function') atualizarBadgeProblemasUnificado(); } catch(_) {}
+  }
+
+  // ESTABILIZA O PAINEL DE LAYOUTS: não deixa sumir por patches antigos.
+  function estabilizarPainelLayouts(){
+    const view = document.getElementById('view-questoes');
+    if (view?.classList.contains('hidden')) return;
+    const painel = document.getElementById('painelLayoutsMiniListaQuestoes');
+    if (!painel) { try { if (typeof prepararPreviewLiveLayout === 'function') prepararPreviewLiveLayout(); } catch(_) {} return; }
+    painel.classList.remove('hidden');
+    painel.style.display = '';
+    painel.style.visibility = 'visible';
+    const btn = painel.querySelector('#btnToggleLayoutListasV3, button');
+    const content = painel.querySelector('#layoutListasV3Conteudo, .layout-conteudo-retratil, .conteudo-retratil-fix');
+    if (btn && content && !btn.dataset.stableToggle) {
+      btn.dataset.stableToggle = 'true';
+      btn.addEventListener('click', () => setTimeout(() => { painel.classList.remove('hidden'); painel.style.display=''; }, 20));
+    }
+  }
+  const prepOld = window.prepararPreviewLiveLayout;
+  window.prepararPreviewLiveLayout = function prepararPreviewLiveLayoutEstavel(){
+    const r = typeof prepOld === 'function' ? prepOld.apply(this, arguments) : undefined;
+    setTimeout(estabilizarPainelLayouts, 60);
+    return r;
+  };
+
+  const navOld = window.navegarAba || null;
+  if (navOld && !window.__navDashboardProblemasLayoutFinal) {
+    window.__navDashboardProblemasLayoutFinal = true;
+    const nav = function(aba, btn){
+      const r = navOld.apply(this, arguments);
+      setTimeout(() => {
+        garantirBotaoProblemasUnico();
+        if (aba === 'dashboard') renderDashboardFinal();
+        if (aba === 'questoes') estabilizarPainelLayouts();
+      }, 250);
+      return r;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => { garantirBotaoProblemasUnico(); if (!document.getElementById('view-dashboard')?.classList.contains('hidden')) renderDashboardFinal(); }, 800);
+    setInterval(() => { garantirBotaoProblemasUnico(); estabilizarPainelLayouts(); }, 1500);
+  });
+})();
