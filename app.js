@@ -17746,3 +17746,175 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   document.addEventListener("DOMContentLoaded", () => setTimeout(() => { inserirPainelGeradorListasPlataforma(); garantirEstiloTimbradoAvancePlus(); }, 1500));
   console.log(TAG, "patch carregado");
 })();
+
+
+// ============================================================
+// PATCH — Firestore: carregamento robusto sem semeadura indevida
+// Corrige falsos erros "Missing or insufficient permissions" durante LEITURA.
+// Causa comum: aluno/usuário sem permissão de escrita abria uma aba vazia e
+// carregarChaveFirebase tentava semear/gravar dados iniciais ao carregar.
+// Agora leitura não tenta escrever; apenas perfis administrativos podem semear.
+// Também aguarda o Firebase Auth antes de ler e tenta fallback raiz/ano.
+// ============================================================
+(function patchFirestoreCarregamentoRobusto(){
+  const TAG = "[Firestore robusto]";
+  const alertasExibidos = new Set();
+  const chavesPublicasInternas = new Set([
+    "app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma",
+    "app_premiados", "app_plataforma", "app_simulados", "app_aulas", "app_questoes",
+    "app_listas_suspensas", "app_usuarios", "app_simulados_envios"
+  ]);
+
+  function perfilPodeSemearFirestore() {
+    const nivel = usuarioLogado?.nivel || "";
+    return ["ADM", "Staff"].includes(nivel);
+  }
+
+  function baseColecao(chave) {
+    try {
+      if (typeof getFirebaseCollectionBaseName === "function") return getFirebaseCollectionBaseName(chave);
+    } catch (_) {}
+    return String(chave || "").replace(/^app_/, "sistema_");
+  }
+
+  function colecoesPossiveis(chave) {
+    const lista = [];
+    try {
+      if (typeof getFirebaseCollectionName === "function") lista.push(getFirebaseCollectionName(chave));
+    } catch (_) {}
+    const base = baseColecao(chave);
+    const ano = typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026";
+    if (chave === "app_usuarios") lista.push("sistema_usuarios", "usuarios");
+    else {
+      lista.push(`anos/${ano}/${base}`);
+      lista.push(base); // compatibilidade com coleções antigas na raiz
+    }
+    return Array.from(new Set(lista.filter(Boolean)));
+  }
+
+  function dadosFallback(chave, fallback = []) {
+    if (Array.isArray(fallback) && fallback.length) return fallback;
+    try { if (typeof dadosSementePorChave === "function") return dadosSementePorChave(chave) || []; } catch (_) {}
+    return [];
+  }
+
+  function erroPermissao(erro) {
+    const s = String(erro?.code || erro?.message || erro || "").toLowerCase();
+    return s.includes("permission") || s.includes("insufficient") || s.includes("denied");
+  }
+
+  async function aguardarAuthPronto(timeoutMs = 4500) {
+    try { if (typeof initFirebase === "function") initFirebase(); } catch (_) {}
+    if (!firebaseAuth) return false;
+    if (firebaseAuth.currentUser) return true;
+    return await new Promise(resolve => {
+      let finalizado = false;
+      let unsub = null;
+      const done = (ok) => {
+        if (finalizado) return;
+        finalizado = true;
+        try { if (unsub) unsub(); } catch (_) {}
+        resolve(!!ok);
+      };
+      try {
+        unsub = firebaseAuth.onAuthStateChanged(user => done(!!user));
+      } catch (_) {
+        done(false);
+      }
+      setTimeout(() => done(!!firebaseAuth.currentUser), timeoutMs);
+    });
+  }
+
+  async function lerColecao(nomeColecao) {
+    const snap = await firebaseFirestore.collection(nomeColecao).get();
+    const lista = [];
+    snap.forEach(doc => {
+      const data = doc.data() || {};
+      lista.push({ id: data.id || doc.id, ...data });
+    });
+    return lista;
+  }
+
+  async function semearSomenteSeSeguro(chave, nomeColecao, seed) {
+    if (!Array.isArray(seed) || !seed.length) return [];
+    if (!perfilPodeSemearFirestore()) {
+      console.info(TAG, `Coleção ${chave} vazia. Não vou semear/gravar porque o perfil atual não é ADM/Staff.`);
+      return seed;
+    }
+    try {
+      if (typeof substituirColecaoFirestore === "function") {
+        return await substituirColecaoFirestore(nomeColecao, seed);
+      }
+    } catch (erro) {
+      console.warn(TAG, `Semeadura bloqueada para ${chave}. Vou usar apenas cache local.`, erro);
+    }
+    return seed;
+  }
+
+  window.carregarChaveFirebase = async function carregarChaveFirebaseRobusto(chave, fallback = []) {
+    try { if (typeof initFirebase === "function") initFirebase(); } catch (_) {}
+    const seed = dadosFallback(chave, fallback);
+
+    if (!firebaseFirestore) {
+      if (typeof setStorageLocal === "function") setStorageLocal(chave, seed);
+      return seed;
+    }
+
+    // Garante que leituras protegidas não disparem antes do Auth estar pronto.
+    if (chavesPublicasInternas.has(chave)) await aguardarAuthPronto();
+
+    const tentativas = colecoesPossiveis(chave);
+    const erros = [];
+
+    for (const colecao of tentativas) {
+      try {
+        const lista = await lerColecao(colecao);
+        if (lista.length) {
+          if (typeof setStorageLocal === "function") setStorageLocal(chave, lista);
+          console.info(TAG, `${chave} carregado de ${colecao}: ${lista.length} registro(s).`);
+          return lista;
+        }
+        // Se a coleção anual está vazia, continua tentando fallback raiz antes de semear.
+        erros.push({ colecao, vazio: true });
+      } catch (erro) {
+        erros.push({ colecao, erro });
+        console.warn(TAG, `Falha ao ler ${chave} em ${colecao}`, erro);
+        // tenta próxima rota, inclusive raiz legada
+      }
+    }
+
+    const colecaoPrincipal = tentativas[0] || baseColecao(chave);
+    const dados = await semearSomenteSeSeguro(chave, colecaoPrincipal, seed);
+    if (typeof setStorageLocal === "function") setStorageLocal(chave, Array.isArray(dados) ? dados : []);
+
+    // Só mostra alerta uma vez por chave se todas as tentativas falharam por permissão e não havia fallback.
+    const todasFalharam = erros.length && erros.every(e => e.erro);
+    const permissao = erros.some(e => erroPermissao(e.erro));
+    if (todasFalharam && permissao && !seed.length && !alertasExibidos.has(chave)) {
+      alertasExibidos.add(chave);
+      console.error(TAG, `Permissão negada ao carregar ${chave}. Tentativas:`, erros);
+      if (typeof avisoPlataforma === "function") {
+        avisoPlataforma(
+          `Não consegui carregar ${chave} no Firestore.\n\nIsso normalmente indica uma destas situações:\n1) As Rules publicadas ainda não são as novas;\n2) O usuário não está autenticado no Firebase Auth no momento da leitura;\n3) A coleção está em outro caminho.\n\nA plataforma continuará sem travar, mas essa lista pode aparecer vazia até corrigir o acesso.`,
+          "Aviso de carregamento",
+          "info"
+        );
+      }
+    }
+    return Array.isArray(dados) ? dados : [];
+  };
+
+  // Plataforma/materiais passa a usar o mesmo carregador robusto.
+  if (typeof carregarMateriaisPlataforma === "function") {
+    window.carregarMateriaisPlataforma = async function carregarMateriaisPlataformaRobusto() {
+      const materiais = await window.carregarChaveFirebase("app_plataforma", []);
+      const lista = Array.isArray(materiais) ? materiais : [];
+      lista.sort((a, b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
+      if (typeof setStorageLocal === "function") setStorageLocal("app_plataforma", lista);
+      return lista;
+    };
+    try { carregarMateriaisPlataforma = window.carregarMateriaisPlataforma; } catch (_) {}
+  }
+
+  console.info(TAG, "patch ativo");
+})();
