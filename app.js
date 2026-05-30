@@ -20933,3 +20933,455 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     setInterval(() => { garantirBotaoProblemasUnico(); estabilizarPainelLayouts(); }, 1500);
   });
 })();
+
+
+// ============================================================
+// REVISÃO TOTAL — Módulo Layouts de Impressão das Listas
+// Resolve conflito de patches antigos, prévia A4 real, marca d'água e imagens livres.
+// ============================================================
+(function revisaoTotalLayoutsBancoQuestoes(){
+  const TAG = "[Layout Revisao Total]";
+  const DOC_ID = "listas_questoes";
+  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => String(v ?? "").replace(/[&<>'"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[m]));
+  const num = (v,d=0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const clamp = (v,min,max) => Math.max(min, Math.min(max, num(v,min)));
+  const getArr = (chave) => { try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; } };
+  const miniKey = () => `avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${ANO()}`;
+  let layoutsCache = null;
+  let activeLayoutId = "";
+  let previewVersion = 0;
+  let editorOpen = false;
+
+  const DEFAULT_LAYOUT = {
+    id: "layout_avance_padrao",
+    nome: "Avance — modelo padrão",
+    tipo: "lista",
+    titulo: "Avance Olímpico",
+    subtitulo: "Lista de Exercícios",
+    cabecalhoTexto: "Aluno(a): ________________________________    Turma: __________    Data: ____/____/______",
+    rodapeTexto: "",
+    logoUrl: "",
+    corPrimaria: "#6d28d9",
+    corSecundaria: "#a855f7",
+    corTexto: "#111827",
+    corFundoPagina: "#ffffff",
+    fonteFamilia: "Arial",
+    fonteBase: 12,
+    margemMm: 12,
+    logoTamanho: 76,
+    fundoSuave: true,
+    mostrarMetadados: true,
+    mostrarAlternativas: true,
+    alternativasDuasColunas: false,
+    linhasResposta: false,
+    respostaLinhas: 4,
+    questaoPorPagina: false,
+    bordaLateral: true,
+    compacto: false,
+    mostrarAssinatura: false,
+    marcaAtiva: true,
+    marcaTipo: "texto",
+    marcaTexto: "AVANCE OLÍMPICO",
+    marcaImagemUrl: "",
+    marcaOpacidade: 18,
+    marcaLargura: 330,
+    marcaFonte: 62,
+    marcaX: 50,
+    marcaY: 50,
+    marcaRotacao: -28,
+    marcaSobreConteudo: true,
+    img1Url: "", img1X: 10, img1Y: 10, img1W: 90, img1Op: 100, img1Rot: 0,
+    img2Url: "", img2X: 88, img2Y: 10, img2W: 90, img2Op: 100, img2Rot: 0,
+    img3Url: "", img3X: 88, img3Y: 88, img3W: 90, img3Op: 100, img3Rot: 0,
+    zoomPreview: 46
+  };
+
+  function normalizeLayout(l={}) {
+    const x = {...DEFAULT_LAYOUT, ...(l || {})};
+    x.id = String(x.id || `layout_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+    x.nome = String(x.nome || x.id || "Layout");
+    // compatibilidade com nomes antigos
+    if (l.marcaDaguaTexto && !l.marcaTexto) x.marcaTexto = l.marcaDaguaTexto;
+    if (l.mostrarMarcaDagua !== undefined && l.marcaAtiva === undefined) x.marcaAtiva = !!l.mostrarMarcaDagua;
+    if (l.marcaOpacidade === undefined && l.watermarkImageOpacity !== undefined) x.marcaOpacidade = l.watermarkImageOpacity;
+    if (l.watermarkMode && !l.marcaTipo) x.marcaTipo = l.watermarkMode === "image" ? "imagem" : "texto";
+    if (l.watermarkImageUrl && !l.marcaImagemUrl) x.marcaImagemUrl = l.watermarkImageUrl;
+    if (l.watermarkX !== undefined) x.marcaX = l.watermarkX;
+    if (l.watermarkY !== undefined) x.marcaY = l.watermarkY;
+    if (l.watermarkRotate !== undefined) x.marcaRotacao = l.watermarkRotate;
+    if (l.watermarkImageWidth !== undefined) x.marcaLargura = l.watermarkImageWidth;
+    if (l.duasColunasAlternativas !== undefined) x.alternativasDuasColunas = !!l.duasColunasAlternativas;
+    if (l.respostaAltura !== undefined) x.respostaLinhas = Number(l.respostaAltura || x.respostaLinhas);
+    [1,2,3].forEach(n => {
+      if (l[`sticker${n}Url`] && !x[`img${n}Url`]) x[`img${n}Url`] = l[`sticker${n}Url`];
+      if (l[`sticker${n}X`] !== undefined) x[`img${n}X`] = l[`sticker${n}X`];
+      if (l[`sticker${n}Y`] !== undefined) x[`img${n}Y`] = l[`sticker${n}Y`];
+      if (l[`sticker${n}Width`] !== undefined) x[`img${n}W`] = l[`sticker${n}Width`];
+      if (l[`sticker${n}Opacity`] !== undefined) x[`img${n}Op`] = l[`sticker${n}Opacity`];
+    });
+    return x;
+  }
+
+  async function loadLayouts(force=false) {
+    if (layoutsCache && !force) return layoutsCache;
+    let layouts = [];
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseFirestore) {
+        const doc = await firebaseFirestore.collection("sistema_layout").doc(DOC_ID).get();
+        if (doc.exists) {
+          const data = doc.data() || {};
+          if (Array.isArray(data.layouts)) layouts = data.layouts;
+        }
+      }
+    } catch(e) { console.warn(TAG, "falha ao carregar layouts", e); }
+    if (!layouts.length) layouts = [DEFAULT_LAYOUT];
+    layoutsCache = layouts.map(normalizeLayout);
+    if (!activeLayoutId || !layoutsCache.some(l => l.id === activeLayoutId)) activeLayoutId = layoutsCache[0]?.id || DEFAULT_LAYOUT.id;
+    return layoutsCache;
+  }
+
+  async function saveLayouts(layouts) {
+    layouts = (Array.isArray(layouts) ? layouts : []).map(normalizeLayout);
+    if (!layouts.length) layouts = [normalizeLayout(DEFAULT_LAYOUT)];
+    layoutsCache = layouts;
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+    await firebaseFirestore.collection("sistema_layout").doc(DOC_ID).set({
+      id: DOC_ID,
+      tipoDocumento: "layouts_mini_listas_questoes",
+      layouts,
+      atualizadoEm: Date.now(),
+      atualizadoPorNome: usuarioLogado?.nome || usuarioLogado?.email || ""
+    }, { merge:true });
+    return layouts;
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result || "");
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadOrDataUrl(fileInputId, urlInputId, tipo) {
+    const input = document.getElementById(fileInputId);
+    const file = input?.files?.[0];
+    const urlEl = document.getElementById(urlInputId);
+    if (!file) return (urlEl?.value || "").trim();
+    if (!file.type.startsWith("image/")) throw new Error("Use apenas arquivos de imagem.");
+    try {
+      if (typeof uploadArquivoLayout === "function") {
+        const url = await uploadArquivoLayout(fileInputId, tipo);
+        if (urlEl) urlEl.value = url;
+        return url;
+      }
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseStorage) {
+        const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const ref = firebaseStorage.ref().child(`layout/listas/${ANO()}/${tipo}_${Date.now()}_${safe}`);
+        const snap = await ref.put(file, { contentType:file.type });
+        const url = await snap.ref.getDownloadURL();
+        if (urlEl) urlEl.value = url;
+        return url;
+      }
+    } catch(e) {
+      console.warn(TAG, "upload falhou; usando base64", e?.message || e);
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    if (urlEl) urlEl.value = dataUrl;
+    return dataUrl;
+  }
+
+  function injectStyle() {
+    if (document.getElementById("ao-layout-total-style")) return;
+    const style = document.createElement("style");
+    style.id = "ao-layout-total-style";
+    style.textContent = `
+      #painelLayoutsMiniListaQuestoes.ao-layout-total {display:block!important;visibility:visible!important;border-color:rgba(147,51,234,.55)!important;background:rgba(17,24,39,.74)!important;}
+      .ao-lt-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:14px;text-align:left;padding:4px;border:0;background:transparent;color:white;cursor:pointer;}
+      .ao-lt-toggle h3{font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;margin:0;color:white}.ao-lt-toggle p{font-size:12px;color:#9ca3af;margin:4px 0 0}.ao-lt-chip{padding:8px 10px;border-radius:12px;border:1px solid #374151;background:#030712;color:#e5e7eb;font-size:11px;font-weight:900;text-transform:uppercase;white-space:nowrap}
+      .ao-lt-body{margin-top:16px}.ao-lt-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:14px;border:1px solid #374151;border-radius:18px;background:rgba(3,7,18,.45);margin-bottom:16px}.ao-lt-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ao-lt-select{min-width:280px;max-width:100%;padding:10px;border:1px solid #374151;background:#030712;color:#e5e7eb;border-radius:12px;font-size:13px}
+      .ao-lt-btn{padding:10px 12px;border-radius:12px;border:1px solid #374151;background:#030712;color:#e5e7eb;font-size:11px;font-weight:900;text-transform:uppercase}.ao-lt-btn.primary{background:#6d28d9;border-color:#7c3aed;color:#fff}.ao-lt-btn.danger{background:rgba(127,29,29,.58);border-color:rgba(185,28,28,.75);color:#fecaca}.ao-lt-btn.blue{background:#1d4ed8;border-color:#2563eb;color:#fff}
+      .ao-lt-main{display:grid;grid-template-columns:minmax(560px,1fr) minmax(500px,.9fr);gap:18px;align-items:start}.ao-lt-section{border:1px solid #374151;background:rgba(3,7,18,.36);border-radius:18px;padding:15px;margin-bottom:14px}.ao-lt-section h4{margin:0;color:#ddd6fe;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.ao-lt-section>p{margin:4px 0 12px;color:#9ca3af;font-size:11px;line-height:1.35}.ao-lt-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ao-lt-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.ao-lt-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+      .ao-lt-field{border:1px solid rgba(55,65,81,.88);background:rgba(3,7,18,.72);border-radius:14px;padding:12px}.ao-lt-field label{display:block;color:#c4b5fd;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px}.ao-lt-field input,.ao-lt-field select,.ao-lt-field textarea{width:100%;border:1px solid #374151;background:#030712;color:#e5e7eb;border-radius:12px;padding:10px 11px;font-size:13px;outline:none}.ao-lt-field input[type=color]{height:42px;padding:4px}.ao-lt-field input[type=range]{padding:0;height:32px;accent-color:#8b5cf6}.ao-lt-field textarea{min-height:88px;resize:vertical}.ao-lt-help{margin:6px 0 0;color:#7b8190;font-size:10px;line-height:1.35}.ao-lt-check{display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(55,65,81,.88);background:rgba(3,7,18,.72);border-radius:14px;padding:12px;cursor:pointer;min-height:72px}.ao-lt-check input{margin-top:3px;accent-color:#8b5cf6}.ao-lt-check b{display:block;color:#e5e7eb;font-size:12px;font-weight:900;text-transform:uppercase}.ao-lt-check span span{display:block;color:#7b8190;font-size:10px;line-height:1.35;margin-top:4px}
+      .ao-lt-preview-card{position:sticky;top:10px;border:1px solid rgba(147,51,234,.55);background:rgba(88,28,135,.13);border-radius:18px;padding:14px}.ao-lt-preview-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.ao-lt-preview-head h4{margin:0;color:#ddd6fe;font-size:12px;font-weight:900;text-transform:uppercase}.ao-lt-preview-head p{margin:4px 0 0;color:#9ca3af;font-size:10px}.ao-lt-preview-viewport{background:#1f2937;border:1px solid #374151;border-radius:14px;padding:14px;overflow:auto;max-height:1040px}.ao-lt-preview-inner{display:flex;justify-content:center;align-items:flex-start;min-width:max-content;}
+      @media(max-width:1250px){.ao-lt-main{grid-template-columns:1fr}.ao-lt-preview-card{position:relative}.ao-lt-grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:780px){.ao-lt-grid2,.ao-lt-grid3,.ao-lt-grid4{grid-template-columns:1fr}.ao-lt-toolbar{align-items:stretch}.ao-lt-actions{width:100%}.ao-lt-btn,.ao-lt-select{width:100%}}
+      @media print{#painelLayoutsMiniListaQuestoes{display:none!important}.ao-doc-stage{transform:none!important;margin:0!important}.ao-doc{width:210mm!important;min-height:297mm!important;box-shadow:none!important}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function field({id,label,help,type="text",options="",attrs="",textarea=false,placeholder=""}) {
+    const input = textarea
+      ? `<textarea id="${id}" title="${esc(help)}" placeholder="${esc(placeholder)}"></textarea>`
+      : type === "select"
+        ? `<select id="${id}" title="${esc(help)}">${options}</select>`
+        : `<input id="${id}" type="${type}" ${attrs} title="${esc(help)}" placeholder="${esc(placeholder)}">`;
+    return `<div class="ao-lt-field"><label for="${id}">${esc(label)}</label>${input}<p class="ao-lt-help">${esc(help)}</p></div>`;
+  }
+  function check(id,label,help){
+    return `<label class="ao-lt-check" title="${esc(help)}"><input id="${id}" type="checkbox"><span><b>${esc(label)}</b><span>${esc(help)}</span></span></label>`;
+  }
+  function fileField(fileId,urlId,label,help){
+    return `<div class="ao-lt-field"><label>${esc(label)}</label><input id="${urlId}" type="text" placeholder="Cole a URL ou use o upload abaixo"><input id="${fileId}" type="file" accept="image/*" class="mt-2"><p class="ao-lt-help">${esc(help)}</p></div>`;
+  }
+  function section(title, desc, html){ return `<section class="ao-lt-section"><h4>${esc(title)}</h4><p>${esc(desc)}</p>${html}</section>`; }
+  function freeImageSection(n){
+    return section(`${7+n}. Imagem livre ${n}`, `Imagem decorativa independente: pode ser selo, brasão, ilustração ou marca visual posicionada sobre a página.`,
+      `<div class="ao-lt-grid2">${fileField(`aoLtImg${n}File`,`aoLtImg${n}Url`,`Imagem ${n}`,`Cole uma URL ou envie arquivo. Se vazio, esta imagem não aparece.`)}${field({id:`aoLtImg${n}X`,label:"Posição horizontal (%)",help:"0 fica na esquerda; 100 fica na direita.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:`aoLtImg${n}Y`,label:"Posição vertical (%)",help:"0 fica no topo; 100 fica no rodapé.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:`aoLtImg${n}W`,label:"Largura (px)",help:"Tamanho da imagem na página.",type:"range",attrs:'min="24" max="360" step="1"'})}${field({id:`aoLtImg${n}Op`,label:"Opacidade (%)",help:"100 aparece totalmente; 0 fica invisível.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:`aoLtImg${n}Rot`,label:"Rotação",help:"Gira a imagem em graus.",type:"range",attrs:'min="-180" max="180" step="1"'})}</div>`);
+  }
+
+  function qFake(){
+    return [
+      {codigo:"MAT-N2-ARI-DIV-0001", disciplina:"Matemática", nivel:"N2 — 8º/9º Ano", area:"Aritmética", tema:"Divisibilidade", subtema:"Critérios de divisibilidade", dificuldade:"Médio", enunciado:"Em uma campanha da escola, os estudantes organizaram cartões numerados. Para separar os cartões em grupos, eles usaram um critério de divisibilidade. Determine qual alternativa representa corretamente o critério descrito.", alternativas:{A:"Apenas números pares.",B:"Números cuja soma dos algarismos é múltipla de 3.",C:"Números terminados em 5.",D:"Todos os números primos.",E:"Nenhuma das anteriores."}},
+      {codigo:"FIS-EM-MEC-CIN-0002", disciplina:"Física", nivel:"Ensino Médio", area:"Mecânica", tema:"Cinemática", subtema:"Velocidade média", dificuldade:"Fácil", enunciado:"Durante uma viagem, um ônibus percorre dois trechos com velocidades diferentes. Sabendo o tempo gasto em cada trecho, calcule a velocidade média no percurso completo.", alternativas:{A:"20 km/h",B:"35 km/h",C:"50 km/h",D:"70 km/h",E:"90 km/h"}},
+      {codigo:"QUI-EM-FQ-SOL-0003", disciplina:"Química", nivel:"Ensino Médio", area:"Físico-química", tema:"Soluções", subtema:"Concentração comum", dificuldade:"Médio", enunciado:"Um laboratório preparou uma solução dissolvendo certa massa de soluto em água. Use as informações fornecidas para determinar a concentração comum da solução.", alternativas:{A:"2 g/L",B:"5 g/L",C:"10 g/L",D:"20 g/L",E:"50 g/L"}}
+    ];
+  }
+
+  function formToLayout(){
+    const v = (id,d="") => document.getElementById(id)?.value ?? d;
+    const c = (id) => !!document.getElementById(id)?.checked;
+    const l = normalizeLayout({
+      id:v("aoLtId"), nome:v("aoLtNome"), tipo:v("aoLtTipo"), titulo:v("aoLtTitulo"), subtitulo:v("aoLtSubtitulo"), cabecalhoTexto:v("aoLtCabecalho"), rodapeTexto:v("aoLtRodape"), logoUrl:v("aoLtLogoUrl"),
+      corPrimaria:v("aoLtCorPrimaria"), corSecundaria:v("aoLtCorSecundaria"), corTexto:v("aoLtCorTexto"), corFundoPagina:v("aoLtCorFundo"), fonteFamilia:v("aoLtFonteFamilia"), fonteBase:num(v("aoLtFonteBase"),12), margemMm:num(v("aoLtMargem"),12), logoTamanho:num(v("aoLtLogoTam"),76), fundoSuave:c("aoLtFundoSuave"),
+      mostrarMetadados:c("aoLtMetadados"), mostrarAlternativas:c("aoLtAlternativas"), alternativasDuasColunas:c("aoLtAlt2Col"), linhasResposta:c("aoLtLinhasResposta"), respostaLinhas:num(v("aoLtRespostaLinhas"),4), questaoPorPagina:c("aoLtQuestaoPagina"), bordaLateral:c("aoLtBordaLateral"), compacto:c("aoLtCompacto"), mostrarAssinatura:c("aoLtAssinatura"),
+      marcaAtiva:c("aoLtMarcaAtiva"), marcaTipo:v("aoLtMarcaTipo"), marcaTexto:v("aoLtMarcaTexto"), marcaImagemUrl:v("aoLtMarcaImagemUrl"), marcaOpacidade:num(v("aoLtMarcaOp"),18), marcaLargura:num(v("aoLtMarcaW"),330), marcaFonte:num(v("aoLtMarcaFonte"),62), marcaX:num(v("aoLtMarcaX"),50), marcaY:num(v("aoLtMarcaY"),50), marcaRotacao:num(v("aoLtMarcaRot"),-28), marcaSobreConteudo:c("aoLtMarcaSobre"), zoomPreview:num(v("aoLtZoom"),46)
+    });
+    [1,2,3].forEach(n=>{
+      l[`img${n}Url`] = v(`aoLtImg${n}Url`, ""); l[`img${n}X`] = num(v(`aoLtImg${n}X`), DEFAULT_LAYOUT[`img${n}X`]); l[`img${n}Y`] = num(v(`aoLtImg${n}Y`), DEFAULT_LAYOUT[`img${n}Y`]); l[`img${n}W`] = num(v(`aoLtImg${n}W`), DEFAULT_LAYOUT[`img${n}W`]); l[`img${n}Op`] = num(v(`aoLtImg${n}Op`), DEFAULT_LAYOUT[`img${n}Op`]); l[`img${n}Rot`] = num(v(`aoLtImg${n}Rot`), DEFAULT_LAYOUT[`img${n}Rot`]);
+    });
+    return l;
+  }
+
+  function setForm(l0){
+    const l = normalizeLayout(l0);
+    const set = (id,val) => { const el = document.getElementById(id); if (el) el.value = val ?? ""; };
+    const chk = (id,val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+    set("aoLtId",l.id); set("aoLtNome",l.nome); set("aoLtTipo",l.tipo); set("aoLtTitulo",l.titulo); set("aoLtSubtitulo",l.subtitulo); set("aoLtCabecalho",l.cabecalhoTexto); set("aoLtRodape",l.rodapeTexto); set("aoLtLogoUrl",l.logoUrl);
+    set("aoLtCorPrimaria",l.corPrimaria); set("aoLtCorSecundaria",l.corSecundaria); set("aoLtCorTexto",l.corTexto); set("aoLtCorFundo",l.corFundoPagina); set("aoLtFonteFamilia",l.fonteFamilia); set("aoLtFonteBase",l.fonteBase); set("aoLtMargem",l.margemMm); set("aoLtLogoTam",l.logoTamanho); chk("aoLtFundoSuave",l.fundoSuave);
+    chk("aoLtMetadados",l.mostrarMetadados); chk("aoLtAlternativas",l.mostrarAlternativas); chk("aoLtAlt2Col",l.alternativasDuasColunas); chk("aoLtLinhasResposta",l.linhasResposta); set("aoLtRespostaLinhas",l.respostaLinhas); chk("aoLtQuestaoPagina",l.questaoPorPagina); chk("aoLtBordaLateral",l.bordaLateral); chk("aoLtCompacto",l.compacto); chk("aoLtAssinatura",l.mostrarAssinatura);
+    chk("aoLtMarcaAtiva",l.marcaAtiva); set("aoLtMarcaTipo",l.marcaTipo); set("aoLtMarcaTexto",l.marcaTexto); set("aoLtMarcaImagemUrl",l.marcaImagemUrl); set("aoLtMarcaOp",l.marcaOpacidade); set("aoLtMarcaW",l.marcaLargura); set("aoLtMarcaFonte",l.marcaFonte); set("aoLtMarcaX",l.marcaX); set("aoLtMarcaY",l.marcaY); set("aoLtMarcaRot",l.marcaRotacao); chk("aoLtMarcaSobre",l.marcaSobreConteudo); set("aoLtZoom",l.zoomPreview);
+    [1,2,3].forEach(n=>{ set(`aoLtImg${n}Url`,l[`img${n}Url`]); set(`aoLtImg${n}X`,l[`img${n}X`]); set(`aoLtImg${n}Y`,l[`img${n}Y`]); set(`aoLtImg${n}W`,l[`img${n}W`]); set(`aoLtImg${n}Op`,l[`img${n}Op`]); set(`aoLtImg${n}Rot`,l[`img${n}Rot`]); });
+  }
+
+  function renderDoc(questions, layout, print=false){
+    const l = normalizeLayout(layout);
+    const scale = print ? 1 : clamp(l.zoomPreview, 30, 90)/100;
+    const pageW = 794, pageH = 1123;
+    const altHtml = (q) => {
+      const a = q.alternativas || {};
+      const items = ["A","B","C","D","E"].filter(k => a[k]).map(k=>`<li style="margin:4px 0;break-inside:avoid"><b>${k})</b> ${esc(a[k])}</li>`).join("");
+      return items ? `<ol style="margin:10px 0 0 20px;padding:0;${l.alternativasDuasColunas ? 'column-count:2;column-gap:24px;' : ''}">${items}</ol>` : "";
+    };
+    const meta = q => l.mostrarMetadados ? `<div style="font-size:11px;color:${esc(l.corPrimaria)};font-weight:700;margin-bottom:7px">${esc([q.codigo,q.disciplina,q.nivel,q.area,q.tema,q.subtema,q.dificuldade].filter(Boolean).join(" · "))}</div>` : "";
+    const linhas = l.linhasResposta ? `<div style="margin-top:10px">${Array.from({length:Math.max(1,Math.min(10,l.respostaLinhas))}).map(()=>`<div style="border-bottom:1px solid #d1d5db;height:${l.compacto?17:22}px"></div>`).join("")}</div>` : "";
+    const qs = (questions || []).map((q,i)=>`<article style="position:relative;z-index:3;break-inside:avoid;page-break-inside:avoid;${l.questaoPorPagina?'page-break-after:always;':''}border:1px solid #e5e7eb;${l.bordaLateral?`border-left:5px solid ${esc(l.corPrimaria)};`:''}border-radius:14px;padding:${l.compacto?10:14}px;margin-bottom:${l.compacto?10:14}px;background:rgba(255,255,255,.84);">
+      ${meta(q)}<div style="font-weight:800;color:${esc(l.corTexto)};margin-bottom:6px">Questão ${i+1}</div>
+      <div style="font-size:${l.fonteBase+1}px;line-height:1.48;color:${esc(l.corTexto)}">${q.enunciadoHtml || esc(q.enunciado || q.titulo || 'Lorem ipsum dolor sit amet.')}</div>
+      ${l.mostrarAlternativas ? altHtml(q) : ""}${linhas}</article>`).join("");
+    const overlayZ = l.marcaSobreConteudo ? 9 : 1;
+    const mark = l.marcaAtiva ? (l.marcaTipo === "imagem" && l.marcaImagemUrl
+      ? `<img src="${esc(l.marcaImagemUrl)}" style="position:absolute;left:${l.marcaX}%;top:${l.marcaY}%;width:${l.marcaLargura}px;opacity:${clamp(l.marcaOpacidade,0,100)/100};transform:translate(-50%,-50%) rotate(${l.marcaRotacao}deg);pointer-events:none;z-index:${overlayZ};">`
+      : `<div style="position:absolute;left:${l.marcaX}%;top:${l.marcaY}%;transform:translate(-50%,-50%) rotate(${l.marcaRotacao}deg);font-size:${l.marcaFonte}px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:${esc(l.corPrimaria)};opacity:${clamp(l.marcaOpacidade,0,100)/100};white-space:nowrap;pointer-events:none;z-index:${overlayZ};">${esc(l.marcaTexto)}</div>`) : "";
+    const freeImgs = [1,2,3].map(n => l[`img${n}Url`] ? `<img src="${esc(l[`img${n}Url`])}" style="position:absolute;left:${l[`img${n}X`]}%;top:${l[`img${n}Y`]}%;width:${l[`img${n}W`]}px;opacity:${clamp(l[`img${n}Op`],0,100)/100};transform:translate(-50%,-50%) rotate(${l[`img${n}Rot`]}deg);pointer-events:none;z-index:10;">` : "").join("");
+    const page = `<div class="ao-doc-page" style="position:relative;width:${pageW}px;min-height:${pageH}px;box-sizing:border-box;overflow:hidden;background:${esc(l.corFundoPagina)};color:${esc(l.corTexto)};font-family:${esc(l.fonteFamilia)},Arial,sans-serif;font-size:${l.fonteBase}px;line-height:1.42;padding:${print?`${l.margemMm}mm`:`${l.margemMm*3}px`};box-shadow:${print?'none':'0 18px 50px rgba(0,0,0,.25)'};">
+      ${mark}${freeImgs}
+      <header style="position:relative;z-index:4;border:1px solid #e9d5ff;border-radius:18px;overflow:hidden;margin-bottom:18px;${l.fundoSuave?'background:linear-gradient(180deg,#faf5ff 0%,#fff 55%);':'background:#fff;'}">
+        <div style="height:14px;background:linear-gradient(90deg,${esc(l.corPrimaria)},${esc(l.corSecundaria)})"></div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px"><div style="width:${l.logoTamanho}px;height:${l.logoTamanho}px;border-radius:18px;border:2px solid #ddd6fe;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;color:${esc(l.corPrimaria)};font-weight:900;font-size:${Math.max(18,l.logoTamanho/3)}px;flex:0 0 auto;">${l.logoUrl?`<img src="${esc(l.logoUrl)}" style="max-width:92%;max-height:92%;object-fit:contain">`:'AO'}</div><div style="flex:1"><div style="font-size:11px;color:${esc(l.corPrimaria)};font-weight:900;letter-spacing:.18em">AVANCE OLÍMPICO</div><h1 style="margin:4px 0 0;color:#2e1065;font-size:24px;text-transform:uppercase">${esc(l.titulo)}</h1><p style="margin:4px 0 0;color:${esc(l.corPrimaria)};font-weight:700">${esc(l.subtitulo)}</p></div></div>
+        ${l.cabecalhoTexto?`<div style="margin:0 16px 16px;border:1px solid #ddd6fe;border-radius:12px;background:#faf5ff;padding:10px;color:#3b0764;font-size:12px">${esc(l.cabecalhoTexto).replace(/\n/g,'<br>')}</div>`:''}
+      </header>
+      <main style="position:relative;z-index:3">${qs}</main>
+      ${l.mostrarAssinatura?`<div style="position:relative;z-index:3;display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px;font-size:11px;color:#4b5563"><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Assinatura do estudante</div><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Professor(a) / Correção</div></div>`:''}
+      ${l.rodapeTexto?`<footer style="position:relative;z-index:3;border-top:1px solid #ddd6fe;margin-top:16px;padding-top:8px;color:#6b7280;font-size:11px">${esc(l.rodapeTexto).replace(/\n/g,'<br>')}</footer>`:''}
+    </div>`;
+    return print ? page : `<div class="ao-doc-stage" style="width:${pageW*scale}px;min-height:${pageH*scale}px;"><div style="transform:scale(${scale});transform-origin:top left;width:${pageW}px;min-height:${pageH}px;">${page}</div></div>`;
+  }
+
+  async function refreshSelect(selectedId=""){
+    const select = document.getElementById("aoLtSelect");
+    if (!select) return [];
+    const layouts = await loadLayouts(true);
+    select.innerHTML = layouts.map(l => `<option value="${esc(l.id)}">${esc(l.nome)} — ${esc(l.tipo)}</option>`).join("");
+    select.value = selectedId && layouts.some(l=>l.id===selectedId) ? selectedId : (layouts[0]?.id || "");
+    activeLayoutId = select.value;
+    return layouts;
+  }
+
+  function updatePreview(){
+    const box = document.getElementById("aoLtPreview");
+    if (!box) return;
+    const myVersion = ++previewVersion;
+    const l = formToLayout();
+    requestAnimationFrame(()=>{ if (myVersion === previewVersion) box.innerHTML = renderDoc(qFake(), l, false); });
+  }
+
+  async function rebuildEditor(force=false){
+    injectStyle();
+    let painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    const view = document.getElementById("view-questoes");
+    if (!painel && view) {
+      painel = document.createElement("div");
+      painel.id = "painelLayoutsMiniListaQuestoes";
+      view.appendChild(painel);
+    }
+    if (!painel) return;
+    if (painel.dataset.layoutRevisaoTotal === "true" && !force) {
+      painel.classList.remove("hidden"); painel.style.display=""; painel.style.visibility="visible";
+      return;
+    }
+    const fresh = painel.cloneNode(false);
+    fresh.id = "painelLayoutsMiniListaQuestoes";
+    fresh.dataset.layoutRevisaoTotal = "true";
+    fresh.dataset.aoLayoutV2 = "true";       // neutraliza interval antigo do editor V2
+    fresh.dataset.editorDefinitivo = "true"; // neutraliza editor antigo definitivo
+    fresh.dataset.retratilFinal = "true";    // neutraliza retrátil antigo
+    fresh.dataset.retratilReady = "true";
+    fresh.className = "ao-layout-total bg-gray-800/50 border border-purple-900/50 rounded-2xl p-5 shadow-xl space-y-4";
+    painel.parentNode.replaceChild(fresh, painel);
+    painel = fresh;
+    painel.innerHTML = `
+      <button type="button" id="aoLtToggle" class="ao-lt-toggle"><div><h3><i class="fa-solid fa-brush text-purple-300 mr-2"></i>Layouts de impressão das listas</h3><p>Editor revisado: prévia A4 real, marca d'água por cima e imagens livres.</p></div><span class="ao-lt-chip">${editorOpen?'Recolher':'Expandir'}</span></button>
+      <div id="aoLtBody" class="ao-lt-body ${editorOpen?'':'hidden'}">
+        <div class="ao-lt-toolbar"><select id="aoLtSelect" class="ao-lt-select"></select><div class="ao-lt-actions"><button id="aoLtNovo" type="button" class="ao-lt-btn">Novo</button><button id="aoLtSalvar" type="button" class="ao-lt-btn primary">Salvar</button><button id="aoLtExcluir" type="button" class="ao-lt-btn danger">Excluir</button><button id="aoLtAtualizar" type="button" class="ao-lt-btn blue">Atualizar prévia</button></div></div>
+        <div class="ao-lt-main"><div class="ao-lt-form">
+          ${section("1. Identificação", "Define como o modelo aparece no sistema.", `<div class="ao-lt-grid2">${field({id:"aoLtId",label:"ID interno",help:"Código interno do layout. Não aparece para o aluno."})}${field({id:"aoLtNome",label:"Nome do layout",help:"Nome exibido no seletor de layouts."})}${field({id:"aoLtTipo",label:"Tipo",help:"Escolha se o modelo será usado como lista ou simulado.",type:"select",options:'<option value="lista">Lista</option><option value="simulado">Simulado</option>'})}${field({id:"aoLtZoom",label:"Zoom da prévia",help:"Apenas muda o tamanho visual da prévia; não altera a impressão.",type:"range",attrs:'min="30" max="90" step="1"'})}</div>`)}
+          ${section("2. Cabeçalho e rodapé", "Controla o topo e as instruções finais da folha.", `<div class="ao-lt-grid2">${field({id:"aoLtTitulo",label:"Título principal",help:"Texto grande no topo da página."})}${field({id:"aoLtSubtitulo",label:"Subtítulo",help:"Texto menor abaixo do título."})}${fileField("aoLtLogoFile","aoLtLogoUrl","Logo do cabeçalho","Cole uma URL ou envie uma imagem do computador. Se vazio, aparece AO.")}${field({id:"aoLtLogoTam",label:"Tamanho da logo",help:"Controla o tamanho do bloco da logo no cabeçalho.",type:"range",attrs:'min="40" max="130" step="1"'})}${field({id:"aoLtCabecalho",label:"Campos do cabeçalho",help:"Aluno, turma, professor, data, nota etc.",textarea:true})}${field({id:"aoLtRodape",label:"Rodapé / instruções",help:"Texto final que aparece no fim da folha.",textarea:true})}</div>`)}
+          ${section("3. Aparência geral", "Controla cores, fonte, margem e estilo da folha.", `<div class="ao-lt-grid3">${field({id:"aoLtCorPrimaria",label:"Cor principal",help:"Faixas, bordas, títulos e detalhes.",type:"color"})}${field({id:"aoLtCorSecundaria",label:"Cor secundária",help:"Segunda cor do degradê no cabeçalho.",type:"color"})}${field({id:"aoLtCorTexto",label:"Cor do texto",help:"Cor principal dos textos das questões.",type:"color"})}${field({id:"aoLtCorFundo",label:"Cor da página",help:"Cor de fundo da folha A4.",type:"color"})}${field({id:"aoLtFonteFamilia",label:"Fonte",help:"Família da fonte usada no documento.",type:"select",options:'<option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Times New Roman">Times New Roman</option><option value="Verdana">Verdana</option>'})}${field({id:"aoLtFonteBase",label:"Tamanho da fonte",help:"Tamanho geral do texto.",type:"range",attrs:'min="10" max="17" step="1"'})}${field({id:"aoLtMargem",label:"Margem A4",help:"Margem da impressão em milímetros.",type:"range",attrs:'min="6" max="24" step="1"'})}${check("aoLtFundoSuave","Fundo suave no cabeçalho","Aplica um fundo lilás claro atrás do cabeçalho.")}${check("aoLtCompacto","Modo compacto","Reduz espaçamentos para caber mais conteúdo.")}</div>`)}
+          ${section("4. Marca d'água", "Pode ser texto ou imagem. Agora ela pode ficar por cima das questões.", `<div class="ao-lt-grid3">${check("aoLtMarcaAtiva","Exibir marca d'água","Liga/desliga a marca d'água.")}${check("aoLtMarcaSobre","Marca sobre o conteúdo","Se ligado, a marca aparece por cima das questões; se desligado, fica por baixo.")}${field({id:"aoLtMarcaTipo",label:"Tipo",help:"Texto ou imagem como marca d'água.",type:"select",options:'<option value="texto">Texto</option><option value="imagem">Imagem</option>'})}${field({id:"aoLtMarcaTexto",label:"Texto da marca",help:"Texto usado quando a marca d'água for do tipo texto."})}${fileField("aoLtMarcaImagemFile","aoLtMarcaImagemUrl","Imagem da marca","Imagem usada quando a marca d'água for do tipo imagem.")}${field({id:"aoLtMarcaOp",label:"Opacidade (%)",help:"Controla a visibilidade da marca sobre as questões.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:"aoLtMarcaW",label:"Largura da imagem",help:"Tamanho da imagem da marca d'água.",type:"range",attrs:'min="80" max="520" step="1"'})}${field({id:"aoLtMarcaFonte",label:"Tamanho do texto",help:"Tamanho do texto da marca d'água.",type:"range",attrs:'min="28" max="110" step="1"'})}${field({id:"aoLtMarcaX",label:"Posição horizontal",help:"0 esquerda, 100 direita.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:"aoLtMarcaY",label:"Posição vertical",help:"0 topo, 100 rodapé.",type:"range",attrs:'min="0" max="100" step="1"'})}${field({id:"aoLtMarcaRot",label:"Rotação",help:"Inclina a marca em graus.",type:"range",attrs:'min="-90" max="90" step="1"'})}</div>`)}
+          ${section("5. Questões", "Controla o corpo das questões e espaços de resposta.", `<div class="ao-lt-grid3">${check("aoLtMetadados","Mostrar metadados","Mostra código, disciplina, área, tema e dificuldade.")}${check("aoLtAlternativas","Mostrar alternativas","Exibe alternativas A–E.")}${check("aoLtAlt2Col","Alternativas em 2 colunas","Organiza alternativas em duas colunas.")}${check("aoLtLinhasResposta","Espaço para resposta","Mostra linhas abaixo da questão.")}${field({id:"aoLtRespostaLinhas",label:"Quantidade de linhas",help:"Número de linhas quando espaço para resposta estiver ativo.",type:"range",attrs:'min="1" max="10" step="1"'})}${check("aoLtQuestaoPagina","Uma questão por página","Força quebra de página após cada questão.")}${check("aoLtBordaLateral","Borda lateral","Destaca cada questão com uma borda colorida.")}${check("aoLtAssinatura","Campo de assinatura","Mostra campos de assinatura no final.")}</div>`)}
+          ${freeImageSection(1)}${freeImageSection(2)}${freeImageSection(3)}
+        </div><aside class="ao-lt-preview-card"><div class="ao-lt-preview-head"><div><h4>Pré-visualização A4 real</h4><p>A folha inteira aparece abaixo. A impressão usa o mesmo motor.</p></div><button id="aoLtPreviewBtn" type="button" class="ao-lt-btn blue">Atualizar</button></div><div class="ao-lt-preview-viewport"><div class="ao-lt-preview-inner"><div id="aoLtPreview"></div></div></div></aside></div>
+      </div>`;
+
+    painel.querySelector("#aoLtToggle").onclick = () => { editorOpen = !editorOpen; painel.querySelector("#aoLtBody").classList.toggle("hidden", !editorOpen); painel.querySelector("#aoLtToggle .ao-lt-chip").textContent = editorOpen ? "Recolher" : "Expandir"; if (editorOpen) updatePreview(); };
+    painel.querySelector("#aoLtPreviewBtn").onclick = updatePreview;
+    painel.querySelector("#aoLtAtualizar").onclick = updatePreview;
+    painel.querySelector("#aoLtSelect").onchange = async () => { const layouts = await loadLayouts(false); activeLayoutId = painel.querySelector("#aoLtSelect").value; setForm(layouts.find(l=>l.id===activeLayoutId) || layouts[0]); updatePreview(); };
+    painel.querySelector("#aoLtNovo").onclick = () => { const l = normalizeLayout({...DEFAULT_LAYOUT,id:`layout_${Date.now()}`,nome:"Novo layout"}); activeLayoutId = l.id; setForm(l); updatePreview(); };
+    painel.querySelector("#aoLtSalvar").onclick = async () => {
+      const btn = painel.querySelector("#aoLtSalvar");
+      try {
+        btn.disabled = true; btn.textContent = "Salvando...";
+        const [logo, marca, img1, img2, img3] = await Promise.all([
+          uploadOrDataUrl("aoLtLogoFile","aoLtLogoUrl","logo_lista"),
+          uploadOrDataUrl("aoLtMarcaImagemFile","aoLtMarcaImagemUrl","marca_lista"),
+          uploadOrDataUrl("aoLtImg1File","aoLtImg1Url","imagem1_lista"),
+          uploadOrDataUrl("aoLtImg2File","aoLtImg2Url","imagem2_lista"),
+          uploadOrDataUrl("aoLtImg3File","aoLtImg3Url","imagem3_lista"),
+        ]);
+        const l = formToLayout();
+        l.logoUrl = logo || l.logoUrl; l.marcaImagemUrl = marca || l.marcaImagemUrl; l.img1Url = img1 || l.img1Url; l.img2Url = img2 || l.img2Url; l.img3Url = img3 || l.img3Url;
+        let layouts = await loadLayouts(false);
+        const idx = layouts.findIndex(x=>x.id===l.id);
+        if (idx>=0) layouts[idx]=l; else layouts.push(l);
+        await saveLayouts(layouts);
+        await refreshSelect(l.id); setForm(l); updatePreview(); alert("Layout salvo com sucesso.");
+      } catch(e) { console.error(e); alert("Erro ao salvar layout: " + (e?.message || e)); }
+      finally { btn.disabled = false; btn.textContent = "Salvar"; }
+    };
+    painel.querySelector("#aoLtExcluir").onclick = async () => {
+      const layouts = await loadLayouts(false);
+      if (layouts.length <= 1) return alert("Você não pode excluir o último layout. Crie outro antes.");
+      const id = painel.querySelector("#aoLtSelect").value;
+      if (!confirm(`Excluir o layout ${id}?`)) return;
+      const rest = layouts.filter(l=>l.id!==id);
+      await saveLayouts(rest); await refreshSelect(rest[0]?.id || ""); setForm(rest[0]); updatePreview();
+    };
+    painel.addEventListener("input", e => { if (String(e.target?.id||"").startsWith("aoLt")) updatePreview(); });
+    painel.addEventListener("change", async e => {
+      if (!String(e.target?.id||"").startsWith("aoLt")) return;
+      if (e.target.type === "file" && e.target.files?.[0]) {
+        const id = e.target.id;
+        const map = {aoLtLogoFile:"aoLtLogoUrl",aoLtMarcaImagemFile:"aoLtMarcaImagemUrl",aoLtImg1File:"aoLtImg1Url",aoLtImg2File:"aoLtImg2Url",aoLtImg3File:"aoLtImg3Url"};
+        if (map[id]) document.getElementById(map[id]).value = await readFileAsDataUrl(e.target.files[0]);
+      }
+      updatePreview();
+    });
+    const layouts = await refreshSelect(activeLayoutId);
+    setForm(layouts.find(l=>l.id===activeLayoutId) || layouts[0] || DEFAULT_LAYOUT);
+    updatePreview();
+  }
+
+  function ensureVisible(){
+    const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    if (!painel) { rebuildEditor(true); return; }
+    painel.classList.remove("hidden"); painel.style.display=""; painel.style.visibility="visible";
+    painel.dataset.aoLayoutV2 = "true"; painel.dataset.editorDefinitivo = "true"; painel.dataset.retratilFinal = "true"; painel.dataset.layoutRevisaoTotal = "true";
+    if (!painel.querySelector("#aoLtPreview")) rebuildEditor(true);
+  }
+
+  window.carregarLayoutsMiniLista = loadLayouts;
+  window.atualizarPreviewLayoutLiveFinal = updatePreview;
+  window.prepararPreviewLiveLayout = function(){ rebuildEditor(false); };
+  window.popularSelectLayoutsMiniListaAdmin = async function(){ await rebuildEditor(true); };
+  window.selecionarLayoutMiniListaAdmin = async function(){ await rebuildEditor(false); };
+  window.novoLayoutMiniListaAdmin = async function(){ await rebuildEditor(false); document.getElementById("aoLtNovo")?.click(); };
+  window.salvarLayoutMiniListaAdmin = async function(){ await rebuildEditor(false); document.getElementById("aoLtSalvar")?.click(); };
+  window.excluirLayoutMiniListaAdmin = async function(){ await rebuildEditor(false); document.getElementById("aoLtExcluir")?.click(); };
+  window.atualizarOpcoesLayoutMiniLista = async function(){
+    const select = document.getElementById("miniListaLayout"); if (!select) return;
+    const formato = document.getElementById("miniListaFormato")?.value || "lista";
+    const layouts = await loadLayouts(false);
+    const filtrados = layouts.filter(l => l.tipo === formato || !l.tipo);
+    const lista = filtrados.length ? filtrados : layouts;
+    select.innerHTML = lista.map(l => `<option value="${esc(l.id)}">${esc(l.nome)}</option>`).join("");
+    await window.renderizarPreviewMiniListaLayout();
+  };
+  function getMiniQuestoes(){
+    try { const ids = new Set(JSON.parse(localStorage.getItem(miniKey()) || "[]").map(String)); return getArr("app_questoes").filter(q=>ids.has(String(q.id))); } catch(_) { return []; }
+  }
+  window.renderizarPreviewMiniListaLayout = async function(){
+    const layouts = await loadLayouts(false);
+    const id = document.getElementById("miniListaLayout")?.value || activeLayoutId || layouts[0]?.id;
+    const l = layouts.find(x=>x.id===id) || layouts[0] || DEFAULT_LAYOUT;
+    const qs = getMiniQuestoes();
+    const htmlPreview = renderDoc(qs.length?qs:qFake(), l, false);
+    const htmlPrint = renderDoc(qs.length?qs:qFake(), l, true);
+    const corpo = document.getElementById("miniListaQuestoesCorpoAvancado");
+    const print = document.getElementById("printMiniListaQuestoesAvancada");
+    if (corpo) corpo.innerHTML = htmlPreview;
+    if (print) print.innerHTML = htmlPrint;
+  };
+  window.imprimirMiniListaQuestoes = async function(){
+    await window.renderizarPreviewMiniListaLayout();
+    const old = document.title; document.title="Avance Olímpico";
+    document.body.classList.add("print-mini-lista-avancada");
+    setTimeout(()=>{ window.print(); setTimeout(()=>{ document.body.classList.remove("print-mini-lista-avancada"); document.title=old; },500); },150);
+  };
+
+  const navOld = window.navegarAba || (typeof navegarAba === "function" ? navegarAba : null);
+  if (typeof navOld === "function" && !window.__layoutRevisaoTotalNav) {
+    window.__layoutRevisaoTotalNav = true;
+    const nav = function(aba, btn){
+      const r = navOld.apply(this, arguments);
+      if (aba === "questoes" || aba === "plataforma") {
+        setTimeout(()=>rebuildEditor(false), 300);
+        setTimeout(()=>ensureVisible(), 1200);
+        setTimeout(()=>ensureVisible(), 2800);
+      }
+      return r;
+    };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+
+  const observer = new MutationObserver(() => {
+    const view = document.getElementById("view-questoes");
+    if (view && !view.classList.contains("hidden")) setTimeout(ensureVisible, 50);
+  });
+  document.addEventListener("DOMContentLoaded", () => {
+    try { observer.observe(document.body, { childList:true, subtree:true, attributes:true, attributeFilter:["class","style","data-ao-layout-v2","data-layout-revisao-total"] }); } catch(_) {}
+    setTimeout(()=>rebuildEditor(false), 1000);
+    setInterval(() => {
+      const view = document.getElementById("view-questoes");
+      if (view && !view.classList.contains("hidden")) ensureVisible();
+    }, 1200);
+  });
+  console.log(TAG, "carregado");
+})();
