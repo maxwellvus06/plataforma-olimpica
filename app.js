@@ -19339,3 +19339,151 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   try { if (document.body) montar(); } catch(_) {}
 })();
+
+
+// ============================================================
+// PATCH — Clique do botão Problemas corrigido
+// O botão já estava estável, mas podia manter uma referência antiga sem ação
+// ao ser movido/recriado por patches anteriores. Este patch usa delegação
+// global e garante fallback da central.
+// ============================================================
+(function problemasCliqueCorrigido(){
+  const BTN_ID = 'btnProblemasCentralLimpa';
+  const MODAL_ID = 'modalProblemasCentralCliqueFallback';
+  const ANO = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
+
+  function normalizarProblema(doc, data, path, categoriaDefault){
+    const raw = String(data.modulo || data.categoria || data.area || data.origem || categoriaDefault || 'Geral').toLowerCase();
+    let categoria = categoriaDefault || 'Geral';
+    if (raw.includes('quest')) categoria = 'Questões';
+    else if (raw.includes('calend') || raw.includes('cronograma')) categoria = 'Calendário';
+    else if (raw.includes('result')) categoria = 'Resultados';
+    else if (raw.includes('plataforma') || raw.includes('material')) categoria = 'Plataforma';
+    else if (raw.includes('aula')) categoria = 'Aulas';
+    else if (raw.includes('simulado')) categoria = 'Simulados';
+    return { id: doc.id, origemPath:path, categoria, ...data };
+  }
+  async function carregarProblemasFallback(){
+    if (!isEquipe()) return [];
+    try { if (typeof initFirebase === 'function') initFirebase(); } catch(_) {}
+    if (!firebaseFirestore) return [];
+    const ano = ANO();
+    const paths = [
+      [`anos/${ano}/sistema_problemas`, 'Geral'],
+      [`anos/${ano}/sistema_questoes_problemas`, 'Questões'],
+      [`anos/${ano}/sistema_cronograma_problemas`, 'Calendário'],
+      [`anos/${ano}/sistema_resultados_problemas`, 'Resultados'],
+      [`anos/${ano}/sistema_plataforma_problemas`, 'Plataforma'],
+      [`anos/${ano}/sistema_aulas_problemas`, 'Aulas'],
+      [`anos/${ano}/sistema_simulados_problemas`, 'Simulados'],
+      ['sistema_problemas', 'Geral']
+    ];
+    const all=[];
+    for (const [path,cat] of paths) {
+      try {
+        const snap = await firebaseFirestore.collection(path).limit(250).get();
+        snap.forEach(d => all.push(normalizarProblema(d, d.data() || {}, path, cat)));
+      } catch(e) { console.warn('[Problemas clique] falha ao ler', path, e?.message || e); }
+    }
+    const seen=new Set();
+    return all.filter(p=>{ const k=p.origemPath+'::'+p.id; if(seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a,b)=>Number(b.criadoEm||b.atualizadoEm||0)-Number(a.criadoEm||a.atualizadoEm||0));
+  }
+  function titulo(p){ return p.titulo || p.itemTitulo || p.questaoTitulo || p.eventoResumo || p.simuladoTitulo || p.materialTitulo || p.aulaTitulo || p.alvoTitulo || p.tipo || p.id || 'Relato de problema'; }
+  function texto(p){ return p.descricao || p.comentario || p.detalhe || p.relato || p.observacao || (Array.isArray(p.tipos) ? p.tipos.join(', ') : '') || 'Sem descrição detalhada.'; }
+  function aberto(p){ return !['Resolvido','Descartado'].includes(String(p.status || 'Aberto')); }
+
+  function garantirModalFallback(){
+    let m=document.getElementById(MODAL_ID);
+    if (m) return m;
+    m=document.createElement('div');
+    m.id=MODAL_ID;
+    m.className='fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    m.innerHTML=`<div class="absolute inset-0" data-prob-close="1"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-300 mr-2"></i>Central de problemas</h3><p class="text-xs text-gray-400 mt-1">Fila única de relatos enviados pelos usuários.</p></div><div class="flex flex-wrap gap-2"><select id="probCliqueCat" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="TODOS">Todas as áreas</option><option>Questões</option><option>Calendário</option><option>Resultados</option><option>Plataforma</option><option>Aulas</option><option>Simulados</option><option>Geral</option></select><select id="probCliqueStatus" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option>Em análise</option><option>Resolvido</option><option>Descartado</option></select><input id="probCliqueBusca" placeholder="Buscar relato..." class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[220px]"><button id="probCliqueReload" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button><button data-prob-close="1" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div><div id="probCliqueResumo" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2"></div><div id="probCliqueLista" class="space-y-3"></div></div>`;
+    document.body.appendChild(m);
+    m.addEventListener('click',e=>{ if(e.target?.dataset?.probClose) fecharFallback(); });
+    ['probCliqueCat','probCliqueStatus','probCliqueBusca'].forEach(id=>m.querySelector('#'+id)?.addEventListener(id==='probCliqueBusca'?'input':'change', renderFallback));
+    m.querySelector('#probCliqueReload')?.addEventListener('click',()=>abrirFallback(true));
+    return m;
+  }
+  let fallbackCache=[];
+  async function abrirFallback(force=false){
+    if (!isEquipe()) return alert('Apenas ADM/Staff podem acessar a central de problemas.');
+    const m=garantirModalFallback();
+    m.classList.remove('hidden'); m.classList.add('flex');
+    const box=document.getElementById('probCliqueLista');
+    if (box) box.innerHTML='<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando relatos...</p></div>';
+    if (force || !fallbackCache.length) fallbackCache=await carregarProblemasFallback();
+    renderFallback();
+  }
+  function fecharFallback(){ const m=document.getElementById(MODAL_ID); m?.classList.add('hidden'); m?.classList.remove('flex'); }
+  function renderFallback(){
+    const box=document.getElementById('probCliqueLista'); if(!box) return;
+    const resumo=document.getElementById('probCliqueResumo');
+    const cat=document.getElementById('probCliqueCat')?.value || 'TODOS';
+    const st=document.getElementById('probCliqueStatus')?.value || 'ABERTOS';
+    const busca=String(document.getElementById('probCliqueBusca')?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    let arr=fallbackCache.slice();
+    if(cat!=='TODOS') arr=arr.filter(p=>p.categoria===cat);
+    if(st==='ABERTOS') arr=arr.filter(aberto); else if(st!=='TODOS') arr=arr.filter(p=>String(p.status||'Aberto')===st);
+    if(busca) arr=arr.filter(p=>String([p.categoria,titulo(p),texto(p),p.usuarioNome,p.alunoNome,p.origemPath].join(' ')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(busca));
+    const cats=['Questões','Calendário','Resultados','Plataforma','Aulas','Simulados','Geral'];
+    if(resumo) resumo.innerHTML=cats.map(c=>`<button type="button" data-cat="${c}" class="rounded-xl border border-gray-700 bg-gray-950/70 p-3 text-left hover:border-red-700"><p class="text-[10px] uppercase text-gray-500 font-black">${c}</p><p class="text-xl font-black text-white">${fallbackCache.filter(p=>p.categoria===c&&aberto(p)).length}</p><p class="text-[10px] text-gray-500">aberto(s)</p></button>`).join('');
+    resumo?.querySelectorAll('button[data-cat]').forEach(b=>b.onclick=()=>{document.getElementById('probCliqueCat').value=b.dataset.cat; renderFallback();});
+    if(!arr.length){box.innerHTML='<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-10 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl text-emerald-400 mb-3"></i><p class="font-bold">Nenhum relato encontrado nessa visualização.</p></div>';return;}
+    box.innerHTML=arr.map(p=>`<article class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div class="space-y-2 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-black uppercase">${esc(p.categoria)}</span><span class="px-2 py-1 rounded-lg bg-red-900/40 text-red-200 text-[10px] font-black uppercase">${esc(p.status||'Aberto')}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-400 text-[10px] uppercase">${esc(p.tipo||p.tipoProblema||'Relato')}</span></div><h4 class="text-sm font-black text-white">${esc(titulo(p))}</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${esc(texto(p))}</p><p class="text-[10px] text-gray-500">${esc(p.usuarioNome||p.alunoNome||p.criadoPorNome||'Usuário')} ${p.criadoEm?'· '+new Date(p.criadoEm).toLocaleString('pt-BR'):''} · ${esc(p.origemPath||'')}</p></div><div class="flex flex-wrap lg:flex-col gap-2 min-w-[150px]"><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Em análise" class="probStatusBtn px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold border border-blue-800/40">Em análise</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Resolvido" class="probStatusBtn px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold border border-emerald-800/40">Resolver</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Descartado" class="probStatusBtn px-3 py-2 rounded-xl bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button></div></div></article>`).join('');
+    box.querySelectorAll('.probStatusBtn').forEach(btn=>btn.onclick=async()=>{
+      try{ await firebaseFirestore.collection(btn.dataset.path).doc(btn.dataset.id).set({status:btn.dataset.status, atualizadoEm:Date.now(), atualizadoPorNome:usuarioLogado?.nome||''},{merge:true}); fallbackCache=fallbackCache.map(p=>p.origemPath===btn.dataset.path&&String(p.id)===String(btn.dataset.id)?{...p,status:btn.dataset.status}:p); renderFallback(); }catch(e){ alert('Erro ao atualizar problema.\n\n'+(e.message||e)); }
+    });
+  }
+
+  const existing = typeof window.abrirCentralProblemasLimpa === 'function' ? window.abrirCentralProblemasLimpa : null;
+  window.abrirCentralProblemasLimpa = async function abrirCentralProblemasLimpaClickOK(force=true){
+    try {
+      if (existing && existing !== window.abrirCentralProblemasLimpa) {
+        const before = document.querySelectorAll('#modalProblemasCentralLimpa.flex,#modalProblemasCentralLimpa:not(.hidden)').length;
+        const r = await existing.apply(this, arguments);
+        setTimeout(()=>{
+          const opened = document.querySelector('#modalProblemasCentralLimpa.flex,#modalProblemasCentralLimpa:not(.hidden)');
+          if(!opened) abrirFallback(force);
+        },100);
+        return r;
+      }
+    } catch(e) { console.warn('[Problemas clique] central antiga falhou; abrindo fallback', e); }
+    return abrirFallback(force);
+  };
+  window.abrirCentralProblemasUnificada = window.abrirCentralProblemasLimpa;
+  window.abrirCentralProblemasRevisao = window.abrirCentralProblemasLimpa;
+  window.abrirPainelProblemasQuestoes = window.abrirCentralProblemasLimpa;
+
+  function bindButton(){
+    const btn=document.getElementById(BTN_ID);
+    if(!btn) return;
+    btn.style.cursor='pointer';
+    btn.onclick=function(ev){ ev?.preventDefault?.(); ev?.stopPropagation?.(); window.abrirCentralProblemasLimpa(true); };
+    btn.dataset.clickProblemasOk='true';
+  }
+  document.addEventListener('click', function(ev){
+    const btn=ev.target?.closest?.('#'+BTN_ID);
+    if(!btn) return;
+    ev.preventDefault(); ev.stopPropagation();
+    window.abrirCentralProblemasLimpa(true);
+  }, true);
+
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__PROBLEMAS_CLICK_NAV__) {
+    window.__PROBLEMAS_CLICK_NAV__=true;
+    const nav=function(){ const r=navBase.apply(this,arguments); setTimeout(bindButton,100); return r; };
+    window.navegarAba=nav; try{navegarAba=nav;}catch(_){}
+  }
+  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(bindButton,200); setTimeout(bindButton,1200); });
+  try { if(document.body) bindButton(); } catch(_) {}
+  window.diagnosticarCliqueProblemas = function(){
+    const btn=document.getElementById(BTN_ID);
+    const modal=document.getElementById('modalProblemasCentralLimpa')||document.getElementById(MODAL_ID);
+    console.table({botao:!!btn, clickOk:btn?.dataset?.clickProblemasOk||'', hasAbrir:typeof window.abrirCentralProblemasLimpa, modal:!!modal, modalVisivel:!!(modal && !modal.classList.contains('hidden'))});
+    return {botao:!!btn, btn, modal, abrir:window.abrirCentralProblemasLimpa};
+  };
+})();
