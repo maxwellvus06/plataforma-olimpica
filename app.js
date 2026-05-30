@@ -18361,3 +18361,290 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "patch carregado");
 })();
+
+// ============================================================
+// PATCH — Listagens, filtros dependentes e prévia de layout
+// Corrige:
+// 1) Olimpíadas/simulados não listados por carregamento lazy incompleto.
+// 2) Etapas do calendário não listadas/atualizadas.
+// 3) Filtros de tema/subtema em simulados realmente filtrando.
+// 4) Gerador de listas com disciplina → tema → subtema dependentes.
+// 5) Painéis do Banco de Questões retráteis.
+// 6) Pré-visualização de layout com conteúdo fictício.
+// ============================================================
+(function patchListagensFiltrosPreviewLayouts(){
+  const TAG = "[Fix listagens/filtros/layout]";
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const unique = (arr) => Array.from(new Set((arr || []).map(v => String(v || "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base",numeric:true}));
+
+  async function carregarColecaoNecessaria(chave) {
+    try {
+      const atual = (typeof getStorage === "function" ? getStorage(chave, []) : []) || [];
+      if (Array.isArray(atual) && atual.length) return atual;
+      if (typeof carregarChaveFirebase === "function") {
+        const dados = await carregarChaveFirebase(chave, []);
+        return Array.isArray(dados) ? dados : (getStorage(chave, []) || []);
+      }
+      return atual;
+    } catch (erro) {
+      console.warn(TAG, "falha ao carregar", chave, erro);
+      return (typeof getStorage === "function" ? getStorage(chave, []) : []) || [];
+    }
+  }
+
+  async function carregarDadosDaAba(aba) {
+    const mapa = {
+      dashboard: ["app_cidades", "app_escolas", "app_alunos", "app_olimpiadas", "app_cronograma", "app_premiados"],
+      calendario: ["app_olimpiadas", "app_cronograma"],
+      importar: ["app_premiados", "app_cidades", "app_escolas", "app_olimpiadas", "app_alunos"],
+      resultados: ["app_premiados", "app_cidades", "app_escolas", "app_olimpiadas", "app_alunos"],
+      olimpiadas: ["app_olimpiadas"],
+      cidades: ["app_cidades"],
+      escolas: ["app_escolas", "app_cidades"],
+      usuarios: ["app_usuarios", "app_cidades", "app_escolas"],
+      alunos: ["app_alunos", "app_cidades", "app_escolas"],
+      simulados: ["app_simulados", "app_questoes", "app_simulados_envios"],
+      questoes: ["app_questoes"],
+      plataforma: ["app_plataforma", "app_questoes"],
+      aulas: ["app_aulas"],
+      relatorios: ["app_premiados", "app_cidades", "app_escolas", "app_alunos", "app_olimpiadas"]
+    };
+    const chaves = mapa[aba] || [];
+    for (const chave of chaves) await carregarColecaoNecessaria(chave);
+  }
+
+  function renderizarOlimpiadasDireto() {
+    const tbody = document.getElementById("tableOlimpiadasCorpo");
+    if (!tbody) return;
+    const lista = (getStorage("app_olimpiadas", []) || []).slice().sort((a,b)=>String(a.nome||"").localeCompare(String(b.nome||""),"pt-BR",{sensitivity:"base"}));
+    const podeEditar = ["ADM", "Staff"].includes(usuarioLogado?.nivel);
+    if (!lista.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-500 text-sm">Nenhuma olimpíada cadastrada/carregada.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = lista.map(o => `<tr class="hover:bg-gray-700/30"><td class="p-4 font-mono text-gray-500 text-xs">${esc(o.id)}</td><td class="p-4 font-bold text-white">${esc(o.nome)}</td><td class="p-4 text-blue-400 font-mono font-semibold">${esc(o.categoria || o.area || "—")}</td><td class="p-4 text-gray-400 font-medium">${esc(o.series || o.seriesAtendidas || "—")}</td><td class="p-4 text-right">${podeEditar && typeof editarOlimpiada === "function" ? `<button onclick="editarOlimpiada('${esc(o.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-eye mr-1"></i> Ver / editar</button>` : ""}</td></tr>`).join("");
+  }
+
+  function atualizarEtapasCalendarioSempre() {
+    try {
+      if (typeof preencherSelectEtapasCronograma === "function") preencherSelectEtapasCronograma();
+      if (typeof preencherFiltrosCronograma === "function") preencherFiltrosCronograma();
+      const etapa = document.getElementById("filterCronogramaEtapa");
+      if (etapa && etapa.options.length <= 1 && typeof TAXONOMIA_ETAPAS !== "undefined") {
+        etapa.innerHTML = `<option value="TODOS">-- Todas as etapas --</option>` + TAXONOMIA_ETAPAS.map(grupo => `<optgroup label="${esc(grupo.grupoNome)}">${grupo.etapas.map(e => `<option value="${esc(e.nome)}">${esc(e.codigo)} · ${esc(e.nome)}</option>`).join("")}</optgroup>`).join("");
+      }
+      const add = document.getElementById("addCroEtapa");
+      if (add && add.options.length <= 1 && typeof montarOptionsEtapasSelect === "function") add.innerHTML = montarOptionsEtapasSelect(add.value, { incluirPlaceholder: true, textoPlaceholder: "Selecione a etapa/fase..." });
+    } catch(e) { console.warn(TAG, "etapas calendário", e); }
+  }
+
+  async function renderizarAbaCorrigida(aba) {
+    await carregarDadosDaAba(aba);
+    if (aba === "olimpiadas") return renderizarOlimpiadasDireto();
+    if (aba === "calendario") { atualizarEtapasCalendarioSempre(); if (typeof renderizarCronograma === "function") return renderizarCronograma(); }
+    if (aba === "simulados") { if (typeof popularFiltrosSimulados === "function") popularFiltrosSimulados(); atualizarDependenciasFiltroSimuladoCorrigidas(); if (typeof renderizarSimulados === "function") return renderizarSimulados(); }
+    if (aba === "questoes") { tornarPaineisQuestoesRetrateis(); if (typeof popularFiltrosQuestoes === "function") popularFiltrosQuestoes(); if (typeof renderizarBancoQuestoes === "function") return renderizarBancoQuestoes(); }
+    if (aba === "plataforma") { aplicarDependenciaGeradorListaPlataforma(); if (typeof renderizarPlataformaEnsino === "function") return renderizarPlataformaEnsino(); }
+    if (aba === "cidades" || aba === "escolas" || aba === "usuarios") { if (typeof renderizarTabelasGerenciais === "function") return renderizarTabelasGerenciais(); }
+  }
+
+  // Hook final de navegação: carrega os dados certos e renderiza a aba aberta.
+  const navAnterior = window.navegarAba || (typeof navegarAba === "function" ? navegarAba : null);
+  if (typeof navAnterior === "function" && !window.__fixListagensNavFinal) {
+    window.__fixListagensNavFinal = true;
+    const nav = function(abaId, botao) {
+      const ret = navAnterior.apply(this, arguments);
+      setTimeout(() => renderizarAbaCorrigida(abaId).catch(e => console.warn(TAG, "render aba", abaId, e)), 140);
+      return ret;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  // Filtro de tema/subtema dos simulados agora filtra de verdade.
+  function valoresSimulado(s, campo) {
+    const vals = [];
+    if (s?.[campo]) vals.push(s[campo]);
+    if (Array.isArray(s?.questoesBanco)) s.questoesBanco.forEach(q => { if (q?.[campo]) vals.push(q[campo]); });
+    return vals.map(String).filter(Boolean);
+  }
+  function simPassaTemaSubtema(s) {
+    const tema = document.getElementById("filtroSimTema")?.value || "TODOS";
+    const sub = document.getElementById("filtroSimSubtema")?.value || "TODOS";
+    if (tema !== "TODOS" && !valoresSimulado(s, "tema").includes(tema)) return false;
+    if (sub !== "TODOS" && !valoresSimulado(s, "subtema").includes(sub)) return false;
+    return true;
+  }
+  const simDestinoBase = typeof simuladoDestinadoAoUsuario === "function" ? simuladoDestinadoAoUsuario : null;
+  if (simDestinoBase && !simDestinoBase.__temaSubtemaFix) {
+    const fn = function(sim) { return simDestinoBase(sim) && simPassaTemaSubtema(sim); };
+    fn.__temaSubtemaFix = true;
+    window.simuladoDestinadoAoUsuario = fn;
+    try { simuladoDestinadoAoUsuario = fn; } catch(_) {}
+  }
+
+  function atualizarDependenciasFiltroSimuladoCorrigidas() {
+    const discEl = document.getElementById("filtroSimDisciplina");
+    const temaEl = document.getElementById("filtroSimTema");
+    const subEl = document.getElementById("filtroSimSubtema");
+    if (!discEl) return;
+    const sims = getStorage("app_simulados", []) || [];
+    let box = document.querySelector("#view-simulados .bg-gray-800\\/40 .grid") || document.querySelector("#view-simulados .grid");
+    if (box && !document.getElementById("filtroSimTema")) {
+      box.insertAdjacentHTML("beforeend", `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tema</label><select id="filtroSimTema" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha uma disciplina</option></select></div><div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Subtema</label><select id="filtroSimSubtema" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha um tema</option></select></div>`);
+    }
+    const tema = document.getElementById("filtroSimTema");
+    const sub = document.getElementById("filtroSimSubtema");
+    if (!tema || !sub) return;
+    const disc = discEl.value || "TODOS";
+    const temaAtual = tema.value || "TODOS";
+    const baseDisc = disc === "TODOS" ? [] : sims.filter(s => s.disciplina === disc || (Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.disciplina === disc)));
+    const temas = unique(baseDisc.flatMap(s => valoresSimulado(s, "tema")));
+    tema.disabled = disc === "TODOS";
+    tema.innerHTML = `<option value="TODOS">${disc === "TODOS" ? "Escolha uma disciplina primeiro" : "Todos"}</option>` + temas.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    if (temas.includes(temaAtual)) tema.value = temaAtual;
+    const temaVal = tema.value || "TODOS";
+    const baseTema = temaVal === "TODOS" ? [] : baseDisc.filter(s => valoresSimulado(s,"tema").includes(temaVal));
+    const subs = unique(baseTema.flatMap(s => valoresSimulado(s, "subtema")));
+    sub.disabled = disc === "TODOS" || temaVal === "TODOS";
+    const subAtual = sub.value || "TODOS";
+    sub.innerHTML = `<option value="TODOS">${temaVal === "TODOS" ? "Escolha um tema primeiro" : "Todos"}</option>` + subs.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    if (subs.includes(subAtual)) sub.value = subAtual;
+  }
+  document.addEventListener("change", (e) => {
+    if (e.target?.id === "filtroSimDisciplina") { const t=document.getElementById("filtroSimTema"); const s=document.getElementById("filtroSimSubtema"); if(t)t.value="TODOS"; if(s)s.value="TODOS"; setTimeout(() => { atualizarDependenciasFiltroSimuladoCorrigidas(); if (typeof renderizarSimulados === "function") renderizarSimulados(); }, 20); }
+    if (e.target?.id === "filtroSimTema") { const s=document.getElementById("filtroSimSubtema"); if(s)s.value="TODOS"; setTimeout(() => { atualizarDependenciasFiltroSimuladoCorrigidas(); if (typeof renderizarSimulados === "function") renderizarSimulados(); }, 20); }
+    if (e.target?.id === "filtroSimSubtema") { if (typeof renderizarSimulados === "function") renderizarSimulados(); }
+  });
+
+  // Dependência para gerador de mini-lista aleatória: disciplina -> tema -> subtema.
+  function qsMini() { return getStorage("app_questoes", []) || []; }
+  function checkVals(campo, classe="bqRandCheck") { return Array.from(document.querySelectorAll(`.${classe}[data-campo="${campo}"]:checked`)).map(i => i.value); }
+  function grupoMiniDependente(campo, label, valores, aviso) {
+    const vals = unique(valores);
+    if (!vals.length) return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3"><summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(label)}</summary><p class="text-xs text-gray-500 mt-3">${esc(aviso || "Nenhuma opção encontrada.")}</p></details>`;
+    const quero = vals.map(v => `<label class="flex items-center gap-2 p-2 rounded-lg bg-gray-950 border border-gray-700 text-[11px] text-gray-200"><input type="checkbox" class="bqRandCheck accent-purple-500" data-campo="${campo}" value="${esc(v)}">${esc(v)}</label>`).join("");
+    const nao = vals.map(v => `<label class="flex items-center gap-2 p-2 rounded-lg bg-red-950/15 border border-red-900/40 text-[11px] text-red-100"><input type="checkbox" class="bqRandBlock accent-red-500" data-campo="${campo}" value="${esc(v)}">${esc(v)}</label>`).join("");
+    return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3" open><summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(label)}</summary><div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3"><div><p class="text-[10px] text-emerald-300 font-black uppercase mb-2">Quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${quero}</div></div><div><p class="text-[10px] text-red-300 font-black uppercase mb-2">Não quero que esteja na lista</p><div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${nao}</div></div></div></details>`;
+  }
+  function renderMiniListaAleatoriaDependente() {
+    const grupos = document.getElementById("bqRandGrupos");
+    if (!grupos) return;
+    const qs = qsMini();
+    const discSel = checkVals("disciplina");
+    const temaSel = checkVals("tema");
+    const qsDisc = discSel.length ? qs.filter(q => discSel.includes(q.disciplina)) : [];
+    const qsTema = temaSel.length ? qsDisc.filter(q => temaSel.includes(q.tema)) : [];
+    const temas = discSel.length ? qsDisc.map(q => q.tema) : [];
+    const subtemas = temaSel.length ? qsTema.map(q => q.subtema) : [];
+    const niveis = qs.map(q => q.nivel);
+    const areas = discSel.length ? qsDisc.map(q => q.area) : qs.map(q => q.area);
+    const difs = qs.map(q => q.dificuldade);
+    const tipos = qs.map(q => q.tipo);
+    grupos.innerHTML = [
+      grupoMiniDependente("disciplina", "Disciplina", qs.map(q=>q.disciplina), "Cadastre questões para listar disciplinas."),
+      grupoMiniDependente("nivel", "Nível", niveis, "Nenhum nível encontrado."),
+      grupoMiniDependente("area", "Área", areas, "Escolha uma disciplina para refinar áreas."),
+      grupoMiniDependente("tema", "Tema", temas, discSel.length ? "Nenhum tema para a disciplina selecionada." : "Escolha uma disciplina primeiro."),
+      grupoMiniDependente("subtema", "Subtema", subtemas, temaSel.length ? "Nenhum subtema para o tema selecionado." : "Escolha um tema primeiro."),
+      grupoMiniDependente("dificuldade", "Dificuldade", difs, "Nenhuma dificuldade encontrada."),
+      grupoMiniDependente("tipo", "Tipo", tipos, "Nenhum tipo encontrado.")
+    ].join("");
+  }
+  const abrirMiniAleatoriaBase = window.abrirGeradorMiniListaAleatoria;
+  if (typeof abrirMiniAleatoriaBase === "function" && !window.__miniAleatoriaDependenteFix) {
+    window.__miniAleatoriaDependenteFix = true;
+    window.abrirGeradorMiniListaAleatoria = function(){
+      const r = abrirMiniAleatoriaBase.apply(this, arguments);
+      setTimeout(renderMiniListaAleatoriaDependente, 80);
+      return r;
+    };
+  }
+  document.addEventListener("change", (e) => {
+    if (e.target?.classList?.contains("bqRandCheck") && ["disciplina", "tema"].includes(e.target.dataset.campo)) {
+      setTimeout(renderMiniListaAleatoriaDependente, 30);
+    }
+  });
+  // Plataforma usa o mesmo gerador, então a dependência acima já vale também lá.
+  function aplicarDependenciaGeradorListaPlataforma() { setTimeout(renderMiniListaAleatoriaDependente, 80); }
+
+  // Painéis retráteis do Banco de Questões.
+  function tornarRetratil(id, titulo, icone="fa-chevron-down") {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.retratilFix === "true") return;
+    el.dataset.retratilFix = "true";
+    const corpo = document.createElement("div");
+    corpo.className = "conteudo-retratil-fix hidden mt-4";
+    while (el.firstChild) corpo.appendChild(el.firstChild);
+    el.innerHTML = `<button type="button" class="w-full flex items-center justify-between gap-3 text-left"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid ${icone} text-purple-300 mr-2"></i>${esc(titulo)}</h3><p class="text-xs text-gray-500 mt-1">Clique para expandir/recolher este painel.</p></div><span class="px-3 py-1.5 rounded-xl bg-gray-950 border border-gray-700 text-xs font-black uppercase text-gray-200"><i class="fa-solid fa-chevron-down mr-1"></i> Expandir</span></button>`;
+    const btn = el.querySelector("button");
+    btn.addEventListener("click", () => { corpo.classList.toggle("hidden"); const aberto=!corpo.classList.contains("hidden"); btn.querySelector("span").innerHTML = aberto ? '<i class="fa-solid fa-chevron-up mr-1"></i> Recolher' : '<i class="fa-solid fa-chevron-down mr-1"></i> Expandir'; });
+    el.appendChild(corpo);
+  }
+  function tornarPaineisQuestoesRetrateis() {
+    tornarRetratil("painelQuestoesLote", "Importação em lote por Excel", "fa-file-excel");
+    tornarRetratil("painelAddQuestao", "Cadastrar questão manualmente", "fa-pen-to-square");
+    tornarRetratil("painelLayoutsMiniLista", "Layouts de impressão das listas", "fa-brush");
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(tornarPaineisQuestoesRetrateis, 1800));
+
+  // Pré-visualizar layout com lorem ipsum.
+  function dadosLayoutFormulario() {
+    return {
+      nome: document.getElementById("layoutListaNome")?.value || "Layout Avance",
+      tipo: document.getElementById("layoutListaTipo")?.value || "lista",
+      estiloVisual: document.getElementById("layoutListaEstilo")?.value || "classico",
+      titulo: document.getElementById("layoutListaTitulo")?.value || "Avance Olímpico",
+      subtitulo: document.getElementById("layoutListaSubtitulo")?.value || "Lista de Exercícios",
+      logoUrl: document.getElementById("layoutListaLogoUrl")?.value || "",
+      cabecalhoTexto: document.getElementById("layoutListaCabecalho")?.value || "Aluno(a): ______________________________ Turma: ______ Data: ___/___/_____",
+      marcaDaguaTexto: document.getElementById("layoutListaMarcaDagua")?.value || "AVANCE OLÍMPICO",
+      mostrarMarcaDagua: !!document.getElementById("layoutListaMostrarMarcaDagua")?.checked,
+      mostrarAssinatura: !!document.getElementById("layoutListaAssinatura")?.checked,
+      mostrarMetadados: !!document.getElementById("layoutListaMetadados")?.checked,
+      mostrarAlternativas: !!document.getElementById("layoutListaAlternativas")?.checked,
+      linhasResposta: !!document.getElementById("layoutListaLinhasResposta")?.checked
+    };
+  }
+  function htmlPreviewLayout(layout) {
+    const alternativas = layout.mostrarAlternativas ? `<ol class="preview-alts"><li>Alternativa A com uma possibilidade de resposta.</li><li>Alternativa B com texto intermediário.</li><li>Alternativa C com argumento plausível.</li><li>Alternativa D com distração comum.</li><li>Alternativa E com outra possibilidade.</li></ol>` : "";
+    const linhas = layout.linhasResposta ? `<div class="preview-linhas">${Array.from({length:5}).map(()=>"<div></div>").join("")}</div>` : "";
+    const q = (n) => `<article class="preview-q"><div class="preview-meta"><b>Questão ${n}</b>${layout.mostrarMetadados ? " — Matemática · Nível 2 · Geometria · Médio" : ""}</div><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Em uma situação-problema envolvendo estudantes, medidas e relações matemáticas, determine a alternativa que representa corretamente o resultado.</p>${alternativas}${linhas}</article>`;
+    return `<div class="preview-page preview-${esc(layout.estiloVisual)}">${layout.mostrarMarcaDagua ? `<div class="preview-watermark">${esc(layout.marcaDaguaTexto)}</div>` : ""}<header><div class="bar"></div><div class="headrow">${layout.logoUrl ? `<img src="${esc(layout.logoUrl)}">` : `<div class="monograma">AO</div>`}<div><p>AVANCE OLÍMPICO</p><h1>${esc(layout.titulo)}</h1><h2>${esc(layout.subtitulo)}</h2></div></div><div class="cab">${esc(layout.cabecalhoTexto).replace(/\n/g,"<br>")}</div></header>${q(1)}${q(2)}${layout.mostrarAssinatura ? `<div class="preview-ass"><span>Assinatura do estudante</span><span>Professor(a) / Correção</span></div>` : ""}</div>`;
+  }
+  function garantirModalPreviewLayout() {
+    if (document.getElementById("modalPreviewLayoutLista")) return;
+    const st = document.createElement("style");
+    st.id = "stylePreviewLayoutLista";
+    st.textContent = `.preview-page{position:relative;width:min(794px,100%);margin:auto;background:white;color:#111827;padding:28px 34px;border-left:6px solid #6d28d9;box-shadow:0 25px 80px rgba(0,0,0,.45);font-family:Arial,sans-serif;line-height:1.45}.preview-page header{border:1px solid #ddd6fe;border-radius:18px;overflow:hidden;background:linear-gradient(135deg,#faf5ff,#fff 48%,#f5f3ff);margin-bottom:18px}.preview-page .bar{height:14px;background:linear-gradient(90deg,#3b0764,#7c3aed,#a855f7)}.preview-page .headrow{display:flex;align-items:center;gap:16px;padding:16px}.preview-page img,.preview-page .monograma{width:70px;height:70px;border-radius:16px;border:2px solid #ddd6fe;background:#fff;display:flex;align-items:center;justify-content:center;color:#5b21b6;font-weight:900;font-size:24px;object-fit:contain}.preview-page header p{margin:0 0 4px;color:#6d28d9;font-size:11px;font-weight:900;letter-spacing:.18em}.preview-page h1{margin:0;color:#2e1065;font-size:24px;text-transform:uppercase}.preview-page h2{margin:4px 0 0;color:#6b21a8;font-size:14px}.preview-page .cab{margin:0 16px 16px;padding:10px;border:1px solid #ddd6fe;border-radius:12px;background:#faf5ff;color:#3b0764;font-size:12px}.preview-q{position:relative;z-index:1;border:1px solid #e5e7eb;border-left:4px solid #7c3aed;border-radius:14px;margin-bottom:14px;padding:14px;background:#fff}.preview-meta{color:#6d28d9;font-size:12px;border-bottom:1px dashed #ddd6fe;padding-bottom:6px;margin-bottom:8px}.preview-alts{margin:10px 0 0 22px}.preview-alts li{margin:4px 0}.preview-linhas div{border-bottom:1px solid #d1d5db;height:24px}.preview-watermark{position:absolute;top:42%;left:10%;transform:rotate(-28deg);font-size:54px;font-weight:900;color:rgba(91,33,182,.055);z-index:0;white-space:nowrap}.preview-ass{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:26px}.preview-ass span{border-top:1px solid #9ca3af;text-align:center;padding-top:7px;font-size:11px;color:#4b5563}`;
+    document.head.appendChild(st);
+    const modal = document.createElement("div");
+    modal.id = "modalPreviewLayoutLista";
+    modal.className = "hidden fixed inset-0 z-[99995] bg-black/80 backdrop-blur-sm px-4 py-6 overflow-y-auto";
+    modal.innerHTML = `<div class="max-w-6xl mx-auto"><div class="flex items-center justify-between gap-3 mb-4"><div><h3 class="text-lg font-black text-white uppercase"><i class="fa-solid fa-eye text-purple-300 mr-2"></i>Pré-visualização do layout</h3><p class="text-xs text-gray-400">Conteúdo fictício apenas para visualizar timbre, espaçamento, marca d'água e campos.</p></div><button onclick="fecharPreviewLayoutLista()" class="px-4 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Fechar</button></div><div id="previewLayoutListaCorpo"></div></div>`;
+    document.body.appendChild(modal);
+  }
+  window.previsualizarLayoutListaAdmin = function previsualizarLayoutListaAdmin() {
+    garantirModalPreviewLayout();
+    const layout = dadosLayoutFormulario();
+    document.getElementById("previewLayoutListaCorpo").innerHTML = htmlPreviewLayout(layout);
+    document.getElementById("modalPreviewLayoutLista").classList.remove("hidden");
+  };
+  window.fecharPreviewLayoutLista = function fecharPreviewLayoutLista() { document.getElementById("modalPreviewLayoutLista")?.classList.add("hidden"); };
+  function inserirBotaoPreviewLayout() {
+    const painel = document.getElementById("painelLayoutsMiniLista");
+    if (!painel || document.getElementById("btnPreviewLayoutLista")) return;
+    const alvo = painel.querySelector(".flex.flex-wrap.gap-2") || painel.querySelector(".conteudo-retratil-fix .flex.flex-wrap.gap-2") || painel;
+    const btn = document.createElement("button");
+    btn.id = "btnPreviewLayoutLista";
+    btn.type = "button";
+    btn.onclick = () => previsualizarLayoutListaAdmin();
+    btn.className = "px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase";
+    btn.innerHTML = '<i class="fa-solid fa-eye mr-2"></i>Pré-visualizar';
+    alvo.appendChild(btn);
+  }
+  document.addEventListener("DOMContentLoaded", () => setInterval(() => { inserirBotaoPreviewLayout(); tornarPaineisQuestoesRetrateis(); atualizarEtapasCalendarioSempre(); }, 1500));
+
+  console.log(TAG, "patch carregado");
+})();
