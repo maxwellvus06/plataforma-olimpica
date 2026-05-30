@@ -1205,7 +1205,7 @@ function ativarPrimeiraAbaPermitida() {
     }
 
     const titulos = {
-        dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
+        dashboard: "Dashboard Analítico", calendario: "Calendário Olímpico",
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
@@ -3327,7 +3327,7 @@ function navegarAba(abaId, botaoTarget) {
     document.getElementById(`view-${abaId}`).classList.remove("hidden");
 
     const titulos = {
-        dashboard: "Dashboard Analítico", calendario: "Calendário Oficial de Olimpíadas",
+        dashboard: "Dashboard Analítico", calendario: "Calendário Olímpico",
         meusresultados: "Meus Resultados", importar: "Importar Resultados", relatorios: "Relatórios Comparativos", reuniao: "Reunião Estratégica",
         alunos: "Cadastro de Alunos", usuarios: "Gerenciar Usuários e Permissões",
         olimpiadas: "Olimpíadas Cadastradas", cidades: "Gerenciar Cidades Polo (ADM)", escolas: "Gerenciar Escolas (ADM)",
@@ -16864,4 +16864,448 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     });
 
     console.log(TAG, "patch carregado");
+})();
+
+
+// ============================================================
+// PATCH — Ajustes de UX/escala: dashboard, calendário, painéis retráteis,
+// filtros dependentes, gerador de simulado e paginação de simulados.
+// ============================================================
+(function patchAjustesGeraisMaxwell(){
+  const TAG = "[Ajustes gerais]";
+  const ANO_ATUAL = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const uniq = (arr) => Array.from(new Set((arr || []).map(v => String(v || "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base",numeric:true}));
+  const colName = (chave) => typeof getFirebaseCollectionName === "function" ? getFirebaseCollectionName(chave) : (chave === "app_usuarios" ? "sistema_usuarios" : `anos/${ANO_ATUAL()}/${String(chave).replace(/^app_/, "sistema_")}`);
+
+  // Permissão: aluno também enxerga calendário, sem edição.
+  try {
+    if (typeof PERMISSOES !== "undefined" && PERMISSOES.Aluno && !PERMISSOES.Aluno.abas.includes("calendario")) PERMISSOES.Aluno.abas.splice(1, 0, "calendario");
+  } catch(_) {}
+
+  // Renomeia textos remanescentes.
+  function aplicarNomesCalendario() {
+    document.querySelectorAll("#btnNav-calendario, #pageTitleDisplay").forEach(el => {
+      if (String(el.textContent || "").includes("Calendário Olímpico")) el.innerHTML = el.innerHTML.replace(/Calendário Olímpico/g, "Calendário Olímpico");
+      if (String(el.textContent || "").includes("Calendário Olímpico")) el.textContent = "Calendário Olímpico";
+    });
+  }
+
+  async function carregarColecaoCompleta(chave, force = false) {
+    const atual = getStorage(chave, []);
+    if (!force && Array.isArray(atual) && atual.length) return atual;
+    if (typeof carregarChaveFirebase === "function") return await carregarChaveFirebase(chave, []);
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore) return atual || [];
+    const snap = await firebaseFirestore.collection(colName(chave)).get();
+    const lista = [];
+    snap.forEach(doc => lista.push({ id: doc.id, ...(doc.data() || {}) }));
+    if (typeof setStorageLocal === "function") setStorageLocal(chave, lista);
+    return lista;
+  }
+
+  async function carregarQuestoesParaSimulados(force = false) {
+    const atuais = getStorage("app_questoes", []);
+    if (!force && atuais.length) return atuais;
+    const container = document.getElementById("gerSimResumo") || document.getElementById("painelGeradorSimuladoQuestoes");
+    if (container) container.insertAdjacentHTML("beforeend", `<div id="avisoCarregandoQuestoesGerador" class="mt-2 text-xs text-purple-200"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Carregando banco de questões...</div>`);
+    try { return await carregarColecaoCompleta("app_questoes", force); }
+    finally { document.getElementById("avisoCarregandoQuestoesGerador")?.remove(); }
+  }
+
+  // Dashboard: carrega só quando necessário, evita renderizar milhares de linhas na tabela.
+  let dashboardCarregando = false;
+  const renderDashboardOriginal = typeof renderizarPlataformaDashboard === "function" ? renderizarPlataformaDashboard : null;
+  window.renderizarPlataformaDashboard = async function renderizarPlataformaDashboardOtimizado() {
+    if (dashboardCarregando) return;
+    dashboardCarregando = true;
+    const tbody = document.getElementById("tablePremiadosCorpo");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando indicadores do dashboard...</td></tr>`;
+    try {
+      await carregarColecaoCompleta("app_cidades");
+      await carregarColecaoCompleta("app_escolas");
+      const premiados = await carregarColecaoCompleta("app_premiados");
+      dadosTrabalho = Array.isArray(premiados) ? premiados : [];
+
+      const mFiltro = document.getElementById("filterMunicipio")?.value || "TODOS";
+      const eFiltro = document.getElementById("filterEscola")?.value || "TODOS";
+      const oFiltro = document.getElementById("filterOlimpiada")?.value || "TODOS";
+      const dadosFiltrados = dadosTrabalho.filter(item => {
+        const escopo = typeof resultadoDentroDoEscopoUsuario === "function" ? resultadoDentroDoEscopoUsuario(item) : true;
+        return escopo && (mFiltro === "TODOS" || item.municipio === mFiltro) && (eFiltro === "TODOS" || item.escola === eFiltro) && (oFiltro === "TODOS" || item.olimpiada === oFiltro);
+      });
+      const limiteTabela = 100;
+      if (tbody) {
+        const amostra = dadosFiltrados.slice(0, limiteTabela);
+        tbody.innerHTML = amostra.map(d => `<tr class="hover:bg-gray-800/60 transition"><td class="p-4 font-semibold text-white"><i class="fa-solid fa-user text-blue-400 mr-2"></i>${esc(d.aluno)}</td><td class="p-4 text-gray-300">${esc(d.escola)}</td><td class="p-4 text-blue-400 font-semibold text-xs">${esc(d.municipio)}</td><td class="p-4 text-gray-300 text-xs font-semibold">${esc(d.serie || "Não informada")}</td><td class="p-4 text-gray-400 text-xs">${esc(d.olimpiada)}</td><td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400">${esc(d.premio)}</span></td></tr>`).join("") || `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum resultado encontrado.</td></tr>`;
+        if (dadosFiltrados.length > limiteTabela) tbody.insertAdjacentHTML("beforeend", `<tr><td colspan="6" class="p-3 text-center text-[11px] text-amber-300 bg-amber-950/10">Exibindo os primeiros ${limiteTabela} resultados de ${dadosFiltrados.length}. Use a aba Resultados para busca completa.</td></tr>`);
+      }
+      let cidadesVisiveis = getStorage("app_cidades", []);
+      let escolasVisiveis = getStorage("app_escolas", []);
+      if (usuarioLogado?.nivel === "Gestor") {
+        cidadesVisiveis = cidadesVisiveis.filter(c => c.id === usuarioLogado.vinculoId);
+        escolasVisiveis = escolasVisiveis.filter(e => e.cidadeId === usuarioLogado.vinculoId);
+      } else if (usuarioLogado?.nivel === "Escola" || usuarioLogado?.nivel === "Aluno") {
+        const escolaUser = typeof getEscolaVinculadaUsuario === "function" ? getEscolaVinculadaUsuario() : null;
+        escolasVisiveis = escolaUser ? [escolaUser] : [];
+        cidadesVisiveis = escolaUser ? cidadesVisiveis.filter(c => c.id === escolaUser.cidadeId) : [];
+      } else if (usuarioLogado?.nivel === "Visualizador") {
+        const escopo = typeof escopoVisualizadorUsuario === "function" ? escopoVisualizadorUsuario() : null;
+        const escolaIds = typeof idsEscolasDoEscopoVisualizador === "function" ? idsEscolasDoEscopoVisualizador() : [];
+        escolasVisiveis = escolasVisiveis.filter(e => escolaIds.includes(e.id));
+        cidadesVisiveis = cidadesVisiveis.filter(c => (escopo?.cidadesIds || []).includes(c.id) || escolasVisiveis.some(e => e.cidadeId === c.id));
+      }
+      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+      setText("cardTotalMedalhas", dadosFiltrados.length);
+      setText("cardTotalOuro", dadosFiltrados.filter(x => String(x.premio || "").toLowerCase() === "ouro").length);
+      setText("cardTotalEscolas", escolasVisiveis.length);
+      setText("cardTotalCidades", cidadesVisiveis.length);
+      if (typeof atualizarGraficoPremios === "function") atualizarGraficoPremios(dadosFiltrados);
+    } catch (erro) {
+      console.error(TAG, "dashboard", erro);
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-red-300 text-sm">Erro ao carregar dashboard: ${esc(erro.message || erro)}</td></tr>`;
+    } finally { dashboardCarregando = false; }
+  };
+
+  // Painéis retráteis.
+  function tornarRetraivel(card, tituloFallback = "Painel") {
+    if (!card || card.dataset.retratilReady === "true") return;
+    const children = Array.from(card.children);
+    if (!children.length) return;
+    let header = children.find(el => el.querySelector?.("h3")) || children[0];
+    const titulo = header.querySelector?.("h3")?.innerText?.trim() || tituloFallback;
+    const corpo = document.createElement("div");
+    corpo.className = "painel-retratil-corpo hidden mt-4";
+    const mover = Array.from(card.children).filter(el => el !== header);
+    mover.forEach(el => corpo.appendChild(el));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ml-auto px-3 py-1.5 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 hover:text-white text-[11px] font-black uppercase";
+    btn.innerHTML = `<i class="fa-solid fa-chevron-down mr-1"></i>Expandir`;
+    btn.onclick = () => {
+      const aberto = !corpo.classList.contains("hidden");
+      corpo.classList.toggle("hidden", aberto);
+      btn.innerHTML = aberto ? `<i class="fa-solid fa-chevron-down mr-1"></i>Expandir` : `<i class="fa-solid fa-chevron-up mr-1"></i>Recolher`;
+      if (!aberto && card.id === "painelGeradorSimuladoQuestoes") carregarQuestoesParaSimulados().then(() => { if (typeof popularFiltrosGeradorSimulado === "function") popularFiltrosGeradorSimulado(); });
+    };
+    header.classList.add("flex", "items-start", "gap-3");
+    header.appendChild(btn);
+    card.appendChild(corpo);
+    card.dataset.retratilReady = "true";
+    card.dataset.retratilTitulo = titulo;
+  }
+
+  function aplicarPaineisRetrateis() {
+    // Calendário: formulário manual e importação por planilha.
+    document.querySelectorAll("#admCronogramaPanel > div").forEach((el, i) => tornarRetraivel(el, i === 0 ? "Adicionar evento manual" : "Importar eventos em lote"));
+    // Resultados: manual e planilha.
+    document.querySelectorAll("#secaoAddManualResultado > div").forEach((el, i) => tornarRetraivel(el, i === 0 ? "Registrar resultado manual" : "Importar via planilha"));
+    tornarRetraivel(document.getElementById("painelAddMaterial"), "Publicar Novo Material");
+    tornarRetraivel(document.getElementById("painelAddSimulado"), "Cadastrar Simulado");
+    tornarRetraivel(document.getElementById("painelGeradorSimuladoQuestoes"), "Gerador de Simulados pelo Banco de Questões");
+  }
+
+  // Relatório criativo: explica e rola até a prévia quando gerado.
+  const gerarRelCriativoBase = typeof gerarRelatorioCriativo === "function" ? gerarRelatorioCriativo : null;
+  if (gerarRelCriativoBase) {
+    window.gerarRelatorioCriativo = async function gerarRelatorioCriativoComScroll() {
+      const r = await gerarRelCriativoBase.apply(this, arguments);
+      const alvo = document.getElementById("relPreviewCriativo");
+      if (alvo) {
+        alvo.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (!alvo.dataset.explicado) {
+          alvo.insertAdjacentHTML("afterbegin", `<div class="mb-3 rounded-xl border border-purple-900/40 bg-purple-950/20 p-3 text-xs text-purple-100"><b>O que é “Gerar peça”?</b> É um relatório narrativo/visual gerado a partir dos filtros escolhidos. Ele aparece aqui embaixo e depois pode ser exportado em PDF, DOCX ou Excel.</div>`);
+          alvo.dataset.explicado = "true";
+        }
+      }
+      return r;
+    };
+  }
+
+  // Relatar problema no calendário.
+  function problemaCalendarioColecao() { return `anos/${ANO_ATUAL()}/sistema_cronograma_problemas`; }
+  window.abrirModalProblemaCalendario = async function abrirModalProblemaCalendario(eventoId) {
+    const eventos = getStorage("app_cronograma", []);
+    const ev = eventos.find(e => String(e.id) === String(eventoId)) || { id: eventoId };
+    const htmlId = "modalProblemaCalendario";
+    document.getElementById(htmlId)?.remove();
+    const modal = document.createElement("div");
+    modal.id = htmlId;
+    modal.className = "fixed inset-0 z-[95] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="this.closest('#${htmlId}').remove()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>Relatar problema no evento</h3><p class="text-xs text-gray-400 mt-1">${esc(ev.etapa || ev.acao || "Evento do calendário")}</p></div><button type="button" onclick="this.closest('#${htmlId}').remove()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300"><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Data incorreta" class="accent-amber-500">Data incorreta</label><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Horário/período incorreto" class="accent-amber-500">Horário/período incorreto</label><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Evento duplicado" class="accent-amber-500">Evento duplicado</label><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Descrição confusa" class="accent-amber-500">Descrição confusa</label><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Olimpíada errada" class="accent-amber-500">Olimpíada errada</label><label class="flex gap-2"><input type="checkbox" name="calProbTipo" value="Link/informação faltando" class="accent-amber-500">Link/informação faltando</label></div><textarea id="calProbComentario" rows="4" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o problema percebido..."></textarea><button type="button" onclick="enviarProblemaCalendario('${esc(eventoId)}')" class="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black uppercase">Enviar relato</button></div>`;
+    document.body.appendChild(modal);
+  };
+  window.enviarProblemaCalendario = async function enviarProblemaCalendario(eventoId) {
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      const tipos = Array.from(document.querySelectorAll('input[name="calProbTipo"]:checked')).map(i => i.value);
+      const comentario = document.getElementById("calProbComentario")?.value.trim() || "";
+      if (!tipos.length && !comentario) return alert("Marque ao menos um problema ou descreva o que está errado.");
+      const eventos = getStorage("app_cronograma", []);
+      const ev = eventos.find(e => String(e.id) === String(eventoId)) || {};
+      const doc = { id: `${eventoId}_${Date.now()}`, eventoId: String(eventoId), eventoResumo: ev.etapa || ev.acao || "Evento", eventoData: ev.data || "", olimpiadaId: ev.olimpiadaId || "", tipos, comentario, status: "Aberto", usuarioId: firebaseAuth?.currentUser?.uid || usuarioLogado?.authUid || usuarioLogado?.id || "", usuarioNome: usuarioLogado?.nome || "", criadoEm: Date.now(), ano: ANO_ATUAL() };
+      await firebaseFirestore.collection(problemaCalendarioColecao()).doc(doc.id).set(doc);
+      document.getElementById("modalProblemaCalendario")?.remove();
+      alert("Relato enviado. Obrigado por ajudar a corrigir o calendário.");
+    } catch (erro) { console.error(erro); alert(`Erro ao enviar relato.\n\n${erro.message || erro}`); }
+  };
+
+  // Reescreve a renderização do calendário para incluir Relatar problema e manter ordenação/filtros corretos.
+  const estadoCalendario = { pageSize: 5, page: 1 };
+  function controleCalendario() {
+    if (document.getElementById("controleCalendarioOlimpico")) return;
+    const tbody = document.getElementById("tableCronogramaCorpo");
+    const table = tbody?.closest("table");
+    if (!table) return;
+    table.parentElement.insertAdjacentHTML("beforebegin", `<div id="controleCalendarioOlimpico" class="mb-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Calendário Olímpico</p><p id="calInfo" class="text-xs text-gray-400 mt-1"></p></div><div class="flex flex-wrap items-center gap-2"><label class="text-[10px] uppercase font-bold text-gray-500">Por página</label><select id="calPageSize" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">${[5,10,20,50,100].map(n=>`<option value="${n}">${n}</option>`).join("")}</select><button type="button" id="calPrev" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold">Anterior</button><button type="button" id="calNext" class="px-3 py-2 rounded-xl bg-blue-700 text-white text-xs font-black">Próxima</button></div></div>`);
+    document.getElementById("calPageSize").onchange = () => { estadoCalendario.pageSize = Number(document.getElementById("calPageSize").value || 5); estadoCalendario.page = 1; renderizarCronograma(); };
+    document.getElementById("calPrev").onclick = () => { if (estadoCalendario.page > 1) { estadoCalendario.page--; renderizarCronograma(); } };
+    document.getElementById("calNext").onclick = () => { estadoCalendario.page++; renderizarCronograma(); };
+  }
+  window.renderizarCronograma = async function renderizarCronogramaComRelato() {
+    controleCalendario();
+    const tbody = document.getElementById("tableCronogramaCorpo");
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Carregando calendário...</td></tr>`;
+    await carregarColecaoCompleta("app_cronograma");
+    const valoresFiltrosCalendario = {
+      grupo: document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS",
+      etapa: document.getElementById("filterCronogramaEtapa")?.value || "TODOS",
+      olimpiada: document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS",
+      mes: document.getElementById("filterCronogramaMes")?.value || "TODOS"
+    };
+    if (typeof preencherFiltrosCronograma === "function") preencherFiltrosCronograma();
+    [["filterCronogramaGrupoEtapa", valoresFiltrosCalendario.grupo], ["filterCronogramaEtapa", valoresFiltrosCalendario.etapa], ["filterCronogramaOlimpiada", valoresFiltrosCalendario.olimpiada], ["filterCronogramaMes", valoresFiltrosCalendario.mes]].forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el && Array.from(el.options || []).some(o => o.value === val)) el.value = val;
+    });
+    const filtroGrupo = document.getElementById("filterCronogramaGrupoEtapa")?.value || "TODOS";
+    const filtroEtapa = document.getElementById("filterCronogramaEtapa")?.value || "TODOS";
+    const filtroOlimpiada = document.getElementById("filterCronogramaOlimpiada")?.value || "TODOS";
+    const filtroMes = document.getElementById("filterCronogramaMes")?.value || "TODOS";
+    let lista = getStorage("app_cronograma", []).filter(c => {
+      const info = typeof normalizarEtapaCronograma === "function" ? normalizarEtapaCronograma(c.etapa) : { etapa: c.etapa, padronizada: true, etapaGrupo: "" };
+      const porGrupo = filtroGrupo === "TODOS" || (filtroGrupo === "NAO_PADRONIZADA" ? !info.padronizada : info.etapaGrupo === filtroGrupo);
+      const porEtapa = filtroEtapa === "TODOS" || norm(info.etapa) === norm(filtroEtapa);
+      const porOlimpiada = filtroOlimpiada === "TODOS" || String(c.olimpiadaId) === String(filtroOlimpiada);
+      const porMes = typeof cronogramaEventoNoMes === "function" ? cronogramaEventoNoMes(c, filtroMes) : true;
+      return porGrupo && porEtapa && porOlimpiada && porMes;
+    });
+    lista = typeof ordenarCronogramaPorModo === "function" ? ordenarCronogramaPorModo(lista) : lista;
+    const pageSize = estadoCalendario.pageSize || 5;
+    const maxPage = Math.max(1, Math.ceil(lista.length / pageSize));
+    if (estadoCalendario.page > maxPage) estadoCalendario.page = maxPage;
+    const ini = (estadoCalendario.page - 1) * pageSize;
+    const pagina = lista.slice(ini, ini + pageSize);
+    const olimpiadas = getStorage("app_olimpiadas", []);
+    const podeEditar = typeof permissao === "function" ? permissao("calendario.podeEditar") : false;
+    if (!pagina.length) { tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500 text-sm">Nenhum evento encontrado.</td></tr>`; }
+    else tbody.innerHTML = pagina.map(c => {
+      const oli = olimpiadas.find(o => String(o.id) === String(c.olimpiadaId));
+      const temporal = typeof classificarTemporalCronograma === "function" ? classificarTemporalCronograma(c) : { codigo: "" };
+      const rowExtra = temporal.codigo === "passado" ? " opacity-70" : (temporal.codigo === "agora" ? " bg-amber-500/5 ring-1 ring-amber-500/20" : "");
+      return `<tr class="hover:bg-gray-800/40 transition${rowExtra}"><td class="p-4 font-bold text-white">${oli ? esc(oli.nome) : "Desconhecida"}</td><td class="p-4 text-xs font-semibold">${typeof etapaVisualCronograma === "function" ? etapaVisualCronograma(c) : esc(c.etapa)}</td><td class="p-4 text-amber-400 font-mono text-xs"><i class="fa-regular fa-clock mr-1"></i> ${typeof formatarPeriodoCronograma === "function" ? esc(formatarPeriodoCronograma(c)) : esc(c.data)}${typeof badgeTemporalCronograma === "function" ? badgeTemporalCronograma(c) : ""}</td><td class="p-4 text-xs text-gray-400 font-medium">${esc(c.segmento)}</td><td class="p-4 text-gray-400 text-xs leading-relaxed">${esc(c.acao)}</td><td class="p-4 text-right flex flex-wrap justify-end gap-1">${podeEditar ? `<button onclick="editarCronograma('${esc(c.id)}')" class="px-2 py-1 rounded-lg border border-blue-900/50 text-blue-400 hover:bg-blue-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar</button>` : ""}<button onclick="abrirModalProblemaCalendario('${esc(c.id)}')" class="px-2 py-1 rounded-lg border border-amber-900/50 text-amber-300 hover:bg-amber-950/30 text-[11px] font-bold transition"><i class="fa-solid fa-flag mr-1"></i>Relatar</button></td></tr>`;
+    }).join("");
+    const info = document.getElementById("calInfo");
+    if (info) info.innerHTML = `Página <b class="text-white">${estadoCalendario.page}</b> de <b class="text-white">${maxPage}</b> · ${lista.length} evento(s) filtrado(s)`;
+  };
+
+  // Dependências de taxonomia no Banco de Questões.
+  function filtrarSelect(id, valores, textoTodos, desabilitar) {
+    const el = document.getElementById(id); if (!el) return;
+    const atual = el.value;
+    el.disabled = !!desabilitar;
+    el.classList.toggle("opacity-50", !!desabilitar);
+    el.innerHTML = `<option value="TODOS">${textoTodos}</option>` + uniq(valores).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    el.value = Array.from(el.options).some(o => o.value === atual) ? atual : "TODOS";
+  }
+  function aplicarDependenciasBancoQuestoes() {
+    const qs = getStorage("app_questoes", []);
+    const disc = document.getElementById("filtroQuestaoDisciplina")?.value || "TODOS";
+    const temaAtual = document.getElementById("filtroQuestaoTema")?.value || "TODOS";
+    const baseDisc = disc === "TODOS" ? [] : qs.filter(q => q.disciplina === disc);
+    filtrarSelect("filtroQuestaoTema", baseDisc.map(q => q.tema), disc === "TODOS" ? "Escolha uma disciplina primeiro" : "Todos", disc === "TODOS");
+    const tema = document.getElementById("filtroQuestaoTema")?.value || temaAtual;
+    const baseTema = tema === "TODOS" ? [] : baseDisc.filter(q => q.tema === tema);
+    filtrarSelect("filtroQuestaoSubtema", baseTema.map(q => q.subtema), tema === "TODOS" ? "Escolha um tema primeiro" : "Todos", disc === "TODOS" || tema === "TODOS");
+  }
+  const popularFiltrosQuestoesBase = typeof popularFiltrosQuestoes === "function" ? popularFiltrosQuestoes : null;
+  if (popularFiltrosQuestoesBase) {
+    window.popularFiltrosQuestoes = function popularFiltrosQuestoesDependente() {
+      const r = popularFiltrosQuestoesBase.apply(this, arguments);
+      setTimeout(aplicarDependenciasBancoQuestoes, 30);
+      return r;
+    };
+  }
+  document.addEventListener("change", e => {
+    if (e.target?.id === "filtroQuestaoDisciplina") { const t = document.getElementById("filtroQuestaoTema"); const s = document.getElementById("filtroQuestaoSubtema"); if (t) t.value = "TODOS"; if (s) s.value = "TODOS"; setTimeout(() => { aplicarDependenciasBancoQuestoes(); if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes(); }, 20); }
+    if (e.target?.id === "filtroQuestaoTema") { const s = document.getElementById("filtroQuestaoSubtema"); if (s) s.value = "TODOS"; setTimeout(() => { aplicarDependenciasBancoQuestoes(); if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes(); }, 20); }
+  });
+
+  // Gerador de simulados: checkboxes dependentes e carregamento automático de questões.
+  function selecionados(nome) { return Array.from(document.querySelectorAll(`input[name="${nome}"]:checked`)).map(i => i.value).filter(Boolean); }
+  function renderChecks(containerId, nome, valores, placeholder) {
+    const box = document.getElementById(containerId); if (!box) return;
+    const ant = new Set(selecionados(nome));
+    const lista = uniq(valores);
+    if (!lista.length) { box.innerHTML = `<div class="p-3 text-center text-xs text-gray-500">${esc(placeholder)}</div>`; return; }
+    box.innerHTML = lista.map(v => { const id = `${nome}_${Math.random().toString(36).slice(2)}`; return `<label for="${id}" class="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-800/80 cursor-pointer text-xs text-gray-300"><input id="${id}" type="checkbox" name="${nome}" value="${esc(v)}" ${ant.has(v)?"checked":""} class="mt-0.5 accent-purple-500 shrink-0"><span class="leading-snug">${esc(v)}</span></label>`; }).join("");
+  }
+  window.popularFiltrosGeradorSimulado = async function popularFiltrosGeradorSimuladoDependente() {
+    await carregarQuestoesParaSimulados();
+    const qs = getStorage("app_questoes", []);
+    const discSel = selecionados("gerSimDisciplina");
+    const temaSel = selecionados("gerSimTema");
+    const disciplinas = qs.map(q => q.disciplina);
+    const niveis = ["Nível 1 — 6º/7º Ano", "Nível 2 — 8º/9º Ano", "Ensino Médio", "ITA/IME", "Geral", ...qs.map(q => q.nivel)];
+    const qsDisc = discSel.length ? qs.filter(q => discSel.includes(q.disciplina)) : [];
+    const temas = discSel.length ? qsDisc.map(q => q.tema) : [];
+    const qsTema = temaSel.length ? qsDisc.filter(q => temaSel.includes(q.tema)) : [];
+    const subtemas = temaSel.length ? qsTema.map(q => q.subtema) : [];
+    renderChecks("gerSimDisciplinaChecks", "gerSimDisciplina", disciplinas, "Cadastre questões para aparecerem as disciplinas.");
+    renderChecks("gerSimNivelChecks", "gerSimNivel", niveis, "Cadastre questões para aparecerem os níveis.");
+    renderChecks("gerSimTemasChecks", "gerSimTema", temas, discSel.length ? "Nenhum tema para a disciplina selecionada." : "Escolha uma disciplina primeiro.");
+    renderChecks("gerSimSubtemasChecks", "gerSimSubtema", subtemas, temaSel.length ? "Nenhum subtema para o tema selecionado." : "Escolha um tema primeiro.");
+    const set = (id, a, b) => { const el = document.getElementById(id); if (el) el.textContent = a ? `${a}/${b}` : `${b}`; };
+    set("gerSimCountDisciplina", selecionados("gerSimDisciplina").length, uniq(disciplinas).length);
+    set("gerSimCountNivel", selecionados("gerSimNivel").length, uniq(niveis).length);
+    set("gerSimCountTema", selecionados("gerSimTema").length, uniq(temas).length);
+    set("gerSimCountSubtema", selecionados("gerSimSubtema").length, uniq(subtemas).length);
+    if (typeof atualizarDistribuicaoGeradorSimulado === "function") atualizarDistribuicaoGeradorSimulado();
+    if (typeof atualizarDestinoGeradorSimulado === "function") atualizarDestinoGeradorSimulado();
+    if (typeof atualizarResumoGeradorSimulado === "function") atualizarResumoGeradorSimulado();
+  };
+  document.addEventListener("change", e => {
+    if (e.target?.name === "gerSimDisciplina") { document.querySelectorAll('input[name="gerSimTema"],input[name="gerSimSubtema"]').forEach(i => i.checked = false); popularFiltrosGeradorSimulado(); }
+    if (e.target?.name === "gerSimTema") { document.querySelectorAll('input[name="gerSimSubtema"]').forEach(i => i.checked = false); popularFiltrosGeradorSimulado(); }
+    if (e.target?.name === "gerSimNivel" || e.target?.name === "gerSimSubtema") { if (typeof atualizarResumoGeradorSimulado === "function") atualizarResumoGeradorSimulado(); }
+  });
+
+  // Filtros de simulados dependentes e paginação visual.
+  const estadoSims = { page: 1, pageSize: 5 };
+  function atualizarDependenciasFiltrosSimulados() {
+    const sims = getStorage("app_simulados", []).filter(s => typeof simuladoDestinadoAoUsuario === "function" ? simuladoDestinadoAoUsuario(s) : true);
+    const disc = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const tema = document.getElementById("filtroSimTema")?.value || "TODOS";
+    // Campos opcionais: cria tema/subtema se ainda não existirem.
+    const filtroBox = document.querySelector("#view-simulados .bg-gray-800\/40 .grid") || document.querySelector("#view-simulados .grid");
+    if (filtroBox && !document.getElementById("filtroSimTema")) {
+      filtroBox.insertAdjacentHTML("beforeend", `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tema</label><select id="filtroSimTema" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha uma disciplina</option></select></div><div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Subtema</label><select id="filtroSimSubtema" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha um tema</option></select></div>`);
+    }
+    const temas = disc === "TODOS" ? [] : sims.filter(s => s.disciplina === disc).flatMap(s => [s.tema, ...(Array.isArray(s.questoesBanco)?s.questoesBanco.map(q=>q.tema):[])]);
+    filtrarSelect("filtroSimTema", temas, disc === "TODOS" ? "Escolha uma disciplina primeiro" : "Todos", disc === "TODOS");
+    const temaVal = document.getElementById("filtroSimTema")?.value || tema;
+    const subs = temaVal === "TODOS" ? [] : sims.filter(s => s.disciplina === disc).flatMap(s => [s.subtema, ...(Array.isArray(s.questoesBanco)?s.questoesBanco.filter(q=>q.tema===temaVal).map(q=>q.subtema):[])]);
+    filtrarSelect("filtroSimSubtema", subs, temaVal === "TODOS" ? "Escolha um tema primeiro" : "Todos", disc === "TODOS" || temaVal === "TODOS");
+  }
+  const popularFiltrosSimBase = typeof popularFiltrosSimulados === "function" ? popularFiltrosSimulados : null;
+  if (popularFiltrosSimBase) {
+    window.popularFiltrosSimulados = function popularFiltrosSimuladosDependente() { const r = popularFiltrosSimBase.apply(this, arguments); setTimeout(atualizarDependenciasFiltrosSimulados, 20); return r; };
+  }
+  function controleSims() {
+    if (document.getElementById("controleSimuladosPaginacao")) return;
+    const grid = document.getElementById("gridSimulados"); if (!grid) return;
+    grid.insertAdjacentHTML("beforebegin", `<div id="controleSimuladosPaginacao" class="my-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3"><div><p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Exibição dos simulados</p><p id="simPagInfo" class="text-xs text-gray-400 mt-1"></p></div><div class="flex flex-wrap items-center gap-2"><label class="text-[10px] uppercase font-bold text-gray-500">Por página</label><select id="simPageSize" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200">${[5,10,20,50,100].map(n=>`<option value="${n}">${n}</option>`).join("")}</select><button type="button" id="simPrev" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold">Anterior</button><button type="button" id="simNext" class="px-3 py-2 rounded-xl bg-blue-700 text-white text-xs font-black">Próxima</button></div></div>`);
+    document.getElementById("simPageSize").onchange = () => { estadoSims.pageSize = Number(document.getElementById("simPageSize").value || 5); estadoSims.page = 1; renderizarSimulados(); };
+    document.getElementById("simPrev").onclick = () => { if (estadoSims.page > 1) { estadoSims.page--; renderizarSimulados(); } };
+    document.getElementById("simNext").onclick = () => { estadoSims.page++; renderizarSimulados(); };
+  }
+  const renderSimsBase = typeof renderizarSimulados === "function" ? renderizarSimulados : null;
+  if (renderSimsBase) {
+    window.renderizarSimulados = function renderizarSimuladosPaginado() {
+      controleSims();
+      atualizarDependenciasFiltrosSimulados();
+      // Deixa o render original cuidar da filtragem completa e depois pagina visualmente os cards.
+      const r = renderSimsBase.apply(this, arguments);
+      setTimeout(() => {
+        const grid = document.getElementById("gridSimulados"); if (!grid) return;
+        const cards = Array.from(grid.children).filter(el => el.matches?.("div.bg-gray-800"));
+        const total = cards.length;
+        const pageSize = estadoSims.pageSize || 5;
+        const maxPage = Math.max(1, Math.ceil(total / pageSize));
+        if (estadoSims.page > maxPage) estadoSims.page = maxPage;
+        const ini = (estadoSims.page - 1) * pageSize;
+        cards.forEach((el, idx) => el.classList.toggle("hidden", idx < ini || idx >= ini + pageSize));
+        const info = document.getElementById("simPagInfo"); if (info) info.innerHTML = `Página <b class="text-white">${estadoSims.page}</b> de <b class="text-white">${maxPage}</b> · ${total} simulado(s) filtrado(s)`;
+      }, 30);
+      return r;
+    };
+  }
+
+  // Corrige cliques de filtros para reiniciar páginas.
+  document.addEventListener("input", e => { if (e.target?.id === "filtroSimBusca") { estadoSims.page = 1; } });
+  document.addEventListener("change", e => { if (String(e.target?.id || "").startsWith("filtroSim")) { estadoSims.page = 1; if (e.target.id === "filtroSimDisciplina") { const t=document.getElementById("filtroSimTema"), s=document.getElementById("filtroSimSubtema"); if(t)t.value="TODOS"; if(s)s.value="TODOS"; } if (e.target.id === "filtroSimTema") { const s=document.getElementById("filtroSimSubtema"); if(s)s.value="TODOS"; } } });
+
+  // Navegação: garante carregamentos e ajustes pós-render.
+  const navBase = typeof navegarAba === "function" ? navegarAba : null;
+  if (navBase) {
+    window.navegarAba = function navegarAbaAjustes(abaId, botaoTarget) {
+      const r = navBase.apply(this, arguments);
+      setTimeout(() => {
+        aplicarNomesCalendario();
+        aplicarPaineisRetrateis();
+        if (abaId === "dashboard") renderizarPlataformaDashboard();
+        if (abaId === "calendario") renderizarCronograma();
+        if (abaId === "simulados") { carregarQuestoesParaSimulados().then(() => { if (typeof popularFiltrosGeradorSimulado === "function") popularFiltrosGeradorSimulado(); }); }
+      }, 120);
+      return r;
+    };
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => { aplicarNomesCalendario(); aplicarPaineisRetrateis(); }, 1500));
+  console.log(TAG, "patch carregado");
+})();
+
+// ============================================================
+// PATCH — Central de relatos do Calendário Olímpico para ADM/Staff
+// ============================================================
+(function patchCentralProblemasCalendario(){
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+  const pode = () => !!usuarioLogado && ["ADM", "Staff"].includes(usuarioLogado.nivel);
+  const col = () => `anos/${typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026"}/sistema_cronograma_problemas`;
+  let cache = [];
+  async function carregar(force=false){
+    if (!pode()) return [];
+    if (cache.length && !force) return cache;
+    if (typeof initFirebase === "function") initFirebase();
+    const snap = await firebaseFirestore.collection(col()).orderBy("criadoEm", "desc").limit(250).get();
+    cache = []; snap.forEach(d => cache.push({id:d.id, ...(d.data()||{})}));
+    return cache;
+  }
+  async function badge(){
+    if (!pode()) return;
+    const arr = await carregar(true);
+    const abertos = arr.filter(p => !["Resolvido","Descartado"].includes(String(p.status||""))).length;
+    const b = document.getElementById("badgeProblemasCalendario");
+    if (b) { b.textContent = abertos; b.classList.toggle("hidden", !abertos); }
+  }
+  function inserirBotao(){
+    if (!pode() || document.getElementById("btnProblemasCalendario")) return;
+    const header = document.querySelector("header .flex.items-center.gap-3") || document.querySelector("header div:last-child") || document.querySelector("header");
+    if (!header) return;
+    const btn = document.createElement("button");
+    btn.id = "btnProblemasCalendario";
+    btn.type = "button";
+    btn.className = "relative px-3 py-2 rounded-xl bg-amber-900/30 border border-amber-800/40 text-amber-200 text-xs font-black uppercase hover:bg-amber-900/50";
+    btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-2"></i>Calendário <span id="badgeProblemasCalendario" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+    btn.onclick = abrir;
+    header.prepend(btn);
+    badge();
+  }
+  async function abrir(){
+    const arr = await carregar(true);
+    document.getElementById("modalProblemasCalendarioAdmin")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "modalProblemasCalendarioAdmin";
+    modal.className = "fixed inset-0 z-[96] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    const itens = arr.length ? arr.map(p => `<div class="rounded-xl border border-gray-700 bg-gray-950/70 p-4"><div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><p class="text-[10px] text-amber-300 uppercase font-black">${esc(p.status || "Aberto")}</p><h4 class="text-sm font-black text-white mt-1">${esc(p.eventoResumo || "Evento")}</h4><p class="text-xs text-gray-400 mt-1">${esc((p.tipos || []).join(", ") || "Relato")}</p><p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap">${esc(p.comentario || "Sem comentário adicional.")}</p><p class="text-[10px] text-gray-500 mt-2">Por ${esc(p.usuarioNome || "usuário")} · ${p.criadoEm ? new Date(p.criadoEm).toLocaleString("pt-BR") : ""}</p></div><div class="flex flex-wrap gap-2"><button onclick="resolverProblemaCalendario('${esc(p.id)}','Em análise')" class="px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold">Em análise</button><button onclick="resolverProblemaCalendario('${esc(p.id)}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold">Resolvido</button><button onclick="resolverProblemaCalendario('${esc(p.id)}','Descartado')" class="px-3 py-2 rounded-xl bg-red-900/40 text-red-200 text-xs font-bold">Descartar</button></div></div></div>`).join("") : `<div class="p-8 text-center text-gray-500">Nenhum problema relatado no calendário.</div>`;
+    modal.innerHTML = `<div class="absolute inset-0" onclick="this.closest('#modalProblemasCalendarioAdmin').remove()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>Problemas relatados no Calendário</h3><p class="text-xs text-gray-400 mt-1">ADM/Staff podem acompanhar, resolver ou descartar os relatos.</p></div><button type="button" onclick="this.closest('#modalProblemasCalendarioAdmin').remove()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div>${itens}</div>`;
+    document.body.appendChild(modal);
+  }
+  window.resolverProblemaCalendario = async function(id,status){
+    try { await firebaseFirestore.collection(col()).doc(String(id)).set({status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || ""}, {merge:true}); cache = cache.map(p => String(p.id) === String(id) ? {...p,status} : p); document.getElementById("modalProblemasCalendarioAdmin")?.remove(); badge(); abrir(); }
+    catch(e){ alert(`Erro ao atualizar relato.\n\n${e.message || e}`); }
+  };
+  document.addEventListener("DOMContentLoaded", () => setTimeout(inserirBotao, 1800));
+  setInterval(() => { if (pode()) badge(); }, 120000);
 })();
