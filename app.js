@@ -19910,3 +19910,478 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   }, 1800));
   console.log(TAG, 'carregado');
 })();
+
+// ============================================================
+// PATCH DEFINITIVO V2 — Editor de Layouts de Listas
+// Objetivo:
+// - impedir que patches antigos sobrescrevam a prévia;
+// - editor retrátil;
+// - prévia A4 fiel e estável;
+// - upload local de logo;
+// - mais opções de personalização;
+// - excluir qualquer layout, exceto o último restante.
+// ============================================================
+(function patchEditorLayoutsListasDefinitivoV2(){
+  const TAG = "[layout-listas-v2]";
+  const DOC_ID = "listas_questoes";
+  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  const arr = (v) => Array.isArray(v) ? v : [];
+  const uid = () => usuarioLogado?.authUid || usuarioLogado?.id || "anon";
+  const canEdit = () => !!usuarioLogado && ["ADM","Staff"].includes(String(usuarioLogado.nivel || ""));
+  let cacheLayoutsV2 = null;
+  let ativoIdV2 = "";
+  let editorAbertoV2 = false;
+  let atualizandoPreviewV2 = false;
+
+  function defaultLayoutV2() {
+    return normalizarLayoutV2({
+      id: `layout_avance_${Date.now()}`,
+      nome: "Modelo Avance",
+      tipo: "lista",
+      estilo: "institucional",
+      titulo: "Avance Olímpico",
+      subtitulo: "Lista de Exercícios",
+      logoUrl: "",
+      cabecalhoTexto: "Aluno(a): ________________________________    Turma: ____________    Data: ____/____/______",
+      rodapeTexto: "",
+      instrucoesTexto: "Leia com atenção e resolva cada questão no espaço indicado.",
+      marcaDaguaTexto: "AVANCE OLÍMPICO",
+      mostrarMarcaDagua: true,
+      mostrarRodape: true,
+      mostrarInstrucoes: true,
+      mostrarMetadados: true,
+      mostrarAlternativas: true,
+      alternativasDuasColunas: false,
+      linhasResposta: false,
+      questaoPorPagina: false,
+      mostrarAssinatura: false,
+      mostrarNumeracao: true,
+      mostrarBordaQuestoes: true,
+      mostrarFaixaSuperior: true,
+      mostrarLogo: true,
+      corPrimaria: "#6d28d9",
+      corSecundaria: "#a855f7",
+      corTexto: "#111827",
+      corFundoCabecalho: "#faf5ff",
+      corBorda: "#ddd6fe",
+      fonteFamilia: "Arial",
+      fonteBase: 12,
+      tituloTamanho: 24,
+      logoTamanho: 68,
+      margemMm: 12,
+      espacamentoQuestao: 12,
+      raioBorda: 14,
+      marcaOpacidade: 6,
+      marcaTamanho: 54,
+      linhasRespostaQtd: 5,
+      zoomPreview: 58,
+      compacto: false
+    });
+  }
+
+  function normalizarLayoutV2(l) {
+    l = { ...(l || {}) };
+    const d = {
+      id: String(l.id || `layout_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_"),
+      nome: String(l.nome || "Layout sem nome").trim(),
+      tipo: ["lista","simulado"].includes(String(l.tipo || "").toLowerCase()) ? String(l.tipo).toLowerCase() : "lista",
+      estilo: String(l.estilo || l.estiloVisual || "institucional"),
+      titulo: String(l.titulo || "Avance Olímpico"),
+      subtitulo: String(l.subtitulo || (l.tipo === "simulado" ? "Caderno de Questões" : "Lista de Exercícios")),
+      logoUrl: String(l.logoUrl || ""),
+      cabecalhoTexto: String(l.cabecalhoTexto || ""),
+      rodapeTexto: String(l.rodapeTexto || ""),
+      instrucoesTexto: String(l.instrucoesTexto || ""),
+      marcaDaguaTexto: String(l.marcaDaguaTexto || "AVANCE OLÍMPICO"),
+      mostrarMarcaDagua: l.mostrarMarcaDagua !== false,
+      mostrarRodape: l.mostrarRodape !== false,
+      mostrarInstrucoes: l.mostrarInstrucoes !== false,
+      mostrarMetadados: l.mostrarMetadados !== false,
+      mostrarAlternativas: l.mostrarAlternativas !== false,
+      alternativasDuasColunas: !!l.alternativasDuasColunas,
+      linhasResposta: !!l.linhasResposta,
+      questaoPorPagina: !!l.questaoPorPagina,
+      mostrarAssinatura: !!l.mostrarAssinatura,
+      mostrarNumeracao: l.mostrarNumeracao !== false,
+      mostrarBordaQuestoes: l.mostrarBordaQuestoes !== false,
+      mostrarFaixaSuperior: l.mostrarFaixaSuperior !== false,
+      mostrarLogo: l.mostrarLogo !== false,
+      corPrimaria: l.corPrimaria || "#6d28d9",
+      corSecundaria: l.corSecundaria || "#a855f7",
+      corTexto: l.corTexto || "#111827",
+      corFundoCabecalho: l.corFundoCabecalho || "#faf5ff",
+      corBorda: l.corBorda || "#ddd6fe",
+      fonteFamilia: l.fonteFamilia || "Arial",
+      fonteBase: Number(l.fonteBase || 12),
+      tituloTamanho: Number(l.tituloTamanho || 24),
+      logoTamanho: Number(l.logoTamanho || 68),
+      margemMm: Number(l.margemMm || l.margem || 12),
+      espacamentoQuestao: Number(l.espacamentoQuestao || 12),
+      raioBorda: Number(l.raioBorda || 14),
+      marcaOpacidade: Number(l.marcaOpacidade || 6),
+      marcaTamanho: Number(l.marcaTamanho || 54),
+      linhasRespostaQtd: Number(l.linhasRespostaQtd || 5),
+      zoomPreview: Number(l.zoomPreview || 58),
+      compacto: !!l.compacto
+    };
+    // Compatibilidade com campos antigos
+    if (l.estiloVisual && !l.estilo) d.estilo = l.estiloVisual;
+    if (l.bordaLateral === false) d.mostrarBordaQuestoes = false;
+    return d;
+  }
+
+  async function carregarLayoutsV2(force=false) {
+    if (cacheLayoutsV2 && !force) return cacheLayoutsV2;
+    let layouts = [];
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseFirestore) {
+        const doc = await firebaseFirestore.collection("sistema_layout").doc(DOC_ID).get();
+        if (doc.exists) {
+          const dados = doc.data() || {};
+          if (Array.isArray(dados.layouts)) layouts = dados.layouts;
+        }
+      }
+    } catch(e) { console.warn(TAG, "não carregou layouts", e); }
+    if (!layouts.length) layouts = [defaultLayoutV2()];
+    cacheLayoutsV2 = layouts.map(normalizarLayoutV2);
+    if (!ativoIdV2 || !cacheLayoutsV2.some(l => l.id === ativoIdV2)) ativoIdV2 = cacheLayoutsV2[0].id;
+    return cacheLayoutsV2;
+  }
+
+  async function salvarLayoutsV2(layouts) {
+    layouts = arr(layouts).map(normalizarLayoutV2);
+    if (!layouts.length) layouts = [defaultLayoutV2()];
+    cacheLayoutsV2 = layouts;
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseFirestore) {
+        await firebaseFirestore.collection("sistema_layout").doc(DOC_ID).set({
+          layouts,
+          atualizadoEm: Date.now(),
+          atualizadoPor: usuarioLogado?.nome || usuarioLogado?.email || ""
+        }, { merge: true });
+      }
+    } catch(e) { throw e; }
+    return layouts;
+  }
+
+  function help(texto) { return `<p class="ao-field-help">${esc(texto)}</p>`; }
+  function field({id,label,helpText,type="text",attrs="",options="",textarea=false}) {
+    if (textarea) return `<div class="ao-field"><label for="${id}">${esc(label)}</label><textarea id="${id}" ${attrs} title="${esc(helpText)}"></textarea>${help(helpText)}</div>`;
+    if (type === "select") return `<div class="ao-field"><label for="${id}">${esc(label)}</label><select id="${id}" ${attrs} title="${esc(helpText)}">${options}</select>${help(helpText)}</div>`;
+    return `<div class="ao-field"><label for="${id}">${esc(label)}</label><input id="${id}" type="${type}" ${attrs} title="${esc(helpText)}">${help(helpText)}</div>`;
+  }
+  function toggle(id,label,helpText) {
+    return `<label class="ao-toggle" title="${esc(helpText)}"><input id="${id}" type="checkbox"><span><b>${esc(label)}</b><em>${esc(helpText)}</em></span></label>`;
+  }
+  function section(titulo, desc, html) {
+    return `<section class="ao-section"><div class="ao-section-head"><h4>${esc(titulo)}</h4><p>${esc(desc)}</p></div>${html}</section>`;
+  }
+
+  function injectStyleV2() {
+    if (document.getElementById("ao-layout-v2-style")) return;
+    const style = document.createElement("style");
+    style.id = "ao-layout-v2-style";
+    style.textContent = `
+      #painelLayoutsMiniListaQuestoes.ao-layout-v2 { border-color: rgba(126,34,206,.55) !important; background: rgba(17,24,39,.72) !important; }
+      .ao-layout-v2 .ao-panel-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; gap:16px; text-align:left; padding:2px; }
+      .ao-layout-v2 .ao-panel-toggle h3 { color:#fff; font-weight:900; text-transform:uppercase; letter-spacing:.06em; font-size:14px; }
+      .ao-layout-v2 .ao-panel-toggle p { color:#9ca3af; font-size:12px; margin-top:4px; }
+      .ao-layout-v2 .ao-chip { padding:7px 10px; border-radius:12px; border:1px solid #374151; background:#030712; color:#e5e7eb; font-size:11px; font-weight:900; text-transform:uppercase; }
+      .ao-layout-v2 .ao-editor-body { margin-top:18px; }
+      .ao-layout-v2 .ao-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; padding:14px; border:1px solid #374151; border-radius:18px; background:rgba(3,7,18,.45); margin-bottom:16px; }
+      .ao-layout-v2 .ao-toolbar-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .ao-layout-v2 .ao-toolbar select, .ao-layout-v2 .ao-field input, .ao-layout-v2 .ao-field select, .ao-layout-v2 .ao-field textarea { width:100%; color:#e5e7eb; background:#030712; border:1px solid #374151; border-radius:12px; padding:10px 11px; font-size:13px; outline:none; }
+      .ao-layout-v2 .ao-field textarea { min-height:82px; resize:vertical; }
+      .ao-layout-v2 .ao-field input[type=color] { height:42px; padding:4px; }
+      .ao-layout-v2 .ao-field input[type=range] { padding:0; height:32px; accent-color:#8b5cf6; }
+      .ao-layout-v2 .ao-field label { display:block; font-size:11px; color:#c4b5fd; text-transform:uppercase; font-weight:900; letter-spacing:.05em; margin-bottom:6px; }
+      .ao-layout-v2 .ao-field-help { color:#6b7280; font-size:10px; line-height:1.35; margin-top:5px; }
+      .ao-layout-v2 .ao-grid-2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .ao-layout-v2 .ao-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+      .ao-layout-v2 .ao-grid-4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+      .ao-layout-v2 .ao-main-grid { display:grid; grid-template-columns:minmax(520px,1fr) minmax(430px,.92fr); gap:18px; align-items:start; }
+      .ao-layout-v2 .ao-section { border:1px solid #374151; background:rgba(3,7,18,.35); border-radius:18px; padding:15px; margin-bottom:14px; }
+      .ao-layout-v2 .ao-section-head { margin-bottom:12px; border-bottom:1px solid rgba(55,65,81,.8); padding-bottom:10px; }
+      .ao-layout-v2 .ao-section-head h4 { margin:0; color:#ddd6fe; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
+      .ao-layout-v2 .ao-section-head p { color:#9ca3af; font-size:11px; margin:4px 0 0; }
+      .ao-layout-v2 .ao-toggle { display:flex; gap:10px; align-items:flex-start; border:1px solid #374151; background:#030712; border-radius:14px; padding:11px; cursor:pointer; min-height:68px; }
+      .ao-layout-v2 .ao-toggle input { margin-top:3px; accent-color:#8b5cf6; }
+      .ao-layout-v2 .ao-toggle b { display:block; color:#e5e7eb; font-size:12px; text-transform:uppercase; font-weight:900; }
+      .ao-layout-v2 .ao-toggle em { display:block; color:#6b7280; font-size:10px; font-style:normal; line-height:1.35; margin-top:3px; }
+      .ao-layout-v2 .ao-btn { padding:10px 12px; border-radius:12px; font-size:11px; font-weight:900; text-transform:uppercase; border:1px solid #374151; background:#030712; color:#e5e7eb; }
+      .ao-layout-v2 .ao-btn-primary { background:#6d28d9; border-color:#7c3aed; color:white; }
+      .ao-layout-v2 .ao-btn-danger { background:rgba(127,29,29,.55); border-color:rgba(185,28,28,.7); color:#fecaca; }
+      .ao-layout-v2 .ao-preview-card { border:1px solid rgba(126,34,206,.55); border-radius:18px; background:rgba(88,28,135,.12); padding:14px; position:sticky; top:12px; }
+      .ao-layout-v2 .ao-preview-card h4 { color:#ddd6fe; font-size:12px; font-weight:900; text-transform:uppercase; margin:0; }
+      .ao-layout-v2 .ao-preview-note { color:#9ca3af; font-size:10px; margin:4px 0 10px; }
+      .ao-layout-v2 .ao-preview-viewport { background:#111827; border:1px solid #374151; border-radius:14px; padding:14px; overflow:auto; max-height:960px; }
+      .ao-layout-v2 .ao-preview-inner { display:flex; justify-content:center; align-items:flex-start; min-width:fit-content; }
+      @media(max-width:1200px){ .ao-layout-v2 .ao-main-grid{grid-template-columns:1fr}.ao-layout-v2 .ao-preview-card{position:relative}.ao-layout-v2 .ao-grid-4{grid-template-columns:repeat(2,1fr)} }
+      @media(max-width:760px){ .ao-layout-v2 .ao-grid-2,.ao-layout-v2 .ao-grid-3,.ao-layout-v2 .ao-grid-4{grid-template-columns:1fr} }
+      @media print { .ao-layout-v2 { display:none!important; } }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function qFake() {
+    return [
+      {codigo:"MAT-N2-ARI-DIV-0001", titulo:"Divisibilidade no cotidiano", disciplina:"Matemática", nivel:"N2 — 8º/9º Ano", area:"Aritmética", tema:"Divisibilidade", subtema:"Critérios de divisibilidade", dificuldade:"Médio", enunciadoHtml:"<p>Em uma campanha da escola, os estudantes organizaram cartões numerados. Para separar os cartões em grupos, eles usaram um critério de divisibilidade. Determine qual alternativa representa corretamente o critério descrito no enunciado.</p>", alternativas:{A:"Apenas números pares.",B:"Números cuja soma dos algarismos é múltipla de 3.",C:"Números terminados em 5.",D:"Todos os números primos.",E:"Nenhuma das anteriores."}},
+      {codigo:"FIS-EM-MEC-CIN-0002", titulo:"Percurso em uma viagem", disciplina:"Física", nivel:"Ensino Médio", area:"Mecânica", tema:"Cinemática", subtema:"Velocidade média", dificuldade:"Fácil", enunciadoHtml:"<p>Durante uma viagem, um ônibus percorre dois trechos com velocidades diferentes. Sabendo o tempo gasto em cada trecho, calcule a velocidade média no percurso completo.</p>", alternativas:{A:"20 km/h",B:"35 km/h",C:"50 km/h",D:"70 km/h",E:"90 km/h"}},
+      {codigo:"QUI-EM-FQ-SOL-0003", titulo:"Concentração de uma solução", disciplina:"Química", nivel:"Ensino Médio", area:"Físico-química", tema:"Soluções", subtema:"Concentração comum", dificuldade:"Médio", enunciadoHtml:"<p>Um laboratório preparou uma solução dissolvendo certa massa de soluto em água. Use as informações fornecidas para determinar a concentração comum da solução.</p>", alternativas:{A:"2 g/L",B:"5 g/L",C:"10 g/L",D:"20 g/L",E:"50 g/L"}}
+    ];
+  }
+
+  function cssDoc(l, print=false) {
+    const scale = print ? 1 : Math.max(.35, Math.min(1, Number(l.zoomPreview || 58)/100));
+    return `
+      <style>
+        .ao-doc-stage{transform:scale(${scale});transform-origin:top center;width:794px;${!print ? `margin-bottom:${Math.round(1123*(scale-1))}px;` : ''}}
+        .ao-doc{width:794px;min-height:1123px;box-sizing:border-box;position:relative;overflow:hidden;background:#fff;color:${l.corTexto};font-family:${l.fonteFamilia},Arial,sans-serif;font-size:${l.fonteBase}px;line-height:1.42;padding:${l.margemMm}mm;}
+        .ao-doc *{box-sizing:border-box}.ao-doc-page-bg{position:absolute;inset:0;pointer-events:none;background:#fff}.ao-watermark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-28deg);font-size:${l.marcaTamanho}px;font-weight:900;letter-spacing:.08em;color:${l.corPrimaria};opacity:${Math.max(0,Math.min(50,l.marcaOpacidade))/100};white-space:nowrap;z-index:0}.ao-doc-content{position:relative;z-index:1}.ao-head{border:1px solid ${l.corBorda};border-radius:${l.raioBorda}px;overflow:hidden;margin-bottom:${l.compacto?10:16}px;background:${l.corFundoCabecalho}}
+        .ao-headbar{height:${l.mostrarFaixaSuperior?14:0}px;background:linear-gradient(90deg,${l.corPrimaria},${l.corSecundaria})}.ao-head-main{display:flex;align-items:center;gap:16px;padding:${l.compacto?10:15}px}.ao-logo{width:${l.logoTamanho}px;height:${l.logoTamanho}px;border-radius:${Math.min(18,l.raioBorda)}px;border:2px solid ${l.corBorda};display:flex;align-items:center;justify-content:center;background:#fff;color:${l.corPrimaria};font-weight:900;font-size:${Math.max(18,Math.round(l.logoTamanho/3))}px;overflow:hidden}.ao-logo img{max-width:92%;max-height:92%;object-fit:contain}.ao-brand{font-size:11px;color:${l.corPrimaria};font-weight:900;letter-spacing:.18em;text-transform:uppercase}.ao-title{margin:3px 0 0;color:#2e1065;font-size:${l.tituloTamanho}px;text-transform:uppercase;line-height:1.05}.ao-subtitle{margin:5px 0 0;color:${l.corPrimaria};font-size:${Math.max(11,l.fonteBase)}px;font-weight:700}.ao-cab{margin:0 ${l.compacto?10:15}px ${l.compacto?10:15}px;border:1px solid ${l.corBorda};border-radius:${Math.max(8,l.raioBorda-4)}px;background:#fff;padding:${l.compacto?7:10}px;color:#3b0764;font-size:${Math.max(10,l.fonteBase-1)}px}.ao-inst{border-left:4px solid ${l.corPrimaria};background:#fafafa;padding:8px 10px;margin-bottom:${l.compacto?8:12}px;color:#374151;border-radius:8px}.ao-q{break-inside:avoid;page-break-inside:avoid;border:${l.mostrarBordaQuestoes?`1px solid #e5e7eb`:'0'};${l.mostrarBordaQuestoes?`border-left:5px solid ${l.corPrimaria};`:''}border-radius:${l.raioBorda}px;padding:${l.compacto?9:13}px;margin-bottom:${l.espacamentoQuestao}px;background:#fff}.ao-q.q-page{page-break-after:always}.ao-meta{font-size:${Math.max(9,l.fonteBase-2)}px;color:${l.corPrimaria};font-weight:700;margin-bottom:6px}.ao-qtitle{font-weight:900;color:#111827;margin-bottom:7px}.ao-enun{font-size:${l.fonteBase+1}px;color:#111827}.ao-alt{margin:${l.compacto?7:10}px 0 0;padding:0;display:${l.alternativasDuasColunas?'grid':'block'};grid-template-columns:1fr 1fr;gap:3px 12px;list-style:none}.ao-alt li{margin:4px 0}.ao-lines{margin-top:9px}.ao-lines div{height:${l.compacto?15:22}px;border-bottom:1px solid #d1d5db}.ao-ass{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:26px;color:#4b5563;font-size:11px}.ao-ass div{border-top:1px solid #9ca3af;text-align:center;padding-top:7px}.ao-foot{border-top:1px solid ${l.corBorda};margin-top:14px;padding-top:8px;color:#6b7280;font-size:${Math.max(9,l.fonteBase-2)}px}
+      </style>`;
+  }
+
+  function htmlDoc(l, questoes=qFake(), print=false) {
+    l = normalizarLayoutV2(l);
+    const meta = q => [q.codigo,q.disciplina,q.nivel,q.area,q.tema,q.subtema,q.dificuldade].filter(Boolean).join(" · ");
+    const qHtml = arr(questoes).map((q,i) => {
+      const alts = q.alternativas || {};
+      const altHtml = l.mostrarAlternativas ? `<ol class="ao-alt">${["A","B","C","D","E"].filter(k=>alts[k]).map(k=>`<li><b>${k})</b> ${esc(alts[k])}</li>`).join("")}</ol>` : "";
+      const linhas = l.linhasResposta ? `<div class="ao-lines">${Array.from({length:Math.max(1,l.linhasRespostaQtd)}).map(()=>"<div></div>").join("")}</div>` : "";
+      return `<article class="ao-q ${l.questaoPorPagina?'q-page':''}">${l.mostrarMetadados?`<div class="ao-meta">${esc(meta(q))}</div>`:""}<div class="ao-qtitle">${l.mostrarNumeracao?`Questão ${i+1}`:""}${q.titulo?` — ${esc(q.titulo)}`:""}</div><div class="ao-enun">${q.enunciadoHtml || esc(q.enunciado || "")}</div>${altHtml}${linhas}</article>`;
+    }).join("");
+    return `${cssDoc(l,print)}<div class="ao-doc-stage"><div class="ao-doc"><div class="ao-doc-page-bg"></div>${l.mostrarMarcaDagua && l.marcaDaguaTexto ? `<div class="ao-watermark">${esc(l.marcaDaguaTexto)}</div>`:""}<div class="ao-doc-content"><header class="ao-head"><div class="ao-headbar"></div><div class="ao-head-main">${l.mostrarLogo?`<div class="ao-logo">${l.logoUrl?`<img src="${esc(l.logoUrl)}">`:"AO"}</div>`:""}<div><div class="ao-brand">AVANCE OLÍMPICO</div><h1 class="ao-title">${esc(l.titulo)}</h1><p class="ao-subtitle">${esc(l.subtitulo)}</p></div></div>${l.cabecalhoTexto?`<div class="ao-cab">${esc(l.cabecalhoTexto).replace(/\n/g,"<br>")}</div>`:""}</header>${l.mostrarInstrucoes && l.instrucoesTexto ? `<div class="ao-inst">${esc(l.instrucoesTexto).replace(/\n/g,"<br>")}</div>`:""}<main>${qHtml}</main>${l.mostrarAssinatura?`<div class="ao-ass"><div>Assinatura do estudante</div><div>Professor(a) / Correção</div></div>`:""}${l.mostrarRodape && l.rodapeTexto ? `<footer class="ao-foot">${esc(l.rodapeTexto).replace(/\n/g,"<br>")}</footer>`:""}</div></div></div>`;
+  }
+
+  function formVal(id) { return document.getElementById(id); }
+  function layoutFromFormV2() {
+    return normalizarLayoutV2({
+      id: formVal("aoLayoutId")?.value || `layout_${Date.now()}`,
+      nome: formVal("aoLayoutNome")?.value || "Layout sem nome",
+      tipo: formVal("aoLayoutTipo")?.value || "lista",
+      estilo: formVal("aoLayoutEstilo")?.value || "institucional",
+      titulo: formVal("aoLayoutTitulo")?.value || "Avance Olímpico",
+      subtitulo: formVal("aoLayoutSubtitulo")?.value || "",
+      logoUrl: formVal("aoLayoutLogoUrl")?.value || "",
+      cabecalhoTexto: formVal("aoLayoutCabecalho")?.value || "",
+      rodapeTexto: formVal("aoLayoutRodape")?.value || "",
+      instrucoesTexto: formVal("aoLayoutInstrucoes")?.value || "",
+      marcaDaguaTexto: formVal("aoLayoutMarcaTexto")?.value || "",
+      mostrarMarcaDagua: !!formVal("aoLayoutMarca")?.checked,
+      mostrarRodape: !!formVal("aoLayoutMostrarRodape")?.checked,
+      mostrarInstrucoes: !!formVal("aoLayoutMostrarInstrucoes")?.checked,
+      mostrarMetadados: !!formVal("aoLayoutMetadados")?.checked,
+      mostrarAlternativas: !!formVal("aoLayoutAlternativas")?.checked,
+      alternativasDuasColunas: !!formVal("aoLayoutAlt2Col")?.checked,
+      linhasResposta: !!formVal("aoLayoutLinhas")?.checked,
+      questaoPorPagina: !!formVal("aoLayoutQPagina")?.checked,
+      mostrarAssinatura: !!formVal("aoLayoutAssinatura")?.checked,
+      mostrarNumeracao: !!formVal("aoLayoutNumeracao")?.checked,
+      mostrarBordaQuestoes: !!formVal("aoLayoutBordaQ")?.checked,
+      mostrarFaixaSuperior: !!formVal("aoLayoutFaixa")?.checked,
+      mostrarLogo: !!formVal("aoLayoutMostrarLogo")?.checked,
+      corPrimaria: formVal("aoLayoutCor1")?.value || "#6d28d9",
+      corSecundaria: formVal("aoLayoutCor2")?.value || "#a855f7",
+      corTexto: formVal("aoLayoutCorTexto")?.value || "#111827",
+      corFundoCabecalho: formVal("aoLayoutCorCab")?.value || "#faf5ff",
+      corBorda: formVal("aoLayoutCorBorda")?.value || "#ddd6fe",
+      fonteFamilia: formVal("aoLayoutFonte")?.value || "Arial",
+      fonteBase: formVal("aoLayoutFonteBase")?.value || 12,
+      tituloTamanho: formVal("aoLayoutTituloTam")?.value || 24,
+      logoTamanho: formVal("aoLayoutLogoTam")?.value || 68,
+      margemMm: formVal("aoLayoutMargem")?.value || 12,
+      espacamentoQuestao: formVal("aoLayoutEspacoQ")?.value || 12,
+      raioBorda: formVal("aoLayoutRaio")?.value || 14,
+      marcaOpacidade: formVal("aoLayoutMarcaOpacidade")?.value || 6,
+      marcaTamanho: formVal("aoLayoutMarcaTam")?.value || 54,
+      linhasRespostaQtd: formVal("aoLayoutLinhasQtd")?.value || 5,
+      zoomPreview: formVal("aoLayoutZoom")?.value || 58,
+      compacto: !!formVal("aoLayoutCompacto")?.checked
+    });
+  }
+
+  function setChecked(id, val) { const el=formVal(id); if(el) el.checked=!!val; }
+  function setValue(id, val) { const el=formVal(id); if(el) el.value = val ?? ""; }
+  function preencherFormV2(l) {
+    l = normalizarLayoutV2(l);
+    ativoIdV2 = l.id;
+    setValue("aoLayoutId", l.id); setValue("aoLayoutNome", l.nome); setValue("aoLayoutTipo", l.tipo); setValue("aoLayoutEstilo", l.estilo);
+    setValue("aoLayoutTitulo", l.titulo); setValue("aoLayoutSubtitulo", l.subtitulo); setValue("aoLayoutLogoUrl", l.logoUrl); setValue("aoLayoutCabecalho", l.cabecalhoTexto); setValue("aoLayoutRodape", l.rodapeTexto); setValue("aoLayoutInstrucoes", l.instrucoesTexto); setValue("aoLayoutMarcaTexto", l.marcaDaguaTexto);
+    setValue("aoLayoutCor1", l.corPrimaria); setValue("aoLayoutCor2", l.corSecundaria); setValue("aoLayoutCorTexto", l.corTexto); setValue("aoLayoutCorCab", l.corFundoCabecalho); setValue("aoLayoutCorBorda", l.corBorda); setValue("aoLayoutFonte", l.fonteFamilia);
+    setValue("aoLayoutFonteBase", l.fonteBase); setValue("aoLayoutTituloTam", l.tituloTamanho); setValue("aoLayoutLogoTam", l.logoTamanho); setValue("aoLayoutMargem", l.margemMm); setValue("aoLayoutEspacoQ", l.espacamentoQuestao); setValue("aoLayoutRaio", l.raioBorda); setValue("aoLayoutMarcaOpacidade", l.marcaOpacidade); setValue("aoLayoutMarcaTam", l.marcaTamanho); setValue("aoLayoutLinhasQtd", l.linhasRespostaQtd); setValue("aoLayoutZoom", l.zoomPreview);
+    setChecked("aoLayoutMarca", l.mostrarMarcaDagua); setChecked("aoLayoutMostrarRodape", l.mostrarRodape); setChecked("aoLayoutMostrarInstrucoes", l.mostrarInstrucoes); setChecked("aoLayoutMetadados", l.mostrarMetadados); setChecked("aoLayoutAlternativas", l.mostrarAlternativas); setChecked("aoLayoutAlt2Col", l.alternativasDuasColunas); setChecked("aoLayoutLinhas", l.linhasResposta); setChecked("aoLayoutQPagina", l.questaoPorPagina); setChecked("aoLayoutAssinatura", l.mostrarAssinatura); setChecked("aoLayoutNumeracao", l.mostrarNumeracao); setChecked("aoLayoutBordaQ", l.mostrarBordaQuestoes); setChecked("aoLayoutFaixa", l.mostrarFaixaSuperior); setChecked("aoLayoutMostrarLogo", l.mostrarLogo); setChecked("aoLayoutCompacto", l.compacto);
+    atualizarPreviewV2();
+  }
+
+  function editorHTML() {
+    return `<div class="layout-conteudo-retratil hidden" style="display:none"></div>
+      <button type="button" id="aoLayoutToggle" class="ao-panel-toggle">
+        <div><h3><i class="fa-solid fa-brush text-purple-300 mr-2"></i>Layouts de impressão das listas</h3><p>Editor definitivo com prévia A4 fiel. Clique para expandir/recolher.</p></div>
+        <span class="ao-chip"><i class="fa-solid fa-chevron-down mr-1"></i> Expandir</span>
+      </button>
+      <div id="aoLayoutBody" class="ao-editor-body hidden">
+        <div class="ao-toolbar"><select id="aoLayoutSelect" class="min-w-[280px]"></select><div class="ao-toolbar-actions"><button type="button" id="aoLayoutNovo" class="ao-btn">Novo</button><button type="button" id="aoLayoutDuplicar" class="ao-btn">Duplicar</button><button type="button" id="aoLayoutSalvar" class="ao-btn ao-btn-primary">Salvar</button><button type="button" id="aoLayoutExcluir" class="ao-btn ao-btn-danger">Excluir</button></div></div>
+        <div class="ao-main-grid"><div>
+          ${section("1. Identificação do modelo", "Define como o modelo aparece para você e para os usuários.", `<div class="ao-grid-2">${field({id:"aoLayoutId",label:"ID interno",helpText:"Código técnico do modelo. Não aparece na impressão. Use letras, números e underline."})}${field({id:"aoLayoutNome",label:"Nome do modelo",helpText:"Nome exibido no seletor de layouts."})}${field({id:"aoLayoutTipo",label:"Tipo do documento",helpText:"Lista: material de estudo. Simulado: aparência mais formal de prova.",type:"select",options:`<option value="lista">Lista de exercícios</option><option value="simulado">Simulado / caderno de questões</option>`})}${field({id:"aoLayoutEstilo",label:"Estilo visual",helpText:"Muda a composição visual do cabeçalho e das questões.",type:"select",options:`<option value="institucional">Institucional Avance</option><option value="classico">Clássico limpo</option><option value="formal">Formal de prova</option><option value="compacto">Compacto econômico</option>`})}</div>`)}
+          ${section("2. Cabeçalho e marca", "Controla a primeira área da folha: logo, título, campos de aluno e marca d’água.", `<div class="ao-grid-2">${field({id:"aoLayoutTitulo",label:"Título principal",helpText:"Texto grande impresso no topo."})}${field({id:"aoLayoutSubtitulo",label:"Subtítulo",helpText:"Texto menor abaixo do título."})}${field({id:"aoLayoutLogoUrl",label:"URL da logo",helpText:"Cole uma URL de imagem. Se estiver vazio, aparece o monograma AO."})}${field({id:"aoLayoutLogoArquivo",label:"Enviar logo do computador",helpText:"Escolha uma imagem local. O sistema tenta enviar para o Firebase Storage e preencher a URL automaticamente.",type:"file",attrs:`accept="image/*"`})}${field({id:"aoLayoutCabecalho",label:"Campos de identificação",helpText:"Linhas como aluno, turma, professor e data. Aparece dentro do cabeçalho.",textarea:true})}${field({id:"aoLayoutInstrucoes",label:"Bloco de instruções",helpText:"Texto de orientação antes das questões. Pode ser desligado abaixo.",textarea:true})}${field({id:"aoLayoutMarcaTexto",label:"Texto da marca d’água",helpText:"Texto grande e transparente no fundo da folha."})}${field({id:"aoLayoutRodape",label:"Rodapé / instruções finais",helpText:"Texto no final da folha. Só aparece se a opção rodapé estiver ligada.",textarea:true})}</div>`)}
+          ${section("3. Aparência da página", "Cores, fontes, margens e proporções da folha A4.", `<div class="ao-grid-4">${field({id:"aoLayoutCor1",label:"Cor principal",helpText:"Usada na faixa, bordas e destaques.",type:"color"})}${field({id:"aoLayoutCor2",label:"Cor secundária",helpText:"Usada no degradê junto da cor principal.",type:"color"})}${field({id:"aoLayoutCorTexto",label:"Cor do texto",helpText:"Cor base do texto impresso.",type:"color"})}${field({id:"aoLayoutCorCab",label:"Fundo do cabeçalho",helpText:"Cor suave do bloco de cabeçalho.",type:"color"})}${field({id:"aoLayoutCorBorda",label:"Cor das bordas",helpText:"Bordas do cabeçalho e campos.",type:"color"})}${field({id:"aoLayoutFonte",label:"Fonte",helpText:"Família tipográfica do documento.",type:"select",options:`<option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Times New Roman">Times New Roman</option><option value="Verdana">Verdana</option>`})}${field({id:"aoLayoutFonteBase",label:"Fonte base",helpText:"Tamanho geral do texto.",type:"range",attrs:`min="9" max="18"`})}${field({id:"aoLayoutTituloTam",label:"Tamanho do título",helpText:"Tamanho do título principal.",type:"range",attrs:`min="16" max="36"`})}${field({id:"aoLayoutLogoTam",label:"Tamanho da logo",helpText:"Tamanho do bloco da logo/monograma.",type:"range",attrs:`min="36" max="130"`})}${field({id:"aoLayoutMargem",label:"Margem A4",helpText:"Margem interna da folha em milímetros.",type:"range",attrs:`min="4" max="24"`})}${field({id:"aoLayoutRaio",label:"Arredondamento",helpText:"Arredondamento dos blocos.",type:"range",attrs:`min="0" max="24"`})}${field({id:"aoLayoutZoom",label:"Zoom da prévia",helpText:"Apenas para visualização na tela. Não altera o PDF.",type:"range",attrs:`min="35" max="90"`})}</div>`)}
+          ${section("4. Questões e comportamento", "Define o que aparece nas questões e como elas se comportam na impressão.", `<div class="ao-grid-4">${field({id:"aoLayoutEspacoQ",label:"Espaço entre questões",helpText:"Distância vertical entre uma questão e outra.",type:"range",attrs:`min="4" max="28"`})}${field({id:"aoLayoutMarcaOpacidade",label:"Opacidade da marca",helpText:"0 some; valores maiores deixam a marca mais visível.",type:"range",attrs:`min="0" max="30"`})}${field({id:"aoLayoutMarcaTam",label:"Tamanho da marca",helpText:"Tamanho da marca d’água.",type:"range",attrs:`min="24" max="90"`})}${field({id:"aoLayoutLinhasQtd",label:"Linhas de resposta",helpText:"Quantidade de linhas quando espaço para resposta estiver ligado.",type:"range",attrs:`min="1" max="12"`})}</div><div class="ao-grid-3 mt-3">${toggle("aoLayoutMostrarLogo","Mostrar logo","Liga/desliga a logo ou monograma AO no cabeçalho.")}${toggle("aoLayoutFaixa","Faixa superior","Liga/desliga a faixa colorida no topo.")}${toggle("aoLayoutMarca","Marca d’água","Liga/desliga o texto transparente no fundo.")}${toggle("aoLayoutMostrarInstrucoes","Mostrar instruções","Mostra o bloco de instruções antes das questões.")}${toggle("aoLayoutMostrarRodape","Mostrar rodapé","Mostra o texto final ao final da folha.")}${toggle("aoLayoutMetadados","Metadados","Mostra código, disciplina, nível, tema e dificuldade.")}${toggle("aoLayoutNumeracao","Numeração","Mostra Questão 1, Questão 2 etc.")}${toggle("aoLayoutAlternativas","Alternativas","Exibe alternativas A–E quando existirem.")}${toggle("aoLayoutAlt2Col","Alternativas em 2 colunas","Organiza alternativas em duas colunas para economizar espaço.")}${toggle("aoLayoutLinhas","Espaço para resposta","Adiciona linhas de resposta abaixo da questão.")}${toggle("aoLayoutQPagina","Uma questão por página","Força quebra de página após cada questão.")}${toggle("aoLayoutAssinatura","Assinaturas","Adiciona campos de assinatura ao final.")}${toggle("aoLayoutBordaQ","Borda nas questões","Mostra caixa/borda ao redor das questões.")}${toggle("aoLayoutCompacto","Modo compacto","Reduz espaçamentos para caber mais conteúdo.")}</div>`)}
+        </div><aside class="ao-preview-card"><h4>Pré-visualização A4 fiel</h4><p class="ao-preview-note">A folha abaixo é uma página A4 em escala. O que aparece aqui é o mesmo motor usado para imprimir/gerar PDF.</p><div class="ao-preview-viewport"><div id="aoLayoutPreview" class="ao-preview-inner"></div></div></aside></div>
+      </div>`;
+  }
+
+  async function popularSelectV2() {
+    const layouts = await carregarLayoutsV2();
+    const sel = formVal("aoLayoutSelect"); if (!sel) return;
+    sel.innerHTML = layouts.map(l => `<option value="${esc(l.id)}">${esc(l.nome)} — ${esc(l.tipo)}</option>`).join("");
+    if (layouts.some(l => l.id === ativoIdV2)) sel.value = ativoIdV2; else { ativoIdV2 = layouts[0].id; sel.value = ativoIdV2; }
+  }
+
+  async function uploadLogoV2(file) {
+    if (!file) return "";
+    if (file.size > 2 * 1024 * 1024) {
+      alert("A logo está muito grande. Use uma imagem de até 2 MB.");
+      return "";
+    }
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (firebaseStorage) {
+        const nome = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        const ref = firebaseStorage.ref().child(`layouts/${ANO()}/${Date.now()}_${nome}`);
+        await ref.put(file);
+        return await ref.getDownloadURL();
+      }
+    } catch(e) { console.warn(TAG, "upload storage falhou; usando dataURL", e); }
+    return await new Promise((resolve,reject) => { const fr=new FileReader(); fr.onload=()=>resolve(fr.result); fr.onerror=reject; fr.readAsDataURL(file); });
+  }
+
+  function atualizarPreviewV2() {
+    if (atualizandoPreviewV2) return;
+    atualizandoPreviewV2 = true;
+    requestAnimationFrame(() => {
+      try {
+        const prev = formVal("aoLayoutPreview");
+        if (prev) prev.innerHTML = htmlDoc(layoutFromFormV2(), qFake(), false);
+      } finally { atualizandoPreviewV2 = false; }
+    });
+  }
+
+  async function reconstruirEditorV2(force=false) {
+    if (!canEdit()) return;
+    injectStyleV2();
+    const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    if (!painel) return;
+    if (painel.dataset.aoLayoutV2 === "true" && !force) return;
+    painel.dataset.aoLayoutV2 = "true";
+    painel.dataset.retratilFinal = "true";
+    painel.classList.add("ao-layout-v2");
+    painel.innerHTML = editorHTML();
+    const body = formVal("aoLayoutBody");
+    const toggleBtn = formVal("aoLayoutToggle");
+    if (editorAbertoV2) body?.classList.remove("hidden");
+    toggleBtn.onclick = () => {
+      editorAbertoV2 = body.classList.toggle("hidden") === false;
+      toggleBtn.querySelector(".ao-chip").innerHTML = editorAbertoV2 ? '<i class="fa-solid fa-chevron-up mr-1"></i> Recolher' : '<i class="fa-solid fa-chevron-down mr-1"></i> Expandir';
+      if (editorAbertoV2) setTimeout(atualizarPreviewV2,80);
+    };
+    await popularSelectV2();
+    const layouts = await carregarLayoutsV2();
+    preencherFormV2(layouts.find(l=>l.id===ativoIdV2) || layouts[0]);
+    formVal("aoLayoutSelect").onchange = async () => { ativoIdV2 = formVal("aoLayoutSelect").value; const ls=await carregarLayoutsV2(); preencherFormV2(ls.find(l=>l.id===ativoIdV2) || ls[0]); };
+    formVal("aoLayoutNovo").onclick = async () => { const l=defaultLayoutV2(); l.id=`layout_${Date.now()}`; l.nome="Novo layout"; ativoIdV2=l.id; preencherFormV2(l); };
+    formVal("aoLayoutDuplicar").onclick = async () => { const l=layoutFromFormV2(); l.id=`${l.id}_copia_${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g,"_"); l.nome=`${l.nome} — cópia`; ativoIdV2=l.id; preencherFormV2(l); };
+    formVal("aoLayoutSalvar").onclick = async () => {
+      const l = layoutFromFormV2();
+      let layouts = await carregarLayoutsV2(true);
+      const idx = layouts.findIndex(x => x.id === l.id);
+      if (idx >= 0) layouts[idx] = l; else layouts.push(l);
+      await salvarLayoutsV2(layouts);
+      ativoIdV2 = l.id;
+      await popularSelectV2();
+      preencherFormV2(l);
+      alert("Layout salvo.");
+    };
+    formVal("aoLayoutExcluir").onclick = async () => {
+      let layouts = await carregarLayoutsV2(true);
+      if (layouts.length <= 1) return alert("Não é possível excluir o último layout. Crie outro antes de apagar este.");
+      const id = formVal("aoLayoutSelect").value || ativoIdV2;
+      const atual = layouts.find(l => l.id === id);
+      if (!confirm(`Excluir o layout "${atual?.nome || id}"?`)) return;
+      layouts = layouts.filter(l => l.id !== id);
+      await salvarLayoutsV2(layouts);
+      ativoIdV2 = layouts[0].id;
+      await popularSelectV2();
+      preencherFormV2(layouts[0]);
+      alert("Layout excluído.");
+    };
+    formVal("aoLayoutLogoArquivo").onchange = async (e) => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const url = await uploadLogoV2(file);
+      if (url) { formVal("aoLayoutLogoUrl").value = url; atualizarPreviewV2(); }
+    };
+    painel.addEventListener("input", e => { if (String(e.target?.id||"").startsWith("aoLayout")) atualizarPreviewV2(); });
+    painel.addEventListener("change", e => { if (String(e.target?.id||"").startsWith("aoLayout") && e.target.id !== "aoLayoutSelect") atualizarPreviewV2(); });
+    setTimeout(atualizarPreviewV2, 100);
+  }
+
+  // Overrides públicos: todo botão antigo passa a usar o motor v2.
+  window.prepararPreviewLiveLayout = function(){ reconstruirEditorV2(false); };
+  window.atualizarPreviewLayoutLiveFinal = function(){ atualizarPreviewV2(); };
+  window.previsualizarLayoutListaAdmin = function(){ reconstruirEditorV2(false); if (!editorAbertoV2) formVal("aoLayoutToggle")?.click(); atualizarPreviewV2(); };
+  window.carregarLayoutsMiniLista = carregarLayoutsV2;
+  window.salvarLayoutsMiniLista = salvarLayoutsV2;
+
+  function miniKey() { return `avance_mini_lista_questoes_v1_${uid()}_${ANO()}`; }
+  function getQuestoesMini() {
+    const qs = (typeof getStorage === "function" ? getStorage("app_questoes", []) : []) || [];
+    try { const ids = new Set(JSON.parse(localStorage.getItem(miniKey()) || "[]").map(String)); return qs.filter(q => ids.has(String(q.id))); } catch(_) { return []; }
+  }
+  async function layoutSelecionadoMini() {
+    const layouts = await carregarLayoutsV2();
+    const id = document.getElementById("miniListaLayout")?.value || ativoIdV2 || layouts[0]?.id;
+    return layouts.find(l => l.id === id) || layouts[0] || defaultLayoutV2();
+  }
+  window.renderizarPreviewMiniListaLayout = async function(){
+    const l = await layoutSelecionadoMini();
+    const qs = getQuestoesMini();
+    const html = htmlDoc(l, qs.length ? qs : qFake(), false);
+    const corpo = document.getElementById("miniListaQuestoesCorpoAvancado");
+    const print = document.getElementById("printMiniListaQuestoesAvancada");
+    if (corpo) corpo.innerHTML = html;
+    if (print) print.innerHTML = htmlDoc(l, qs.length ? qs : qFake(), true);
+  };
+  window.imprimirMiniListaQuestoes = async function(){
+    await window.renderizarPreviewMiniListaLayout();
+    const old = document.title; document.title = "Avance Olímpico";
+    document.body.classList.add("print-mini-lista-avancada");
+    setTimeout(()=>{ window.print(); setTimeout(()=>{ document.body.classList.remove("print-mini-lista-avancada"); document.title=old; },500); },150);
+  };
+  window.popularSelectLayoutsMiniListaAdmin = async function(){ await reconstruirEditorV2(true); };
+  window.selecionarLayoutMiniListaAdmin = async function(){ await reconstruirEditorV2(false); };
+  window.novoLayoutMiniListaAdmin = async function(){ await reconstruirEditorV2(false); formVal("aoLayoutNovo")?.click(); };
+  window.salvarLayoutMiniListaAdmin = async function(){ await reconstruirEditorV2(false); formVal("aoLayoutSalvar")?.click(); };
+  window.excluirLayoutMiniListaAdmin = async function(){ await reconstruirEditorV2(false); formVal("aoLayoutExcluir")?.click(); };
+
+  const navBase = window.navegarAba || (typeof navegarAba === "function" ? navegarAba : null);
+  if (typeof navBase === "function" && !window.__aoLayoutV2Nav) {
+    window.__aoLayoutV2Nav = true;
+    const nav = function(aba, btn) {
+      const r = navBase.apply(this, arguments);
+      setTimeout(()=>{ if (aba === "questoes" || aba === "plataforma") reconstruirEditorV2(false); }, 250);
+      return r;
+    };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(()=>reconstruirEditorV2(false), 1200);
+    setInterval(() => {
+      const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+      if (painel && painel.dataset.aoLayoutV2 !== "true") reconstruirEditorV2(true);
+    }, 2500);
+  });
+  console.log(TAG, "carregado");
+})();
