@@ -21786,3 +21786,454 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, 'ativo. Use diagnosticarVisualizacoesCompactas() no console.');
 })();
+
+
+// ============================================================
+// PATCH — Login mais leve + Plataforma flat/compacta + Gerador com quantidade exata
+// ============================================================
+(function patchLoginPlataformaGeradorCompacto(){
+  const TAG = '[Login/Plataforma/Gerador fix]';
+  const esc = (v) => typeof textoSeguro === 'function'
+    ? textoSeguro(v)
+    : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function'
+    ? normalizarTexto(v)
+    : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const anoAtual = () => {
+    try { return typeof anoDadosAtivo !== 'undefined' ? String(anoDadosAtivo || '2026') : '2026'; }
+    catch(_) { return '2026'; }
+  };
+  const uidKey = () => String(usuarioLogado?.authUid || usuarioLogado?.id || 'anon');
+
+  // ------------------------------------------------------------
+  // 1) Login mais leve: evita listeners/renderizações em cascata no boot
+  // ------------------------------------------------------------
+  function pararTempoRealDuranteLogin(){
+    try { if (typeof window.pararTodosRealtime === 'function') window.pararTodosRealtime(); } catch(_) {}
+    try { if (typeof window.pararListenerPlataformaTempoReal === 'function') window.pararListenerPlataformaTempoReal(); } catch(_) {}
+  }
+
+  window.__loginEstabilizandoAte = 0;
+
+  const logarBase = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
+  if (typeof logarBase === 'function' && !logarBase.__loginLevePatch) {
+    const wrapped = async function logarSucessoLoginLeve(usuario){
+      window.__loginEstabilizandoAte = Date.now() + 4500;
+      pararTempoRealDuranteLogin();
+      const inicio = Date.now();
+      try {
+        const r = await logarBase.apply(this, arguments);
+        // Garante que o painel/login não fique travado por listeners pesados.
+        try {
+          document.body.classList.add('login-visual-ready', 'login-final-ready');
+          document.body.classList.remove('login-visual-pending', 'login-final-pending');
+        } catch(_) {}
+        return r;
+      } finally {
+        setTimeout(pararTempoRealDuranteLogin, 150);
+        setTimeout(pararTempoRealDuranteLogin, 800);
+        setTimeout(() => {
+          window.__loginEstabilizandoAte = 0;
+          const aba = Array.from(document.querySelectorAll('.tab-view')).find(el => !el.classList.contains('hidden'))?.id?.replace(/^view-/,'') || '';
+          if (aba && aba !== 'dashboard' && typeof window.iniciarRealtimeAba === 'function') {
+            try { window.iniciarRealtimeAba(aba); } catch(_) {}
+          }
+          console.info(TAG, `login estabilizado em ${Date.now() - inicio}ms`);
+        }, 3200);
+      }
+    };
+    wrapped.__loginLevePatch = true;
+    window.logarSucesso = wrapped;
+    try { logarSucesso = wrapped; } catch(_) {}
+  }
+
+  const navBaseLoginLeve = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBaseLoginLeve === 'function' && !navBaseLoginLeve.__loginLeveNavPatch) {
+    const nav = function navegarAbaLoginLeve(abaId, botao){
+      const r = navBaseLoginLeve.apply(this, arguments);
+      // Durante os primeiros segundos pós-login, mata listeners que estavam forçando render pesado.
+      if (Date.now() < (window.__loginEstabilizandoAte || 0)) {
+        setTimeout(pararTempoRealDuranteLogin, 80);
+        setTimeout(pararTempoRealDuranteLogin, 500);
+      }
+      return r;
+    };
+    nav.__loginLeveNavPatch = true;
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  // ------------------------------------------------------------
+  // 2) Plataforma: exibição flat, ordem normal esquerda→direita, sem grupos quebrando largura
+  // ------------------------------------------------------------
+  function ensureCssFlat(){
+    if (document.getElementById('stylePlataformaFlatFix')) return;
+    const st = document.createElement('style');
+    st.id = 'stylePlataformaFlatFix';
+    st.textContent = `
+      #gridMateriais.plat-flat-grade {
+        display:grid!important;
+        grid-template-columns:repeat(auto-fill,minmax(260px,1fr))!important;
+        gap:12px!important;
+        align-items:stretch!important;
+      }
+      #gridMateriais.plat-flat-lista {
+        display:flex!important;
+        flex-direction:column!important;
+        gap:9px!important;
+      }
+      .plat-card {
+        background:rgba(31,41,55,.96);
+        border:1px solid #374151;
+        border-radius:16px;
+        padding:12px;
+        box-shadow:0 10px 24px rgba(0,0,0,.12);
+        display:flex;
+        flex-direction:column;
+        gap:7px;
+        min-width:0;
+      }
+      .plat-card-title {
+        font-size:13px;
+        line-height:1.25;
+        color:white;
+        font-weight:900;
+        display:-webkit-box;
+        -webkit-line-clamp:2;
+        -webkit-box-orient:vertical;
+        overflow:hidden;
+      }
+      .plat-card-desc {
+        color:#a3aab8;
+        font-size:11px;
+        line-height:1.35;
+        display:-webkit-box;
+        -webkit-line-clamp:2;
+        -webkit-box-orient:vertical;
+        overflow:hidden;
+        min-height:0;
+      }
+      .plat-badges { display:flex; flex-wrap:wrap; gap:4px; }
+      .plat-badge {
+        font-size:9px;
+        font-weight:900;
+        text-transform:uppercase;
+        letter-spacing:.02em;
+        border-radius:999px;
+        padding:3px 7px;
+        background:#111827;
+        color:#d1d5db;
+        border:1px solid #374151;
+      }
+      .plat-meta { color:#6b7280; font-size:10px; line-height:1.35; }
+      .plat-actions { display:grid; grid-template-columns:1fr; gap:6px; margin-top:auto; }
+      .plat-actions button { margin:0!important; padding:9px 10px!important; }
+      #gridMateriais.plat-flat-lista .plat-card {
+        display:grid!important;
+        grid-template-columns:minmax(0,1fr) minmax(220px,300px);
+        align-items:center;
+        gap:8px 12px;
+      }
+      #gridMateriais.plat-flat-lista .plat-card .plat-actions {
+        grid-column:2;
+        grid-row:1 / span 4;
+        align-self:center;
+      }
+      #gridMateriais.plat-flat-lista .plat-card-desc {
+        -webkit-line-clamp:1;
+      }
+      #gridMateriais.plat-flat-lista .plat-meta {
+        display:flex;
+        flex-wrap:wrap;
+        gap:10px;
+      }
+      @media (max-width: 900px){
+        #gridMateriais.plat-flat-lista .plat-card {
+          display:flex!important;
+        }
+      }
+      .plat-mode-active {
+        background:rgba(37,99,235,.22)!important;
+        color:#bfdbfe!important;
+        border-color:rgba(59,130,246,.55)!important;
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function modoPlataforma(){
+    return localStorage.getItem('avance_plataforma_view_mode') || 'grade';
+  }
+  function setModoPlataformaFix(modo){
+    localStorage.setItem('avance_plataforma_view_mode', modo === 'lista' ? 'lista' : 'grade');
+  }
+
+  function inserirControlePlataformaFlat(){
+    const grid = document.getElementById('gridMateriais');
+    if (!grid) return;
+    let ctrl = document.getElementById('plataformaModoVisualizacao');
+    if (!ctrl) {
+      ctrl = document.createElement('div');
+      ctrl.id = 'plataformaModoVisualizacao';
+      ctrl.className = 'flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 mb-3';
+      ctrl.innerHTML = `
+        <div>
+          <p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Visualização dos materiais</p>
+          <p class="text-xs text-gray-500 mt-1">Grade em ordem natural: esquerda → direita, depois próxima linha. A lista é mais compacta.</p>
+        </div>
+        <div class="flex gap-2">
+          <button id="btnPlataformaModoGrade" type="button" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-black uppercase"><i class="fa-solid fa-grip mr-1"></i>Grade</button>
+          <button id="btnPlataformaModoLista" type="button" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-black uppercase"><i class="fa-solid fa-list mr-1"></i>Lista</button>
+        </div>`;
+      grid.parentNode.insertBefore(ctrl, grid);
+      document.getElementById('btnPlataformaModoGrade').onclick = () => { setModoPlataformaFix('grade'); aplicarModoPlataformaFlat(); };
+      document.getElementById('btnPlataformaModoLista').onclick = () => { setModoPlataformaFix('lista'); aplicarModoPlataformaFlat(); };
+    }
+  }
+
+  function aplicarModoPlataformaFlat(){
+    const grid = document.getElementById('gridMateriais');
+    if (!grid) return;
+    const modo = modoPlataforma();
+    grid.classList.toggle('plat-flat-grade', modo === 'grade');
+    grid.classList.toggle('plat-flat-lista', modo === 'lista');
+    grid.dataset.view = modo;
+    document.getElementById('btnPlataformaModoGrade')?.classList.toggle('plat-mode-active', modo === 'grade');
+    document.getElementById('btnPlataformaModoLista')?.classList.toggle('plat-mode-active', modo === 'lista');
+  }
+
+  function filtrarMateriaisPlataformaFlat(materiais){
+    const filtroDisciplina = document.getElementById('filtroMatDisciplina')?.value || 'TODOS';
+    const filtroNivel = document.getElementById('filtroMatNivel')?.value || 'TODOS';
+    const filtroTipo = document.getElementById('filtroMatTipo')?.value || 'TODOS';
+    const filtroStatus = document.getElementById('filtroMatStatus')?.value || 'TODOS';
+    const busca = norm(document.getElementById('filtroMatBusca')?.value || '');
+    return (materiais || []).filter(m => {
+      if (filtroDisciplina !== 'TODOS' && m.disciplina !== filtroDisciplina) return false;
+      if (filtroNivel !== 'TODOS' && m.nivel !== filtroNivel) return false;
+      if (filtroTipo !== 'TODOS' && m.tipoMaterial !== filtroTipo) return false;
+      const feito = typeof materialFeitoPorUsuario === 'function' ? materialFeitoPorUsuario(m) : false;
+      if (filtroStatus === 'FEITOS' && !feito) return false;
+      if (filtroStatus === 'NAO_FEITOS' && feito) return false;
+      if (busca) {
+        const alvo = norm(`${m.titulo || ''} ${m.descricao || ''} ${m.disciplina || ''} ${m.nivel || ''} ${m.tipoMaterial || ''}`);
+        if (!alvo.includes(busca)) return false;
+      }
+      return true;
+    }).sort((a,b) => Number(b.criadoEm || b.atualizadoEm || 0) - Number(a.criadoEm || a.atualizadoEm || 0));
+  }
+
+  function cardMaterialFlat(m){
+    const icon = typeof iconeMaterialPlataforma === 'function' ? iconeMaterialPlataforma(m) : {icone:'fa-file-lines', cor:'text-blue-400'};
+    const feito = typeof materialFeitoPorUsuario === 'function' ? materialFeitoPorUsuario(m) : false;
+    const acoesAdm = (typeof permissao === 'function' && permissao('plataforma.podeGerenciar'))
+      ? `<button onclick="excluirMaterial('${esc(m.id)}')" class="text-red-400 hover:text-red-300 text-xs font-bold" title="Remover da plataforma"><i class="fa-solid fa-trash"></i></button>`
+      : '';
+    return `<div class="plat-card">
+      <div class="flex items-start justify-between gap-2">
+        <div class="plat-badges">
+          <span class="plat-badge"><i class="fa-solid ${icon.icone} ${icon.cor} mr-1"></i>${esc(m.tipoMaterial || 'Material')}</span>
+          <span class="plat-badge">${esc(m.tipo === 'lista_gerada' ? 'Lista' : m.tipo === 'video' ? 'Vídeo' : m.tipo === 'arquivo' ? 'Arquivo' : 'Link')}</span>
+          ${m.quantidadeQuestoes ? `<span class="plat-badge">${esc(m.quantidadeQuestoes)} questão(ões)</span>` : ''}
+        </div>
+        ${acoesAdm}
+      </div>
+      <div class="flex items-start justify-between gap-2">
+        <div class="plat-card-title">${esc(m.titulo || 'Material sem título')}</div>
+        <label class="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg border ${feito ? 'border-emerald-700 bg-emerald-500/10 text-emerald-300' : 'border-gray-700 bg-gray-900 text-gray-400'} text-[10px] font-bold uppercase cursor-pointer">
+          <input type="checkbox" ${feito ? 'checked' : ''} onchange="alternarMaterialFeito('${esc(m.id)}', this.checked)" class="accent-emerald-500">
+          ${feito ? 'Feito' : 'Fazer'}
+        </label>
+      </div>
+      ${m.descricao ? `<div class="plat-card-desc">${esc(m.descricao)}</div>` : `<div class="plat-card-desc">Sem descrição.</div>`}
+      <div class="plat-meta">
+        <div><i class="fa-solid fa-user mr-1"></i>${esc(m.criadoPor || 'Sistema')} ${m.criadoPorNivel ? `(${esc(m.criadoPorNivel)})` : ''}</div>
+        <div><i class="fa-solid fa-clock mr-1"></i>${typeof formatarDataHora === 'function' ? formatarDataHora(m.criadoEm) : ''}</div>
+        <div><i class="fa-solid fa-layer-group mr-1"></i>${esc(m.disciplina || 'Geral')} · ${esc(m.nivel || 'Geral')}</div>
+      </div>
+      <div class="plat-actions">
+        ${typeof renderizarConteudoMaterial === 'function' ? renderizarConteudoMaterial(m) : `<button onclick="abrirAtividadePlataforma('${esc(m.id)}')" class="w-full py-3 bg-indigo-600 rounded-xl text-white text-xs font-black uppercase">Abrir atividade</button>`}
+      </div>
+      <div class="text-[10px] text-gray-500 border-t border-gray-800 pt-2">
+        <i class="fa-solid fa-comments text-blue-400 mr-1"></i>${Array.isArray(m.interacoes) ? m.interacoes.length : 0} comentário(s)
+        · <i class="fa-solid fa-star text-amber-400 ml-1 mr-1"></i>${typeof mediaAvaliacoesMaterial === 'function' ? mediaAvaliacoesMaterial(m).total : 0} avaliação(ões)
+      </div>
+    </div>`;
+  }
+
+  async function renderizarPlataformaEnsinoFlat(){
+    ensureCssFlat();
+    const container = document.getElementById('gridMateriais');
+    if (!container) return;
+    inserirControlePlataformaFlat();
+    container.className = '';
+    aplicarModoPlataformaFlat();
+
+    container.innerHTML = `<div class="flex flex-col items-center justify-center py-12 text-center col-span-full"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-blue-500 mb-3"></i><p class="text-gray-500 text-sm">Carregando materiais...</p></div>`;
+
+    let materiais = [];
+    try {
+      materiais = (await carregarMateriaisPlataforma()).map(typeof normalizarMaterialPlataforma === 'function' ? normalizarMaterialPlataforma : (x=>x));
+    } catch(e) {
+      console.warn(TAG, 'falha ao carregar materiais, usando cache local', e);
+      materiais = (getStorage('app_plataforma', []) || []).map(typeof normalizarMaterialPlataforma === 'function' ? normalizarMaterialPlataforma : (x=>x));
+    }
+
+    if (typeof atualizarFiltrosPlataforma === 'function') atualizarFiltrosPlataforma(materiais);
+
+    const filtrados = filtrarMateriaisPlataformaFlat(materiais);
+
+    if (!filtrados.length) {
+      container.innerHTML = `<div class="flex flex-col items-center justify-center py-14 text-center bg-gray-800 border border-gray-700 rounded-2xl"><i class="fa-solid fa-photo-film text-4xl text-gray-700 mb-4"></i><p class="text-gray-500 text-sm">Nenhum material encontrado.</p><p class="text-gray-600 text-xs mt-1">Ajuste os filtros ou aguarde novas publicações.</p></div>`;
+      aplicarModoPlataformaFlat();
+      return;
+    }
+
+    container.innerHTML = filtrados.map(cardMaterialFlat).join('');
+    aplicarModoPlataformaFlat();
+  }
+
+  window.renderizarPlataformaEnsino = renderizarPlataformaEnsinoFlat;
+  try { renderizarPlataformaEnsino = renderizarPlataformaEnsinoFlat; } catch(_) {}
+
+  // ------------------------------------------------------------
+  // 3) Gerador de lista: respeita exatamente a quantidade pedida no fluxo Plataforma
+  // ------------------------------------------------------------
+  function miniListaKey(){
+    return `avance_mini_lista_questoes_v1_${uidKey()}_${anoAtual()}`;
+  }
+  function getMiniIds(){
+    try { return JSON.parse(localStorage.getItem(miniListaKey()) || '[]').map(String); } catch(_) { return []; }
+  }
+  function setMiniIds(ids){
+    const limpos = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+    localStorage.setItem(miniListaKey(), JSON.stringify(limpos));
+  }
+  function listaQuestoesGerador(){
+    return Array.isArray(getStorage('app_questoes', [])) ? getStorage('app_questoes', []) : [];
+  }
+  function lerChecks(classe){
+    const mapa = {};
+    document.querySelectorAll(`.${classe}:checked`).forEach(ch => {
+      const campo = ch.dataset.campo;
+      if (!campo) return;
+      if (!mapa[campo]) mapa[campo] = new Set();
+      mapa[campo].add(String(ch.value || ''));
+    });
+    return mapa;
+  }
+  function passaIncExc(q, inc, exc){
+    for (const [campo,set] of Object.entries(inc)) {
+      if (set.size && !set.has(String(q[campo] || ''))) return false;
+    }
+    for (const [campo,set] of Object.entries(exc)) {
+      if (set.size && set.has(String(q[campo] || ''))) return false;
+    }
+    return true;
+  }
+  function passaFiltrosAtuaisGerador(q){
+    const map = [
+      ['filtroQuestaoDisciplina','disciplina'],
+      ['filtroQuestaoNivel','nivel'],
+      ['filtroQuestaoArea','area'],
+      ['filtroQuestaoTema','tema'],
+      ['filtroQuestaoSubtema','subtema'],
+      ['filtroQuestaoDificuldade','dificuldade'],
+      ['filtroQuestaoTipo','tipo']
+    ];
+    for (const [id,campo] of map) {
+      const v = document.getElementById(id)?.value || 'TODOS';
+      if (v !== 'TODOS' && String(q[campo] || '') !== v) return false;
+    }
+    return true;
+  }
+  function shuffle(arr){
+    const a = arr.slice();
+    for (let i=a.length-1;i>0;i--) {
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+  }
+
+  const abrirGeradorPlataformaBase = window.abrirGeradorListasBancoPlataforma || null;
+  window.abrirGeradorListasBancoPlataforma = async function abrirGeradorListasBancoPlataformaQuantidadeExata(){
+    window.__geradorListaPlataformaAtivo = true;
+    const r = abrirGeradorPlataformaBase ? await abrirGeradorPlataformaBase.apply(this, arguments) : (typeof abrirGeradorMiniListaAleatoria === 'function' ? abrirGeradorMiniListaAleatoria() : null);
+    setTimeout(() => {
+      const sub = document.getElementById('bqRandSubstituirLista');
+      if (sub) sub.checked = true; // na Plataforma, por padrão, a lista publicada deve ter exatamente a quantidade pedida
+      const resumo = document.getElementById('bqRandResumo');
+      if (resumo) resumo.innerHTML = '<span class="text-purple-200 font-bold">Fluxo da Plataforma:</span> a lista publicada terá exatamente a quantidade informada, limitada ao total encontrado nos filtros.';
+    }, 200);
+    return r;
+  };
+
+  window.gerarMiniListaAleatoriaQuestoes = async function gerarMiniListaAleatoriaQuestoesQuantidadeExata(){
+    const qtdRaw = Number(document.getElementById('bqRandQtd')?.value || 10);
+    const qtd = Math.min(100, Math.max(1, Number.isFinite(qtdRaw) ? Math.floor(qtdRaw) : 10));
+    const usarFiltros = !!document.getElementById('bqRandUsarFiltrosAtuais')?.checked;
+    const somenteAtivas = !!document.getElementById('bqRandSomenteAtivas')?.checked;
+    const substituirCheck = !!document.getElementById('bqRandSubstituirLista')?.checked;
+    const fluxoPlataforma = !!window.__geradorListaPlataformaAtivo;
+    const substituir = fluxoPlataforma ? true : substituirCheck;
+
+    const inc = lerChecks('bqRandCheck');
+    const exc = lerChecks('bqRandBlock');
+
+    let base = listaQuestoesGerador();
+    if (usarFiltros) base = base.filter(passaFiltrosAtuaisGerador);
+    if (somenteAtivas) base = base.filter(q => !q.status || String(q.status) === 'Ativa');
+    base = base.filter(q => passaIncExc(q, inc, exc));
+
+    const escolhidas = shuffle(base).slice(0, qtd);
+    const idsEscolhidas = escolhidas.map(q => String(q.id)).filter(Boolean);
+    const atuais = substituir ? [] : getMiniIds();
+    const finais = substituir ? idsEscolhidas : Array.from(new Set([...atuais, ...idsEscolhidas]));
+
+    setMiniIds(finais);
+
+    const resumo = document.getElementById('bqRandResumo');
+    if (!idsEscolhidas.length) {
+      if (resumo) resumo.innerHTML = `<span class="text-red-300 font-bold">Nenhuma questão encontrada com esses critérios.</span>`;
+      return;
+    }
+
+    if (resumo) {
+      resumo.innerHTML = `<span class="text-emerald-300 font-bold">${idsEscolhidas.length} questão(ões) selecionada(s).</span> ${idsEscolhidas.length < qtd ? `<span class="text-amber-300">Foram encontradas apenas ${idsEscolhidas.length} dentro dos filtros.</span>` : ''} ${fluxoPlataforma ? '<span class="text-purple-200">A lista da Plataforma foi substituída para bater com essa quantidade.</span>' : ''}`;
+    }
+
+    try { if (typeof atualizarResumoMiniListaQuestoes === 'function') atualizarResumoMiniListaQuestoes(); } catch(_) {}
+    try { if (typeof atualizarResumoMiniListaQuestoesPatch === 'function') atualizarResumoMiniListaQuestoesPatch(); } catch(_) {}
+    try { if (!document.getElementById('view-questoes')?.classList.contains('hidden') && typeof renderizarBancoQuestoes === 'function') renderizarBancoQuestoes(); } catch(_) {}
+
+    if (fluxoPlataforma && typeof abrirModalPublicarListaPlataforma === 'function') {
+      setTimeout(() => abrirModalPublicarListaPlataforma(), 250);
+    }
+  };
+  try { gerarMiniListaAleatoriaQuestoes = window.gerarMiniListaAleatoriaQuestoes; } catch(_) {}
+
+  // ------------------------------------------------------------
+  // Diagnóstico
+  // ------------------------------------------------------------
+  window.diagnosticarFixLoginPlataformaGerador = function diagnosticarFixLoginPlataformaGerador(){
+    return {
+      loginEstabilizando: Date.now() < (window.__loginEstabilizandoAte || 0),
+      plataformaModo: modoPlataforma(),
+      materiaisCache: (getStorage('app_plataforma', []) || []).length,
+      questoesCache: (getStorage('app_questoes', []) || []).length,
+      miniListaQtd: getMiniIds().length,
+      fluxoPlataformaAtivo: !!window.__geradorListaPlataformaAtivo,
+      modalGeradorAberto: !document.getElementById('modalMiniListaAleatoria')?.classList.contains('hidden')
+    };
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureCssFlat();
+    setTimeout(() => {
+      if (!document.getElementById('view-plataforma')?.classList.contains('hidden')) renderizarPlataformaEnsinoFlat();
+    }, 900);
+  });
+
+  console.log(TAG, 'ativo. Use diagnosticarFixLoginPlataformaGerador() no console.');
+})();
