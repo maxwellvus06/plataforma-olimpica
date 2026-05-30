@@ -18834,3 +18834,246 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
   console.log(TAG, 'ativo. Use problemasCentralLimpaDiagnostico() para conferir.');
 })();
+
+
+// ============================================================
+// PATCH FINAL — PROBLEMAS FIXO SEM PISCAR
+// Objetivo: parar definitivamente o botão "Problemas" de aparecer/sumir.
+// Estratégia:
+// 1) Usar o MESMO id oficial da central limpa: btnProblemasCentralLimpa.
+// 2) Tirar o botão de dentro do header dinâmico e prender em um host fixo no body.
+// 3) Proteger o botão contra remove() de patches antigos.
+// 4) Remover/higienizar qualquer outro botão legado.
+// ============================================================
+(function problemasBotaoFixoSemPiscar(){
+  const BTN_ID = 'btnProblemasCentralLimpa';
+  const BADGE_ID = 'badgeProblemasCentralLimpa';
+  const HOST_ID = 'problemasCentralFixoHost';
+  const LEGACY_IDS = [
+    'btnProblemasQuestoes',
+    'btnProblemasCalendario',
+    'btnProblemasUnificado',
+    'btnProblemasUnicoRevisao',
+    'btnCentralProblemas',
+    'btnProblemasCalendarioAdmin',
+    'badgeProblemasQuestoes',
+    'badgeProblemasCalendario',
+    'badgeProblemasUnificado'
+  ];
+
+  function nivelEquipeAtual(){
+    try {
+      const n = String(usuarioLogado?.nivel || '');
+      return n === 'ADM' || n === 'Staff';
+    } catch(_) { return false; }
+  }
+
+  // Protege o botão fixo contra módulos antigos que chamam .remove()
+  if (!window.__PROBLEMAS_REMOVE_GUARD__) {
+    window.__PROBLEMAS_REMOVE_GUARD__ = true;
+    const originalRemove = Element.prototype.remove;
+    Element.prototype.remove = function removeComGuardaProblemas(){
+      try {
+        if ((this.id === BTN_ID || this.id === HOST_ID) && this.dataset?.problemasFixo === 'true') {
+          return; // bloqueia remoção do botão/host oficial
+        }
+      } catch(_) {}
+      return originalRemove.call(this);
+    };
+  }
+
+  function ensureStyle(){
+    if (document.getElementById('styleProblemasBotaoFixoSemPiscar')) return;
+    const st = document.createElement('style');
+    st.id = 'styleProblemasBotaoFixoSemPiscar';
+    st.textContent = `
+      #${HOST_ID}{
+        position:fixed!important;
+        top:13px!important;
+        right:230px!important;
+        z-index:10050!important;
+        display:flex!important;
+        align-items:center!important;
+        pointer-events:auto!important;
+      }
+      #${HOST_ID}.problemas-hidden{display:none!important;}
+      #${BTN_ID}{
+        position:relative!important;
+        display:inline-flex!important;
+        align-items:center!important;
+        justify-content:center!important;
+        gap:6px!important;
+        height:32px!important;
+        padding:0 14px!important;
+        border-radius:12px!important;
+        background:rgba(69,10,10,.82)!important;
+        border:1px solid rgba(248,113,113,.55)!important;
+        color:#fee2e2!important;
+        font-size:11px!important;
+        font-weight:900!important;
+        text-transform:uppercase!important;
+        letter-spacing:.04em!important;
+        box-shadow:0 8px 24px rgba(0,0,0,.18)!important;
+        white-space:nowrap!important;
+      }
+      #${BTN_ID}:hover{background:rgba(127,29,29,.9)!important;}
+      #${BADGE_ID}{
+        position:absolute!important;
+        top:-8px!important;
+        right:-8px!important;
+        min-width:20px!important;
+        height:20px!important;
+        padding:0 5px!important;
+        border-radius:999px!important;
+        background:#dc2626!important;
+        color:white!important;
+        font-size:10px!important;
+        font-weight:900!important;
+        display:flex!important;
+        align-items:center!important;
+        justify-content:center!important;
+      }
+      #${BADGE_ID}.hidden{display:none!important;}
+      ${LEGACY_IDS.map(id => `#${id}`).join(',')}{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+      @media (max-width: 900px){
+        #${HOST_ID}{right:150px!important;top:10px!important;}
+        #${BTN_ID}{padding:0 10px!important;font-size:10px!important;}
+      }
+    `;
+    document.head?.appendChild(st);
+  }
+
+  function removeLegacy(){
+    LEGACY_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.id !== BTN_ID) {
+        try { el.dataset.problemasFixo = 'false'; el.remove(); } catch(_) {}
+      }
+    });
+
+    // Remove clones/duplicatas com mesmo id que não estejam no host fixo.
+    document.querySelectorAll(`[id="${BTN_ID}"]`).forEach(el => {
+      if (el.closest(`#${HOST_ID}`)) return;
+      try { el.dataset.problemasFixo = 'false'; el.remove(); } catch(_) {}
+    });
+
+    // Remove botões antigos no header que tenham cara de problema.
+    document.querySelectorAll('header button, header a, .topbar button, .topbar a').forEach(el => {
+      if (el.id === BTN_ID || el.closest(`#${HOST_ID}`)) return;
+      const txt = String(el.textContent || '');
+      const id = String(el.id || '');
+      const cls = String(el.className || '');
+      if (/problemas?/i.test(txt + ' ' + id) && /(bell|triangle|amber|red|problema|warning|alert)/i.test(id + ' ' + cls + ' ' + txt)) {
+        try { el.remove(); } catch(_) {}
+      }
+    });
+  }
+
+  function ensureHost(){
+    ensureStyle();
+    let host = document.getElementById(HOST_ID);
+    if (!host) {
+      host = document.createElement('div');
+      host.id = HOST_ID;
+      host.dataset.problemasFixo = 'true';
+      document.body.appendChild(host);
+    }
+    host.dataset.problemasFixo = 'true';
+
+    let btn = host.querySelector(`#${BTN_ID}`);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = BTN_ID;
+      btn.type = 'button';
+      btn.dataset.problemasFixo = 'true';
+      btn.innerHTML = `<i class="fa-solid fa-bell"></i><span>Problemas</span><span id="${BADGE_ID}" class="hidden">0</span>`;
+      btn.onclick = function(){
+        if (typeof window.abrirCentralProblemasLimpa === 'function') {
+          window.abrirCentralProblemasLimpa(true);
+        } else if (typeof window.abrirCentralProblemasUnificada === 'function') {
+          window.abrirCentralProblemasUnificada(true);
+        } else {
+          alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
+        }
+      };
+      host.appendChild(btn);
+    }
+    btn.dataset.problemasFixo = 'true';
+
+    if (nivelEquipeAtual()) host.classList.remove('problemas-hidden');
+    else host.classList.add('problemas-hidden');
+
+    removeLegacy();
+    return btn;
+  }
+
+  function killLegacyProblemIntervalsHard(){
+    try {
+      (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
+        const src = String(item.src || '');
+        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|inserirBotaoCentralProblemas|garantirBotaoProblemas|badgeProblemas|btnCentralProblemas/i.test(src)) {
+          clearInterval(item.id);
+          item.killedByProblemasFixo = true;
+        }
+      });
+    } catch(_) {}
+  }
+
+  let scheduled = false;
+  function schedule(){
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      killLegacyProblemIntervalsHard();
+      ensureHost();
+    });
+  }
+
+  // Reaplica em eventos naturais, mas sem loop agressivo.
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureHost();
+    setTimeout(ensureHost, 300);
+    setTimeout(ensureHost, 1200);
+    setTimeout(ensureHost, 2500);
+    try {
+      const obs = new MutationObserver(schedule);
+      obs.observe(document.body, {childList:true, subtree:true});
+      window.__PROBLEMAS_FIXO_OBSERVER__ = obs;
+    } catch(_) {}
+  });
+
+  // Compatibilidade com navegação: depois que a aba muda, garante botão fixo.
+  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBase === 'function' && !window.__PROBLEMAS_FIXO_NAV__) {
+    window.__PROBLEMAS_FIXO_NAV__ = true;
+    const nav = function(){
+      const r = navBase.apply(this, arguments);
+      setTimeout(ensureHost, 80);
+      return r;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  window.problemasBotaoFixoDiagnostico = function problemasBotaoFixoDiagnostico(){
+    const host = document.getElementById(HOST_ID);
+    const btns = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`)).map((el,idx)=>({
+      idx,
+      noHost: !!el.closest(`#${HOST_ID}`),
+      visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+      text: el.textContent.trim()
+    }));
+    const legados = LEGACY_IDS.filter(id => !!document.getElementById(id));
+    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(i => /Problemas|btnProblemas|problemas/i.test(String(i.src || ''))).map(i => ({
+      id:i.id, delay:i.delay, killedByProblemasFixo:!!i.killedByProblemasFixo, killedByProblemasCentralLimpa:!!i.killedByProblemasCentralLimpa, src:String(i.src || '').slice(0,160)
+    }));
+    console.table({host:!!host, equipe:nivelEquipeAtual(), duplicatasBotao:btns.length, legados:legados.join(',') || 'nenhum'});
+    console.table(btns);
+    console.table(timers);
+    return {host:!!host, equipe:nivelEquipeAtual(), botoes:btns, legados, timers};
+  };
+
+  // Primeira tentativa imediata caso este patch seja carregado após o DOM.
+  try { if (document.body) ensureHost(); } catch(_) {}
+})();
