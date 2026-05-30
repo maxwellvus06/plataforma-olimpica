@@ -367,98 +367,88 @@ body.login-final-ready #loginScreen {
                 </section>
 
                 <!-- ===================== DASHBOARD ===================== -->
-                <section id="view-dashboard" class="tab-view space-y-8">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-800/40 p-4 rounded-xl border border-gray-800">
-                        <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Município Filtro</label>
-                            <select id="filterMunicipio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Escola Filtro</label>
-                            <select id="filterEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Olimpíada Filtro</label>
-                            <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
-                        </div>
-                    </div>
-                    <div class="bg-gray-800 border border-purple-900/40 rounded-2xl shadow-xl overflow-hidden">
-                        <div class="p-5 border-b border-gray-700 bg-purple-950/20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <section id="view-dashboard" class="tab-view space-y-6">
+                    <div class="bg-gray-800/40 border border-gray-700 rounded-2xl p-4 shadow-xl">
+                        <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                             <div>
-                                <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-file-signature text-purple-400 mr-2"></i>Central de Relatórios Criativos</h3>
-                                <p class="text-xs text-gray-400 mt-1">Gere documentos prontos para coordenação, direção, famílias, prefeitura, alunos e prestação de contas.</p>
+                                <h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-chart-pie text-blue-300 mr-2"></i>Dashboard Analítico</h3>
+                                <p id="dashboardContextoTexto" class="text-xs text-gray-400 mt-1">Visão geral do cenário olímpico conforme seu escopo de acesso.</p>
                             </div>
-                            <div class="flex flex-wrap gap-2">
-                                <button id="btnExportarRelatorioPDF" type="button" class="px-3 py-2 bg-red-700/80 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-pdf mr-2"></i>PDF</button>
-                                <button id="btnExportarRelatorioDOCX" type="button" class="px-3 py-2 bg-blue-700/80 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-word mr-2"></i>DOCX</button>
-                                <button id="btnExportarRelatorioXLSX" type="button" class="px-3 py-2 bg-emerald-700/80 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-file-excel mr-2"></i>Excel</button>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">
-                            <div>
-                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Modelo de relatório</label>
-                                <select id="relTipoCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
-                                    <option value="executivo">Panorama Executivo</option>
-                                    <option value="cidade">Dossiê por Cidade</option>
-                                    <option value="escola">Raio-X por Escola</option>
-                                    <option value="alunos">Mapa de Alunos</option>
-                                    <option value="olimpiadas">Catálogo de Olimpíadas</option>
-                                    <option value="calendario">Radar Operacional</option>
-                                    <option value="plataforma">Engajamento da Plataforma</option>
-                                    <option value="prestacao">Prestação de Contas</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Tom do documento</label>
-                                <select id="relTomCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
-                                    <option value="gestao">Gestão / Direção</option>
-                                    <option value="institucional">Institucional / Prefeitura</option>
-                                    <option value="pedagogico">Pedagógico / Coordenação</option>
-                                    <option value="familias">Famílias e comunidade</option>
-                                    <option value="aluno">Aluno / motivacional</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Profundidade</label>
-                                <select id="relProfundidadeCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none">
-                                    <option value="resumo">Resumo de 1 página</option>
-                                    <option value="analitico">Analítico</option>
-                                    <option value="completo">Completo com anexos</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Nome do responsável</label>
-                                <input id="relResponsavelCriativo" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-white focus:outline-none" placeholder="Ex: Coordenação Olímpica">
-                            </div>
-                        </div>
-                        <div id="relPreviewCriativo" class="p-5 bg-gray-900/20 space-y-4 text-sm text-gray-300">
-                            <div class="border border-dashed border-gray-700 rounded-2xl p-6 text-center text-gray-500">
-                                <i class="fa-solid fa-wand-magic-sparkles text-2xl mb-2 text-purple-400"></i>
-                                <p class="font-bold text-gray-300">Escolha um modelo e clique em “Gerar peça” para montar automaticamente um relatório narrativo, com cards, tabelas e gráficos prontos para gestão.</p>
-                                <p class="text-xs mt-1">Depois exporte em PDF, DOCX ou Excel.</p>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 lg:max-w-4xl">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Município</label>
+                                    <select id="filterMunicipio" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Escola</label>
+                                    <select id="filterEscola" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Olimpíada</label>
+                                    <select id="filterOlimpiada" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 focus:outline-none text-sm text-gray-300"></select>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Medalhas</span><h3 id="cardTotalMedalhas" class="text-2xl font-black text-white mt-2">0</h3></div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Medalhas de Ouro</span><h3 id="cardTotalOuro" class="text-2xl font-black text-amber-400 mt-2">0</h3></div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Escolas Atendidas</span><h3 id="cardTotalEscolas" class="text-2xl font-black text-purple-400 mt-2">0</h3></div>
-                        <div class="bg-gray-800 border border-gray-700 p-5 rounded-2xl shadow-sm"><span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Cidades Mapeadas</span><h3 id="cardTotalCidades" class="text-2xl font-black text-emerald-400 mt-2">0</h3></div>
-                    </div>
-                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                        <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl flex flex-col justify-center min-h-[300px]">
-                            <h3 class="text-sm font-bold mb-4 text-gray-300 uppercase tracking-wider">Distribuição de Prêmios</h3>
-                            <div class="relative flex-1 flex items-center justify-center max-h-[240px]"><canvas id="chartPremios"></canvas></div>
+                    <div id="dashboardCardsPremios" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3"></div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        <div class="xl:col-span-7 bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl min-h-[340px]">
+                            <div class="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-sm font-black text-white uppercase tracking-wider">Medalhas por escola</h3>
+                                    <p class="text-xs text-gray-500 mt-1">Ranking simples do recorte selecionado.</p>
+                                </div>
+                            </div>
+                            <div class="relative h-[280px]"><canvas id="chartDashboardEscolas"></canvas></div>
                         </div>
-                        <div class="bg-gray-800 border border-gray-700 rounded-2xl xl:col-span-2 overflow-hidden flex flex-col">
-                            <div class="p-5 border-b border-gray-700 bg-gray-800/50"><h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider">Histórico de Alunos Premiados</h3></div>
-                            <div class="overflow-x-auto flex-1">
-                                <table class="w-full text-left border-collapse">
-                                    <thead><tr class="bg-gray-900/50 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-4">Estudante</th><th class="p-4">Escola de Origem</th><th class="p-4">Município</th><th class="p-4">Série</th><th class="p-4">Olimpíada</th><th class="p-4">Resultado</th></tr></thead>
-                                    <tbody id="tablePremiadosCorpo" class="divide-y divide-gray-700/40 text-sm"></tbody>
+                        <div class="xl:col-span-5 bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl min-h-[340px]">
+                            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4">Distribuição por premiação</h3>
+                            <div class="relative h-[280px]"><canvas id="chartDashboardPremios"></canvas></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        <div class="xl:col-span-7 bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                            <div class="p-5 border-b border-gray-700 bg-gray-800/60 flex items-center justify-between gap-3">
+                                <div>
+                                    <h3 class="text-sm font-black text-white uppercase tracking-wider">Top alunos medalhistas</h3>
+                                    <p class="text-xs text-gray-500 mt-1">Ordenado por total de premiações e peso das medalhas.</p>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse min-w-[760px]">
+                                    <thead><tr class="bg-gray-950/60 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-3">#</th><th class="p-3">Aluno</th><th class="p-3">Escola</th><th class="p-3">Município</th><th class="p-3 text-center">Total</th><th class="p-3 text-center">Ouro</th><th class="p-3 text-center">Prata</th><th class="p-3 text-center">Bronze</th><th class="p-3 text-center">Menção</th></tr></thead>
+                                    <tbody id="dashboardTopAlunosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
                                 </table>
                             </div>
+                        </div>
+                        <div class="xl:col-span-5 space-y-6">
+                            <div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
+                                <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4">Top olimpíadas</h3>
+                                <div id="dashboardTopOlimpiadas" class="space-y-2"></div>
+                            </div>
+                            <div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-xl">
+                                <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4">Top municípios / escolas</h3>
+                                <div id="dashboardTopContexto" class="space-y-2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden shadow-xl">
+                        <div class="p-5 border-b border-gray-700 bg-gray-800/60 flex items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-black text-white uppercase tracking-wider">Últimos resultados do recorte</h3>
+                                <p class="text-xs text-gray-500 mt-1">Amostra rápida para conferência. Use a aba Resultados para busca completa.</p>
+                            </div>
+                            <span id="dashboardResumoRegistros" class="text-xs text-gray-400"></span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse min-w-[860px]">
+                                <thead><tr class="bg-gray-950/60 text-[11px] font-bold text-gray-400 border-b border-gray-700 uppercase tracking-wider"><th class="p-3">Aluno</th><th class="p-3">Olimpíada</th><th class="p-3">Premiação</th><th class="p-3">Escola</th><th class="p-3">Município</th><th class="p-3">Série</th></tr></thead>
+                                <tbody id="tablePremiadosCorpo" class="divide-y divide-gray-700/40 text-sm text-gray-300"></tbody>
+                            </table>
                         </div>
                     </div>
                 </section>
@@ -474,7 +464,6 @@ body.login-final-ready #loginScreen {
                             </div>
                             <div class="flex flex-wrap gap-2">
                                 <button id="btnAtualizarRelatorios" type="button" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-rotate mr-2"></i>Atualizar relatório</button>
-                                <button id="btnGerarRelatorioCriativo" type="button" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar peça</button>
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b border-gray-700 bg-gray-900/30">

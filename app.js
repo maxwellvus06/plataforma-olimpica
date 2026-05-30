@@ -651,7 +651,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("relAnoFim")?.addEventListener("change", gerarRelatoriosComparativos);
         document.getElementById("relFiltroCidade")?.addEventListener("change", () => { atualizarFiltroEscolasRelatorio(); gerarRelatoriosComparativos(); });
         document.getElementById("relFiltroEscola")?.addEventListener("change", gerarRelatoriosComparativos);
-        initRelatoriosCriativos();
+        // Central de Relatórios Criativos removida do Dashboard; inicialização desativada.
+        if (false && typeof initRelatoriosCriativos === "function") initRelatoriosCriativos();
         document.getElementById("filterCronogramaGrupoEtapa")?.addEventListener("change", () => { preencherFiltrosCronograma(); renderizarCronograma(); });
         document.getElementById("filterCronogramaEtapa")?.addEventListener("change", renderizarCronograma);
         document.getElementById("filterCronogramaOlimpiada")?.addEventListener("change", renderizarCronograma);
@@ -18887,4 +18888,226 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     return {slot,btns,legados,modal};
   };
   try { if (document.body) montarBotao(); } catch(_) {}
+})();
+
+
+// ============================================================
+// DASHBOARD GESTOR LIMPO — sem Central de Relatórios Criativos
+// Visão direta para gestor por cidade/escola: totais, medalhas, top alunos,
+// ranking de escolas/olimpíadas e últimos resultados.
+// ============================================================
+(function dashboardGestorLimpoFinal(){
+  const TAG = '[Dashboard Gestor Limpo]';
+  let chartPremiosDash = null;
+  let chartEscolasDash = null;
+  let carregandoDash = false;
+  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function' ? normalizarTexto(v) : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr||[]).map(v => String(v||'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base',numeric:true}));
+
+  function getArr(chave){ try { const v = getStorage(chave, []); return Array.isArray(v) ? v : []; } catch(_) { return []; } }
+  async function carregarChaveDash(chave){
+    let atual = getArr(chave);
+    if (atual.length) return atual;
+    try { if (typeof carregarChaveFirebase === 'function') atual = await carregarChaveFirebase(chave, []); } catch(e){ console.warn(TAG, chave, e?.message || e); }
+    return Array.isArray(atual) ? atual : getArr(chave);
+  }
+  function premioTipo(p){
+    const n = norm(p);
+    if (n.includes('ouro')) return 'ouro';
+    if (n.includes('prata')) return 'prata';
+    if (n.includes('bronze')) return 'bronze';
+    if (n.includes('mencao') || n.includes('honrosa')) return 'mencao';
+    return 'outros';
+  }
+  const PREMIO_LABEL = { ouro:'Ouro', prata:'Prata', bronze:'Bronze', mencao:'Menção', outros:'Outros' };
+  const PREMIO_CLASS = {
+    ouro:'text-amber-300 bg-amber-950/30 border-amber-800/40',
+    prata:'text-gray-200 bg-gray-700/40 border-gray-600/50',
+    bronze:'text-orange-300 bg-orange-950/30 border-orange-800/40',
+    mencao:'text-purple-300 bg-purple-950/30 border-purple-800/40',
+    outros:'text-blue-300 bg-blue-950/30 border-blue-800/40'
+  };
+  function dentroEscopo(r){ try { return typeof resultadoDentroDoEscopoUsuario === 'function' ? resultadoDentroDoEscopoUsuario(r) : true; } catch(_) { return true; } }
+  function resultadoTime(r){ return Number(r.criadoEm || r.atualizadoEm || r.timestamp || 0); }
+  function contextoUsuario(){
+    const nivel = String(usuarioLogado?.nivel || '');
+    if (nivel === 'Gestor') return 'Visão do município vinculado ao gestor.';
+    if (nivel === 'Escola') return 'Visão da escola vinculada ao usuário.';
+    if (nivel === 'Visualizador') return 'Visão limitada ao escopo liberado para este visualizador.';
+    if (nivel === 'Aluno') return 'Visão vinculada ao aluno/escola do usuário.';
+    return 'Visão geral do cenário olímpico, respeitando o escopo do usuário.';
+  }
+  function contador(lista, fn){ const m = new Map(); lista.forEach(x => { const k = fn(x) || 'Não informado'; m.set(k, (m.get(k)||0)+1); }); return [...m.entries()].sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0]),'pt-BR')).map(([nome,total])=>({nome,total})); }
+  function medalhasPorPremio(lista){
+    const c = { ouro:0, prata:0, bronze:0, mencao:0, outros:0 };
+    lista.forEach(r => c[premioTipo(r.premio)]++);
+    return c;
+  }
+  function alunoKey(r){ return [r.aluno || 'Aluno sem nome', r.escola || '', r.municipio || ''].join('||'); }
+  function topAlunos(lista, limite=12){
+    const map = new Map();
+    lista.forEach(r => {
+      const key = alunoKey(r);
+      const tipo = premioTipo(r.premio);
+      if (!map.has(key)) map.set(key, { aluno:r.aluno || 'Aluno sem nome', escola:r.escola || '—', municipio:r.municipio || '—', total:0, ouro:0, prata:0, bronze:0, mencao:0, outros:0, peso:0 });
+      const item = map.get(key);
+      item.total++; item[tipo]++;
+      item.peso += tipo === 'ouro' ? 5 : tipo === 'prata' ? 3 : tipo === 'bronze' ? 2 : tipo === 'mencao' ? 1 : .5;
+    });
+    return [...map.values()].sort((a,b)=>b.total-a.total || b.peso-a.peso || b.ouro-a.ouro || a.aluno.localeCompare(b.aluno,'pt-BR')).slice(0,limite);
+  }
+  function optionHTML(label, valores, atual){
+    return `<option value="TODOS">${esc(label)}</option>` + valores.map(v => `<option value="${esc(v)}" ${String(v)===String(atual)?'selected':''}>${esc(v)}</option>`).join('');
+  }
+  function setOptionsStable(id, label, valores, atual){
+    const el = document.getElementById(id); if (!el) return;
+    if (document.activeElement === el) return;
+    const selected = atual || el.value || 'TODOS';
+    const html = optionHTML(label, valores, selected);
+    if (el.dataset.lastHtmlDash !== html) {
+      el.innerHTML = html;
+      el.dataset.lastHtmlDash = html;
+    }
+    if ([...el.options].some(o => o.value === selected)) el.value = selected;
+  }
+  function popularFiltrosDash(base){
+    const munAtual = document.getElementById('filterMunicipio')?.value || 'TODOS';
+    const escAtual = document.getElementById('filterEscola')?.value || 'TODOS';
+    const oliAtual = document.getElementById('filterOlimpiada')?.value || 'TODOS';
+    const municipios = uniq(base.map(r => r.municipio));
+    const porMun = munAtual === 'TODOS' ? base : base.filter(r => r.municipio === munAtual);
+    const escolas = uniq(porMun.map(r => r.escola));
+    const porEscola = escAtual === 'TODOS' ? porMun : porMun.filter(r => r.escola === escAtual);
+    const olimpiadas = uniq(porEscola.map(r => r.olimpiada));
+    setOptionsStable('filterMunicipio','Todos os municípios',municipios,munAtual);
+    setOptionsStable('filterEscola', munAtual === 'TODOS' ? 'Todas as escolas' : 'Todas as escolas do município', escolas, escAtual);
+    setOptionsStable('filterOlimpiada','Todas as olimpíadas',olimpiadas,oliAtual);
+  }
+  function filtrar(base){
+    const m = document.getElementById('filterMunicipio')?.value || 'TODOS';
+    const e = document.getElementById('filterEscola')?.value || 'TODOS';
+    const o = document.getElementById('filterOlimpiada')?.value || 'TODOS';
+    return base.filter(r => (m==='TODOS'||r.municipio===m) && (e==='TODOS'||r.escola===e) && (o==='TODOS'||r.olimpiada===o));
+  }
+  function card(label, valor, sub='', cls='text-white'){
+    return `<div class="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm"><p class="text-[10px] font-black uppercase tracking-wider text-gray-500">${esc(label)}</p><div class="mt-1 text-2xl font-black ${cls}">${esc(valor)}</div>${sub?`<p class="text-[10px] text-gray-500 mt-1">${esc(sub)}</p>`:''}</div>`;
+  }
+  function renderCards(lista){
+    const c = medalhasPorPremio(lista);
+    const alunos = new Set(lista.map(alunoKey)).size;
+    const escolas = new Set(lista.map(r=>r.escola).filter(Boolean)).size;
+    const olis = new Set(lista.map(r=>r.olimpiada).filter(Boolean)).size;
+    const total = lista.length;
+    const box = document.getElementById('dashboardCardsPremios'); if (!box) return;
+    box.innerHTML = [
+      card('Total de medalhas', total, 'resultados no recorte', 'text-white'),
+      card('Ouro', c.ouro, `${total?Math.round(c.ouro/total*100):0}% do total`, 'text-amber-300'),
+      card('Prata', c.prata, `${total?Math.round(c.prata/total*100):0}% do total`, 'text-gray-200'),
+      card('Bronze', c.bronze, `${total?Math.round(c.bronze/total*100):0}% do total`, 'text-orange-300'),
+      card('Menção', c.mencao, 'menções honrosas', 'text-purple-300'),
+      card('Alunos únicos', alunos, 'estudantes premiados', 'text-blue-300'),
+      card('Escolas', escolas, 'com resultado', 'text-emerald-300'),
+      card('Olimpíadas', olis, 'com medalha/menção', 'text-indigo-300')
+    ].join('');
+  }
+  function renderTopAlunos(lista){
+    const tbody = document.getElementById('dashboardTopAlunosCorpo'); if (!tbody) return;
+    const rows = topAlunos(lista, 15);
+    tbody.innerHTML = rows.length ? rows.map((a,i)=>`<tr class="hover:bg-gray-800/60"><td class="p-3 text-gray-500 font-black">${i+1}</td><td class="p-3 font-bold text-white">${esc(a.aluno)}</td><td class="p-3 text-gray-300">${esc(a.escola)}</td><td class="p-3 text-gray-400 text-xs">${esc(a.municipio)}</td><td class="p-3 text-center font-black text-white">${a.total}</td><td class="p-3 text-center text-amber-300 font-bold">${a.ouro}</td><td class="p-3 text-center text-gray-200 font-bold">${a.prata}</td><td class="p-3 text-center text-orange-300 font-bold">${a.bronze}</td><td class="p-3 text-center text-purple-300 font-bold">${a.mencao}</td></tr>`).join('') : `<tr><td colspan="9" class="p-8 text-center text-gray-500">Sem alunos premiados neste recorte.</td></tr>`;
+  }
+  function barraItem(nome,total,max){
+    const pct = max ? Math.max(4, Math.round(total/max*100)) : 0;
+    return `<div><div class="flex justify-between gap-3 text-xs mb-1"><span class="text-gray-300 truncate">${esc(nome)}</span><b class="text-white">${total}</b></div><div class="h-2 bg-gray-950 rounded-full overflow-hidden"><div class="h-full bg-blue-600 rounded-full" style="width:${pct}%"></div></div></div>`;
+  }
+  function renderRankings(lista){
+    const olis = contador(lista, r=>r.olimpiada).slice(0,8);
+    const escolas = contador(lista, r=>r.escola).slice(0,8);
+    const municipios = contador(lista, r=>r.municipio).slice(0,8);
+    const boxO = document.getElementById('dashboardTopOlimpiadas');
+    const boxC = document.getElementById('dashboardTopContexto');
+    if (boxO) boxO.innerHTML = olis.length ? olis.map(x=>barraItem(x.nome,x.total,olis[0].total)).join('') : `<p class="text-xs text-gray-500">Sem dados.</p>`;
+    if (boxC) {
+      const e = escolas.length ? `<div><p class="text-[10px] uppercase font-black text-gray-500 mb-2">Escolas</p>${escolas.map(x=>barraItem(x.nome,x.total,escolas[0].total)).join('')}</div>` : '';
+      const m = municipios.length ? `<div class="mt-4"><p class="text-[10px] uppercase font-black text-gray-500 mb-2">Municípios</p>${municipios.map(x=>barraItem(x.nome,x.total,municipios[0].total)).join('')}</div>` : '';
+      boxC.innerHTML = e || m ? e+m : `<p class="text-xs text-gray-500">Sem dados.</p>`;
+    }
+  }
+  function renderTabelaRecentes(lista){
+    const tbody = document.getElementById('tablePremiadosCorpo'); if (!tbody) return;
+    const amostra = lista.slice().sort((a,b)=>resultadoTime(b)-resultadoTime(a)).slice(0,60);
+    tbody.innerHTML = amostra.length ? amostra.map(r=>{
+      const tipo = premioTipo(r.premio);
+      return `<tr class="hover:bg-gray-800/60"><td class="p-3 font-semibold text-white">${esc(r.aluno || '—')}</td><td class="p-3 text-gray-300">${esc(r.olimpiada || '—')}</td><td class="p-3"><span class="px-2 py-1 rounded-lg border text-[11px] font-black uppercase ${PREMIO_CLASS[tipo]}">${esc(r.premio || PREMIO_LABEL[tipo])}</span></td><td class="p-3 text-gray-300">${esc(r.escola || '—')}</td><td class="p-3 text-gray-400 text-xs">${esc(r.municipio || '—')}</td><td class="p-3 text-gray-400 text-xs">${esc(r.serie || '—')}</td></tr>`;
+    }).join('') : `<tr><td colspan="6" class="p-8 text-center text-gray-500">Sem resultados neste recorte.</td></tr>`;
+    const resumo = document.getElementById('dashboardResumoRegistros');
+    if (resumo) resumo.textContent = lista.length ? `Exibindo ${amostra.length} de ${lista.length} resultado(s)` : 'Sem resultados';
+  }
+  function safeChart(ctxId, oldChart, cfg){
+    const canvas = document.getElementById(ctxId); if (!canvas || !window.Chart) return oldChart;
+    try { oldChart?.destroy?.(); } catch(_) {}
+    return new Chart(canvas, cfg);
+  }
+  function renderCharts(lista){
+    const c = medalhasPorPremio(lista);
+    chartPremiosDash = safeChart('chartDashboardPremios', chartPremiosDash, {
+      type:'doughnut',
+      data:{ labels:['Ouro','Prata','Bronze','Menção','Outros'], datasets:[{data:[c.ouro,c.prata,c.bronze,c.mencao,c.outros], backgroundColor:['#f59e0b','#9ca3af','#b45309','#7c3aed','#2563eb'], borderWidth:0}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{color:'#9ca3af', font:{size:11}}}}}
+    });
+    const escolas = contador(lista, r=>r.escola).slice(0,8);
+    chartEscolasDash = safeChart('chartDashboardEscolas', chartEscolasDash, {
+      type:'bar',
+      data:{ labels:escolas.map(x=>x.nome), datasets:[{label:'Medalhas', data:escolas.map(x=>x.total), backgroundColor:'#2563eb', borderWidth:0}]},
+      options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#9ca3af', precision:0}, grid:{color:'rgba(148,163,184,.12)'}}, y:{ticks:{color:'#d1d5db'}, grid:{display:false}}}}
+    });
+  }
+  async function carregarBaseDashboard(){
+    await Promise.all([carregarChaveDash('app_premiados'), carregarChaveDash('app_cidades'), carregarChaveDash('app_escolas'), carregarChaveDash('app_olimpiadas')]);
+    dadosTrabalho = getArr('app_premiados');
+    return dadosTrabalho.filter(dentroEscopo);
+  }
+  window.renderizarPlataformaDashboard = async function renderizarPlataformaDashboardGestorLimpo(){
+    if (carregandoDash) return;
+    carregandoDash = true;
+    try {
+      const ctx = document.getElementById('dashboardContextoTexto'); if (ctx) ctx.textContent = contextoUsuario();
+      const base = await carregarBaseDashboard();
+      popularFiltrosDash(base);
+      const lista = filtrar(base);
+      renderCards(lista); renderTopAlunos(lista); renderRankings(lista); renderTabelaRecentes(lista); renderCharts(lista);
+      // Compatibilidade com cards antigos, caso algum CSS/elemento legado ainda exista.
+      const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent = v; };
+      const c = medalhasPorPremio(lista); set('cardTotalMedalhas', lista.length); set('cardTotalOuro', c.ouro); set('cardTotalEscolas', new Set(lista.map(r=>r.escola).filter(Boolean)).size); set('cardTotalCidades', new Set(lista.map(r=>r.municipio).filter(Boolean)).size);
+    } catch(e) {
+      console.error(TAG, e);
+      const tbody = document.getElementById('tablePremiadosCorpo');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-300">Erro ao carregar dashboard: ${esc(e.message || e)}</td></tr>`;
+    } finally { carregandoDash = false; }
+  };
+  try { renderizarPlataformaDashboard = window.renderizarPlataformaDashboard; } catch(_) {}
+
+  // Remove qualquer resto visual da antiga Central de Relatórios Criativos se algum patch tentar recriar.
+  function removerCentralCriativaResidual(){
+    document.getElementById('relPreviewCriativo')?.closest('.bg-gray-800')?.remove();
+    document.getElementById('dashboardRevisaoResumo')?.remove();
+    document.querySelectorAll('button, a').forEach(el => {
+      const txt = String(el.textContent || '');
+      const id = String(el.id || '');
+      if (/gerar peça|relatório criativo|central de relatórios criativos/i.test(txt + ' ' + id)) el.remove();
+    });
+  }
+  window.gerarRelatorioCriativo = function(){ console.warn(TAG, 'Central de Relatórios Criativos removida.'); };
+  window.exportarRelatorioCriativo = function(){ console.warn(TAG, 'Exportação criativa removida.'); };
+  window.initRelatoriosCriativos = function(){};
+
+  document.addEventListener('change', e => { if (['filterMunicipio','filterEscola','filterOlimpiada'].includes(e.target?.id)) setTimeout(()=>window.renderizarPlataformaDashboard(), 30); });
+  const navBaseDashLimpo = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof navBaseDashLimpo === 'function' && !window.__dashboardGestorLimpoNav) {
+    window.__dashboardGestorLimpoNav = true;
+    const nav = function(aba, btn){ const r = navBaseDashLimpo.apply(this, arguments); setTimeout(()=>{ removerCentralCriativaResidual(); if (aba === 'dashboard') window.renderizarPlataformaDashboard(); }, 120); return r; };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+  document.addEventListener('DOMContentLoaded', () => setTimeout(()=>{ removerCentralCriativaResidual(); if(!document.getElementById('view-dashboard')?.classList.contains('hidden')) window.renderizarPlataformaDashboard(); }, 600));
+  console.log(TAG, 'ativo');
 })();
