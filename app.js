@@ -18120,9 +18120,20 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   // 2) Problemas: um único botão e uma central única.
   // ------------------------------------------------------------------
   function removerBotoesProblemasDuplicados() {
-    const candidatos = Array.from(document.querySelectorAll("button, a"))
-      .filter(el => /problemas?|calend[aá]rio/i.test(String(el.textContent || "")) && (el.id || "").toLowerCase().includes("problema") || ["btnProblemasCalendario","btnProblemasQuestao","btnProblemasQuestoes","btnCentralProblemas","btnProblemasUnificado"].includes(el.id));
-    candidatos.forEach(el => { if (el.id !== "btnProblemasUnicoRevisao") el.remove(); });
+    // Revisão 2026-05-30:
+    // Esta função antiga era a principal causa do botão "Problemas" piscar.
+    // Ela removia QUALQUER botão com texto "Problemas", inclusive o botão novo correto.
+    // Agora só remove IDs legados explícitos e preserva o botão oficial no slot do header.
+    const idsLegados = [
+      "btnProblemasCalendario",
+      "btnProblemasQuestao",
+      "btnProblemasQuestoes",
+      "btnCentralProblemas",
+      "btnProblemasUnificado",
+      "btnProblemasUnicoRevisao",
+      "btnProblemasCalendarioAdmin"
+    ];
+    idsLegados.forEach(id => document.getElementById(id)?.remove());
   }
   async function carregarProblemas() {
     const paths = [`anos/${ANO()}/sistema_problemas`, `anos/${ANO()}/sistema_cronograma_problemas`, `anos/${ANO()}/sistema_questoes_problemas`, `sistema_problemas`];
@@ -19098,4 +19109,233 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
 
   console.log(TAG, 'ativo. Rode diagnosticarLoginProblemasHeader() se precisar conferir.');
+})();
+
+
+// ============================================================
+// PATCH RAIZ — Botão Problemas sem piscar
+// Causa corrigida: função antiga removerBotoesProblemasDuplicados()
+// removia o botão novo por texto/id. Este patch consolida um único botão
+// no slot estático do header e impede remoção indevida.
+// ============================================================
+(function problemasSemPiscarRaiz(){
+  const SLOT_ID = 'slotProblemasHeaderLimpo';
+  const BTN_ID = 'btnProblemasCentralLimpa';
+  const BADGE_ID = 'badgeProblemasCentralLimpa';
+  const LEGACY_IDS = [
+    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado',
+    'btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin',
+    'btnProblemasQuestao','badgeProblemasQuestoes','badgeProblemasCalendario','badgeProblemasUnificado'
+  ];
+
+  function isEquipe(){
+    try { return !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || '')); }
+    catch(_) { return false; }
+  }
+  function mainVisivel(){
+    const main = document.getElementById('mainPanel');
+    return !!main && !main.classList.contains('hidden');
+  }
+  function limparLegados(){
+    LEGACY_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
+      }
+    });
+    // Só remove botões "Problemas" que NÃO sejam o oficial dentro do slot.
+    const slot = document.getElementById(SLOT_ID);
+    document.querySelectorAll('header button, header a, #mainPanel button, #mainPanel a').forEach(el => {
+      if (el.id === BTN_ID && slot && slot.contains(el)) return;
+      const texto = String(el.textContent || '');
+      const id = String(el.id || '');
+      if (/problemas?/i.test(texto + ' ' + id) && id !== BTN_ID) {
+        try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
+      }
+    });
+  }
+  function ensureStyle(){
+    if (document.getElementById('styleProblemasSemPiscarRaiz')) return;
+    const st = document.createElement('style');
+    st.id = 'styleProblemasSemPiscarRaiz';
+    st.textContent = `
+      #${SLOT_ID}{display:flex;align-items:center;gap:.5rem;}
+      #${SLOT_ID}.hidden{display:none!important;}
+      #${BTN_ID}{
+        position:relative;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        gap:.35rem;
+        height:32px;
+        padding:0 .85rem;
+        border-radius:.65rem;
+        border:1px solid rgba(185,28,28,.72);
+        background:rgba(69,10,10,.48);
+        color:#fee2e2;
+        font-size:.72rem;
+        line-height:1;
+        font-weight:900;
+        text-transform:uppercase;
+        letter-spacing:.04em;
+        white-space:nowrap;
+        transition:background .15s ease,border-color .15s ease;
+      }
+      #${BTN_ID}:hover{background:rgba(127,29,29,.62);border-color:rgba(248,113,113,.72);}
+      #${BADGE_ID}{position:absolute;top:-.45rem;right:-.45rem;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:999px;background:#dc2626;color:white;font-size:.62rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
+      #${BADGE_ID}.hidden{display:none!important;}
+      ${LEGACY_IDS.map(id => '#'+id).join(',')}{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+      body:not(.usuario-logado) #${SLOT_ID}{display:none!important;}
+    `;
+    document.head?.appendChild(st);
+  }
+
+  // Remove guard: se algum patch antigo tentar remover o botão oficial, ignora.
+  if (!window.__PROBLEMAS_SEM_PISCAR_REMOVE_GUARD__) {
+    window.__PROBLEMAS_SEM_PISCAR_REMOVE_GUARD__ = true;
+    const originalRemove = Element.prototype.remove;
+    Element.prototype.remove = function(){
+      try {
+        if (this.id === BTN_ID && this.closest && this.closest('#'+SLOT_ID)) return;
+      } catch(_) {}
+      return originalRemove.call(this);
+    };
+  }
+
+  function ensureSlot(){
+    ensureStyle();
+    let slot = document.getElementById(SLOT_ID);
+    if (!slot) {
+      const theme = document.getElementById('btnToggleTema');
+      if (!theme || !theme.parentElement) return null;
+      slot = document.createElement('div');
+      slot.id = SLOT_ID;
+      theme.parentElement.insertBefore(slot, theme);
+    }
+    return slot;
+  }
+
+  function montar(){
+    ensureStyle();
+    limparLegados();
+    const slot = ensureSlot();
+    if (!slot) return;
+    if (!isEquipe() || !mainVisivel()) {
+      slot.classList.add('hidden');
+      slot.innerHTML = '';
+      document.body?.classList.remove('usuario-logado');
+      return;
+    }
+    document.body?.classList.add('usuario-logado');
+    slot.classList.remove('hidden');
+
+    let btn = slot.querySelector('#'+BTN_ID);
+    if (!btn) {
+      // Se existir um oficial fora do slot, move ao invés de recriar.
+      btn = document.getElementById(BTN_ID);
+      if (btn && btn.parentElement !== slot) slot.appendChild(btn);
+    }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = BTN_ID;
+      btn.type = 'button';
+      btn.onclick = () => {
+        if (typeof window.abrirCentralProblemasLimpa === 'function') return window.abrirCentralProblemasLimpa(true);
+        if (typeof window.abrirCentralProblemasUnificada === 'function') return window.abrirCentralProblemasUnificada(true);
+        if (typeof window.abrirCentralProblemasRevisao === 'function') return window.abrirCentralProblemasRevisao(true);
+        alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
+      };
+      slot.appendChild(btn);
+    }
+    btn.innerHTML = `<i class="fa-solid fa-bell"></i><span>Problemas</span><span id="${BADGE_ID}" class="${document.getElementById(BADGE_ID)?.classList?.contains('hidden') ? 'hidden' : 'hidden'}">0</span>`;
+  }
+
+  function matarTimersLegados(){
+    try {
+      (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
+        const src = String(item.src || '');
+        // Mata apenas rotinas que criam/removem botões de problemas, não timers de simulado.
+        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|btnCentralProblemas|garantirBotaoProblemas|removerBotoesProblemasDuplicados|problemasBotaoFixoSemPiscar/i.test(src)) {
+          clearInterval(item.id);
+          item.killedByProblemasSemPiscarRaiz = true;
+        }
+      });
+    } catch(_) {}
+  }
+
+  // Substitui central antiga por wrappers estáveis, sem observer agressivo.
+  const oldNav = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
+  if (typeof oldNav === 'function' && !window.__NAV_PROBLEMAS_SEM_PISCAR_RAIZ__) {
+    window.__NAV_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
+    const nav = function(){
+      const r = oldNav.apply(this, arguments);
+      setTimeout(() => { matarTimersLegados(); montar(); }, 60);
+      return r;
+    };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
+  }
+
+  const oldLogin = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
+  if (typeof oldLogin === 'function' && !window.__LOGIN_PROBLEMAS_SEM_PISCAR_RAIZ__) {
+    window.__LOGIN_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
+    const login = async function(){
+      const r = await oldLogin.apply(this, arguments);
+      setTimeout(() => { matarTimersLegados(); montar(); }, 80);
+      return r;
+    };
+    window.logarSucesso = login;
+    try { logarSucesso = login; } catch(_) {}
+  }
+
+  const oldLogout = window.logout || (typeof logout === 'function' ? logout : null);
+  if (typeof oldLogout === 'function' && !window.__LOGOUT_PROBLEMAS_SEM_PISCAR_RAIZ__) {
+    window.__LOGOUT_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
+    const logout2 = function(){
+      const r = oldLogout.apply(this, arguments);
+      setTimeout(() => { limparLegados(); montar(); }, 60);
+      return r;
+    };
+    window.logout = logout2;
+    try { logout = logout2; } catch(_) {}
+  }
+
+  let ticking = false;
+  function agendar(){
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => { ticking = false; montar(); });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureStyle();
+    setTimeout(() => { matarTimersLegados(); montar(); }, 120);
+    setTimeout(() => { matarTimersLegados(); montar(); }, 900);
+    setTimeout(() => { matarTimersLegados(); montar(); }, 2200);
+    try {
+      const obs = new MutationObserver((mutations) => {
+        // Só reage quando mexerem no header ou no slot, não em qualquer mudança da página.
+        if (mutations.some(m => {
+          const t = m.target;
+          return t && (t.id === SLOT_ID || t.id === 'mainPanel' || t.tagName === 'HEADER' || t.closest?.('header'));
+        })) agendar();
+      });
+      const main = document.getElementById('mainPanel') || document.body;
+      obs.observe(main, {childList:true, subtree:true});
+      window.__PROBLEMAS_SEM_PISCAR_OBSERVER__ = obs;
+    } catch(_) {}
+  });
+
+  window.diagnosticarProblemasSemPiscar = function(){
+    const slot = document.getElementById(SLOT_ID);
+    const botoes = Array.from(document.querySelectorAll('#'+BTN_ID)).map((b,i)=>({i, noSlot:!!(slot&&slot.contains(b)), visible:!!(b.offsetWidth||b.offsetHeight||b.getClientRects().length), parent:b.parentElement?.id||b.parentElement?.tagName}));
+    const legados = LEGACY_IDS.filter(id => !!document.getElementById(id));
+    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(t => /Problemas|btnProblemas|problemas/i.test(String(t.src || ''))).map(t => ({id:t.id, delay:t.delay, killedRaiz:!!t.killedByProblemasSemPiscarRaiz, killedHeader:!!t.killedByHeaderDefinitivo, src:String(t.src||'').slice(0,160)}));
+    console.table({slot:!!slot, equipe:isEquipe(), mainVisivel:mainVisivel(), botoes:botoes.length, legados:legados.join(',')||'nenhum'});
+    console.table(botoes);
+    console.table(timers);
+    return {slot:!!slot, equipe:isEquipe(), mainVisivel:mainVisivel(), botoes, legados, timers};
+  };
+
+  try { if (document.body) montar(); } catch(_) {}
 })();
