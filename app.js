@@ -18651,3 +18651,68 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   if (document.body) obs.observe(document.body,{childList:true,subtree:true});
   console.log(TAG, "ativo");
 })();
+
+
+// ============================================================
+// PATCH — Login visual sem flicker / sem sensação de duas telas
+// ============================================================
+(function patchLoginVisualSemFlicker(){
+  const TAG = "[login-visual-sem-flicker]";
+  function marcarPronto(){
+    try {
+      document.body?.classList.add("login-visual-ready");
+      document.body?.classList.remove("login-visual-pending");
+    } catch(_) {}
+  }
+  window.__loginVisualReady = marcarPronto;
+
+  function normalizarLoginInicial(){
+    try {
+      const sub = document.getElementById("brandLoginSubtitle");
+      if (sub && String(sub.textContent || "").trim().toLowerCase() === "plataforma avance olímpico") {
+        sub.textContent = "Plataforma de Resultados 2026";
+      }
+    } catch(_) {}
+  }
+
+  const aplicarBase = (typeof aplicarLayoutVisual === "function") ? aplicarLayoutVisual : window.aplicarLayoutVisual;
+  if (typeof aplicarBase === "function" && !window.__aplicarLayoutVisualLoginSemFlicker) {
+    window.__aplicarLayoutVisualLoginSemFlicker = true;
+    const wrapped = function aplicarLayoutVisualLoginSemFlicker(){
+      const r = aplicarBase.apply(this, arguments);
+      normalizarLoginInicial();
+      setTimeout(marcarPronto, 0);
+      return r;
+    };
+    window.aplicarLayoutVisual = wrapped;
+    try { aplicarLayoutVisual = wrapped; } catch(_) {}
+  }
+
+  const carregarBase = (typeof carregarLayoutVisual === "function") ? carregarLayoutVisual : window.carregarLayoutVisual;
+  if (typeof carregarBase === "function" && !window.__carregarLayoutVisualLoginSemFlicker) {
+    window.__carregarLayoutVisualLoginSemFlicker = true;
+    const wrappedLoad = async function carregarLayoutVisualLoginSemFlicker(){
+      try {
+        const r = await carregarBase.apply(this, arguments);
+        normalizarLoginInicial();
+        marcarPronto();
+        return r;
+      } catch(e) {
+        normalizarLoginInicial();
+        marcarPronto();
+        throw e;
+      }
+    };
+    window.carregarLayoutVisual = wrappedLoad;
+    try { carregarLayoutVisual = wrappedLoad; } catch(_) {}
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    normalizarLoginInicial();
+    // Se o usuário já estiver deslogado e nenhuma chamada de layout ocorreu ainda,
+    // libera a tela após um curto tempo com o texto já padronizado.
+    setTimeout(marcarPronto, 900);
+  });
+  setTimeout(marcarPronto, 1600);
+  console.log(TAG, "ativo");
+})();

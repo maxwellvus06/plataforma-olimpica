@@ -92,8 +92,21 @@
         }
     </style>
 <style>#avisoFirebase{display:none!important}</style>
+
+<style>
+/* Evita piscar duas versões da tela de login antes do layout visual carregar. */
+body.login-visual-pending:not(.login-visual-ready) #loginScreen > div {
+  opacity: 0;
+  transform: translateY(8px) scale(.985);
+}
+body.login-visual-ready #loginScreen > div {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity .18s ease, transform .18s ease;
+}
+</style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans login-visual-pending">
 
     <!-- ===================== TELA DE LOGIN ===================== -->
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
@@ -104,7 +117,7 @@
                     <i class="fa-solid fa-graduation-cap text-3xl"></i>
                 </div>
                 <h2 id="brandLoginTitle" class="text-2xl font-extrabold tracking-tight text-white">Avance Consultoria</h2>
-                <p id="brandLoginSubtitle" class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-medium">Plataforma Avance Olímpico</p>
+                <p id="brandLoginSubtitle" class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-medium">Plataforma de Resultados 2026</p>
             </div>
             <form id="loginForm" class="space-y-4">
                 <div>
@@ -1721,6 +1734,14 @@ MAT-N2-ARI-DIV-0002"></textarea>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
+
+    <script>
+      // Fallback: se o Firebase demorar ou falhar, libera a tela de login sem troca visual brusca.
+      window.__loginVisualReady = function(){
+        try { document.body.classList.add('login-visual-ready'); document.body.classList.remove('login-visual-pending'); } catch(e) {}
+      };
+      setTimeout(window.__loginVisualReady, 1400);
+    </script>
     <script src="database.js"></script>
     <script src="app.js"></script>
 </body>
