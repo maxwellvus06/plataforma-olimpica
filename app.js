@@ -20385,3 +20385,319 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   });
   console.log(TAG, "carregado");
 })();
+
+
+// ============================================================
+// PATCH FINAL — Layouts com marca d'água sobreposta, imagem e stickers livres
+// ============================================================
+(function patchLayoutsWatermarkImages(){
+  const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
+  const toNum = (v, d=0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const LAYOUT_DOC_ID = (typeof DOC_LAYOUT !== 'undefined') ? DOC_LAYOUT : 'listas_questoes';
+  const defaultEx = {
+    logoArquivoUrl:'',
+    watermarkMode:'text', // text | image
+    watermarkImageUrl:'',
+    watermarkImageOpacity:22,
+    watermarkImageWidth:240,
+    watermarkX:50,
+    watermarkY:48,
+    watermarkRotate:-25,
+    sticker1Url:'', sticker1X:8, sticker1Y:8, sticker1Width:90, sticker1Opacity:100,
+    sticker2Url:'', sticker2X:75, sticker2Y:8, sticker2Width:90, sticker2Opacity:100,
+    sticker3Url:'', sticker3X:78, sticker3Y:84, sticker3Width:90, sticker3Opacity:100,
+    duasColunasAlternativas:false,
+    respostaAltura:4,
+  };
+  const normLayoutEx = (l={}) => ({...defaultEx, ...(typeof normalLayout==='function' ? normalLayout(l) : l)});
+  let __layoutPreviewGuard = 0;
+  let __layoutPreviewFiles = {};
+
+  function dataUrlFromFile(file){
+    return new Promise((resolve,reject)=>{
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result || '');
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+  async function resolveImageField(fileInputId, urlInputId, storageType){
+    const input = document.getElementById(fileInputId);
+    const urlInput = document.getElementById(urlInputId);
+    const file = input?.files?.[0];
+    if (!file) return (urlInput?.value || '').trim();
+    try {
+      if (typeof uploadArquivoLayout === 'function') {
+        const url = await uploadArquivoLayout(fileInputId, storageType);
+        if (urlInput) urlInput.value = url;
+        return url;
+      }
+    } catch(err) { console.warn('[layout-file]', storageType, err?.message || err); }
+    const data = await dataUrlFromFile(file);
+    if (urlInput) urlInput.value = data;
+    return data;
+  }
+
+  function getCheckbox(id){ return !!document.getElementById(id)?.checked; }
+  function getValue(id, d=''){ const el=document.getElementById(id); return el ? el.value : d; }
+  function getLayoutFormEx(){
+    const base = (typeof layoutFromForm === 'function') ? layoutFromForm() : {};
+    return normLayoutEx({
+      ...base,
+      logoUrl: getValue('layoutListaLogoUrl', base.logoUrl || ''),
+      watermarkMode: getValue('layoutListaWatermarkMode','text'),
+      watermarkImageUrl: getValue('layoutListaWatermarkImageUrl',''),
+      watermarkImageOpacity: toNum(getValue('layoutListaWatermarkImageOpacity', 22), 22),
+      watermarkImageWidth: toNum(getValue('layoutListaWatermarkImageWidth', 240), 240),
+      watermarkX: toNum(getValue('layoutListaWatermarkX', 50), 50),
+      watermarkY: toNum(getValue('layoutListaWatermarkY', 48), 48),
+      watermarkRotate: toNum(getValue('layoutListaWatermarkRotate', -25), -25),
+      sticker1Url: getValue('layoutListaSticker1Url',''), sticker1X: toNum(getValue('layoutListaSticker1X',8),8), sticker1Y: toNum(getValue('layoutListaSticker1Y',8),8), sticker1Width: toNum(getValue('layoutListaSticker1Width',90),90), sticker1Opacity: toNum(getValue('layoutListaSticker1Opacity',100),100),
+      sticker2Url: getValue('layoutListaSticker2Url',''), sticker2X: toNum(getValue('layoutListaSticker2X',75),75), sticker2Y: toNum(getValue('layoutListaSticker2Y',8),8), sticker2Width: toNum(getValue('layoutListaSticker2Width',90),90), sticker2Opacity: toNum(getValue('layoutListaSticker2Opacity',100),100),
+      sticker3Url: getValue('layoutListaSticker3Url',''), sticker3X: toNum(getValue('layoutListaSticker3X',78),78), sticker3Y: toNum(getValue('layoutListaSticker3Y',84),84), sticker3Width: toNum(getValue('layoutListaSticker3Width',90),90), sticker3Opacity: toNum(getValue('layoutListaSticker3Opacity',100),100),
+      duasColunasAlternativas: getCheckbox('layoutListaAlternativasDuasColunas'),
+      respostaAltura: toNum(getValue('layoutListaRespostaAltura', 4), 4),
+    });
+  }
+  function setLayoutFormEx(l0){
+    const l = normLayoutEx(l0);
+    const set = (id,v='') => { const el=document.getElementById(id); if (el) el.value = v ?? ''; };
+    const chk = (id,v=false) => { const el=document.getElementById(id); if (el) el.checked = !!v; };
+    // base fields handled by existing setForm if present
+    try { if (typeof setForm === 'function') setForm(l); } catch(_) {}
+    set('layoutListaWatermarkMode', l.watermarkMode);
+    set('layoutListaWatermarkImageUrl', l.watermarkImageUrl);
+    set('layoutListaWatermarkImageOpacity', l.watermarkImageOpacity);
+    set('layoutListaWatermarkImageWidth', l.watermarkImageWidth);
+    set('layoutListaWatermarkX', l.watermarkX); set('layoutListaWatermarkY', l.watermarkY); set('layoutListaWatermarkRotate', l.watermarkRotate);
+    set('layoutListaSticker1Url', l.sticker1Url); set('layoutListaSticker1X', l.sticker1X); set('layoutListaSticker1Y', l.sticker1Y); set('layoutListaSticker1Width', l.sticker1Width); set('layoutListaSticker1Opacity', l.sticker1Opacity);
+    set('layoutListaSticker2Url', l.sticker2Url); set('layoutListaSticker2X', l.sticker2X); set('layoutListaSticker2Y', l.sticker2Y); set('layoutListaSticker2Width', l.sticker2Width); set('layoutListaSticker2Opacity', l.sticker2Opacity);
+    set('layoutListaSticker3Url', l.sticker3Url); set('layoutListaSticker3X', l.sticker3X); set('layoutListaSticker3Y', l.sticker3Y); set('layoutListaSticker3Width', l.sticker3Width); set('layoutListaSticker3Opacity', l.sticker3Opacity);
+    chk('layoutListaAlternativasDuasColunas', l.duasColunasAlternativas);
+    set('layoutListaRespostaAltura', l.respostaAltura);
+    set('layoutListaLogoUrl', l.logoUrl || '');
+  }
+
+  function field({id,label,help,type='text',options='',attrs='',textarea=false,placeholder=''}){
+    const input = textarea
+      ? `<textarea id="${id}" class="w-full min-h-[92px] p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100" placeholder="${esc(placeholder)}"></textarea>`
+      : (type==='select'
+        ? `<select id="${id}" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100">${options}</select>`
+        : `<input id="${id}" type="${type}" ${attrs} class="w-full ${type==='range'?'':'p-3'} rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100" placeholder="${esc(placeholder)}">`);
+    return `<div class="rounded-xl border border-gray-700/80 bg-gray-900/50 p-3"><label for="${id}" class="block text-[11px] font-black uppercase tracking-wider text-purple-200 mb-2">${label}</label>${input}<p class="text-[11px] text-gray-400 mt-2 leading-relaxed">${help}</p></div>`;
+  }
+  function check(id,label,help){
+    return `<label class="rounded-xl border border-gray-700/80 bg-gray-900/50 p-3 flex gap-3 items-start"><input id="${id}" type="checkbox" class="accent-purple-500 mt-1"><span><span class="block text-[11px] font-black uppercase tracking-wider text-purple-200">${label}</span><span class="block text-[11px] text-gray-400 mt-1 leading-relaxed">${help}</span></span></label>`;
+  }
+  function fileField(idFile,idUrl,label,help){
+    return `<div class="rounded-xl border border-gray-700/80 bg-gray-900/50 p-3"><label class="block text-[11px] font-black uppercase tracking-wider text-purple-200 mb-2">${label}</label>
+      <div class="space-y-2"><input id="${idUrl}" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-100" placeholder="Cole a URL aqui ou use o upload abaixo"><input id="${idFile}" type="file" accept="image/*" class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"></div>
+      <p class="text-[11px] text-gray-400 mt-2 leading-relaxed">${help}</p></div>`;
+  }
+  function positionBlock(n,label){
+    return `<section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">${label}</h4>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${fileField(`layoutListaSticker${n}File`, `layoutListaSticker${n}Url`, `Imagem ${n}`, `Adicione uma imagem decorativa. Ela pode ficar por cima das questões e você controla posição, tamanho e opacidade.`)}${field({id:`layoutListaSticker${n}X`,label:'Posição horizontal (%)',help:'0 = esquerda da página. 100 = direita.',type:'range',attrs:'min="0" max="100" step="1"'})}${field({id:`layoutListaSticker${n}Y`,label:'Posição vertical (%)',help:'0 = topo da página. 100 = parte inferior.',type:'range',attrs:'min="0" max="100" step="1"'})}${field({id:`layoutListaSticker${n}Width`,label:'Largura (px)',help:'Aumenta ou reduz o tamanho visual da imagem.',type:'range',attrs:'min="30" max="260" step="1"'})}${field({id:`layoutListaSticker${n}Opacity`,label:'Opacidade (%)',help:'100 fica totalmente visível; valores menores deixam a imagem mais sutil.',type:'range',attrs:'min="0" max="100" step="1"'})}</div></section>`;
+  }
+
+  function makeLineRows(n, compact=false){
+    const h = compact ? 18 : 22;
+    return Array.from({length:n}).map(()=>`<div style="border-bottom:1px solid #d1d5db;height:${h}px"></div>`).join('');
+  }
+  function makeOverlayImage(url, x, y, width, opacity, z=8, rotate=0){
+    if (!url) return '';
+    return `<img src="${esc(url)}" style="position:absolute; left:${x}%; top:${y}%; width:${width}px; opacity:${Math.max(0,Math.min(100,opacity))/100}; transform:translate(-50%,-50%) rotate(${rotate}deg); z-index:${z}; pointer-events:none;">`;
+  }
+  function renderLayoutDocEx(questoes, layoutRaw, preview=false){
+    const l = normLayoutEx(layoutRaw);
+    const alts = (q) => q.alternativas ? `<ol style="margin:10px 0 0 20px;padding:0;${l.duasColunasAlternativas?'column-count:2;column-gap:22px;':''}">${['A','B','C','D','E'].filter(k=>q.alternativas[k]).map(k=>`<li style="margin:4px 0; break-inside:avoid"><b>${k})</b> ${esc(q.alternativas[k])}</li>`).join('')}</ol>` : '';
+    const meta = (q) => l.mostrarMetadados ? `<div style="font-size:11px;color:${l.corPrimaria};margin-bottom:7px;font-weight:700">${esc([q.codigo,q.disciplina,q.nivel,q.area,q.tema,q.subtema,q.dificuldade].filter(Boolean).join(' · '))}</div>` : '';
+    const linhas = l.linhasResposta ? `<div style="margin-top:10px">${makeLineRows(Math.max(1,toNum(l.respostaAltura,4)), l.compacto)}</div>` : '';
+    const cards = questoes.map((q,i)=>`<article style="position:relative; break-inside:avoid; page-break-inside:avoid; ${l.questaoPorPagina?'page-break-after:always;':''} border:1px solid #e5e7eb; ${l.bordaLateral?`border-left:5px solid ${l.corPrimaria};`:''} border-radius:14px; padding:${l.compacto?10:14}px; margin-bottom:${l.compacto?10:14}px; background:rgba(255,255,255,0.86); z-index:2;">
+      ${meta(q)}<div style="font-weight:800;color:#111827;margin-bottom:6px">Questão ${i+1}</div>
+      <div style="font-size:${l.fonteBase+1}px; line-height:1.48; color:#111827">${esc(q.enunciado || q.titulo || 'Lorem ipsum dolor sit amet.')}</div>
+      ${l.mostrarAlternativas ? alts(q) : ''}
+      ${linhas}
+    </article>`).join('');
+    const watermarkText = l.mostrarMarcaDagua && l.watermarkMode !== 'image' && l.marcaDaguaTexto
+      ? `<div style="position:absolute; left:${l.watermarkX}%; top:${l.watermarkY}%; transform:translate(-50%,-50%) rotate(${l.watermarkRotate}deg); font-size:${Math.max(36, l.watermarkImageWidth/3)}px; font-weight:900; letter-spacing:.08em; color:${l.corPrimaria}; opacity:${Math.max(0,Math.min(100,l.watermarkImageOpacity))/100}; white-space:nowrap; pointer-events:none; z-index:9; text-transform:uppercase;">${esc(l.marcaDaguaTexto)}</div>`
+      : '';
+    const watermarkImage = l.mostrarMarcaDagua && l.watermarkMode === 'image' ? makeOverlayImage(l.watermarkImageUrl, l.watermarkX, l.watermarkY, l.watermarkImageWidth, l.watermarkImageOpacity, 9, l.watermarkRotate) : '';
+    const stickers = [1,2,3].map(n => makeOverlayImage(l[`sticker${n}Url`], l[`sticker${n}X`], l[`sticker${n}Y`], l[`sticker${n}Width`], l[`sticker${n}Opacity`], 10, 0)).join('');
+    const zoomWrapStart = preview ? `<div style="background:#e5e7eb; padding:18px; display:flex; justify-content:center;"><div style="width:794px; min-height:1123px; box-shadow:0 20px 50px rgba(0,0,0,.22);">` : '';
+    const zoomWrapEnd = preview ? `</div></div>` : '';
+    return `${zoomWrapStart}<div style="position:relative; background:#fff; color:#111827; font-family:Arial,sans-serif; font-size:${l.fonteBase}px; line-height:1.42; padding:${preview?`${l.margem*3}px`:`${l.margem}mm`}; min-height:${preview?'1123px':'auto'}; box-sizing:border-box; overflow:hidden;">
+      <div style="position:absolute; inset:0; z-index:0; pointer-events:none;"></div>
+      ${watermarkText}${watermarkImage}${stickers}
+      <header style="position:relative; z-index:3; border:1px solid #e9d5ff; border-radius:18px; overflow:hidden; margin-bottom:18px; ${l.fundoSuave?`background:linear-gradient(180deg,#faf5ff 0%,#fff 55%);`:''}">
+        <div style="height:14px;background:linear-gradient(90deg,${l.corPrimaria},${l.corSecundaria})"></div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px">
+          <div style="width:${l.logoTamanho}px;height:${l.logoTamanho}px;border-radius:18px;border:2px solid #ddd6fe;display:flex;align-items:center;justify-content:center;color:${l.corPrimaria};font-weight:900;font-size:${Math.max(18,l.logoTamanho/3)}px;background:white;overflow:hidden;flex:0 0 auto;">${l.logoUrl ? `<img src="${esc(l.logoUrl)}" style="max-width:90%;max-height:90%;object-fit:contain">` : 'AO'}</div>
+          <div style="flex:1"><div style="font-size:11px;color:${l.corPrimaria};font-weight:900;letter-spacing:.18em">AVANCE OLÍMPICO</div><h1 style="margin:4px 0 0;color:#2e1065;font-size:24px;text-transform:uppercase">${esc(l.titulo)}</h1><p style="margin:4px 0 0;color:${l.corPrimaria};font-weight:700">${esc(l.subtitulo)}</p></div>
+        </div>
+        ${l.cabecalhoTexto ? `<div style="margin:0 16px 16px;border:1px solid #ddd6fe;border-radius:12px;background:#faf5ff;padding:10px;color:#3b0764;font-size:12px">${esc(l.cabecalhoTexto).replace(/\n/g,'<br>')}</div>` : ''}
+      </header>
+      <main style="position:relative; z-index:2">${cards}</main>
+      ${l.mostrarAssinatura ? `<div style="position:relative; z-index:2; display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px;font-size:11px;color:#4b5563"><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Assinatura do estudante</div><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Professor(a) / Correção</div></div>` : ''}
+      ${l.rodapeTexto ? `<footer style="position:relative; z-index:2; border-top:1px solid #ddd6fe;margin-top:16px;padding-top:8px;color:#6b7280;font-size:11px">${esc(l.rodapeTexto).replace(/\n/g,'<br>')}</footer>` : ''}
+    </div>${zoomWrapEnd}`;
+  }
+
+  async function carregarLayoutsEx(){
+    const layouts = (typeof carregarLayoutsDef === 'function') ? await carregarLayoutsDef() : [];
+    return layouts.map(normLayoutEx);
+  }
+  async function salvarLayoutsEx(layouts){
+    if (typeof salvarLayoutsDef === 'function') return salvarLayoutsDef(layouts.map(normLayoutEx));
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+    await firebaseFirestore.collection('sistema_layout').doc(LAYOUT_DOC_ID).set({id:LAYOUT_DOC_ID, layouts:layouts.map(normLayoutEx), atualizadoEm:Date.now()}, {merge:true});
+  }
+  async function popularLayoutsSelectEx(selectedId=''){
+    const sel = document.getElementById('layoutListaSelect'); if (!sel) return;
+    const layouts = await carregarLayoutsEx();
+    sel.innerHTML = layouts.map(l => `<option value="${esc(l.id)}">${esc(l.nome)} — ${esc(l.tipo)}</option>`).join('');
+    sel.value = selectedId && Array.from(sel.options).some(o=>o.value===selectedId) ? selectedId : (layouts[0]?.id || '');
+    return layouts;
+  }
+
+  function qFakeEx(){ return (typeof qFake === 'function') ? qFake() : []; }
+  function updatePreviewEx(){
+    const ticket = ++__layoutPreviewGuard;
+    const body = document.getElementById('previewLayoutLiveCorpo');
+    if (!body) return;
+    const html = renderLayoutDocEx(qFakeEx(), getLayoutFormEx(), true);
+    requestAnimationFrame(() => { if (ticket === __layoutPreviewGuard) body.innerHTML = html; });
+  }
+
+  async function rebuildLayoutEditorEx(){
+    let painel = document.getElementById('painelLayoutsMiniListaQuestoes');
+    if (!painel) return;
+    // replace node to clear legacy listeners
+    const clone = painel.cloneNode(false);
+    clone.id = painel.id;
+    clone.className = 'bg-gray-800/50 border border-purple-900/50 rounded-2xl p-5 shadow-xl space-y-4 hidden';
+    painel.parentNode.replaceChild(clone, painel);
+    painel = clone;
+    painel.dataset.editorWatermarkV3 = 'true';
+    painel.innerHTML = `
+      <div class="flex items-center justify-between gap-3"><div><h3 class="text-sm font-black text-white uppercase tracking-wider"><i class="fa-solid fa-brush text-purple-300 mr-2"></i>Layouts de impressão das listas</h3><p class="text-xs text-gray-400 mt-1">Agora com marca d'água por cima das questões, imagem de marca d'água e até 3 imagens posicionáveis na página.</p></div><button type="button" id="btnToggleLayoutListasV3" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-200 text-xs font-black uppercase">Expandir</button></div>
+      <div id="layoutListasV3Conteudo" class="hidden space-y-4 pt-2">
+        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 border-b border-gray-700 pb-4"><div><p class="text-xs text-gray-300">Escolha, crie ou exclua modelos. Só não é possível excluir o último layout restante.</p></div><div class="flex flex-wrap gap-2"><select id="layoutListaSelect" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[260px]"></select><button type="button" id="btnNovoLayoutDef" class="px-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase">Novo</button><button type="button" id="btnSalvarLayoutDef" class="px-3 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-black uppercase">Salvar</button><button type="button" id="btnExcluirLayoutDef" class="px-3 py-2 rounded-xl bg-red-900/50 hover:bg-red-800 text-red-100 text-xs font-bold uppercase">Excluir</button></div></div>
+        <div class="grid grid-cols-1 2xl:grid-cols-[minmax(560px,1fr)_minmax(500px,0.95fr)] gap-5">
+          <div class="space-y-4">
+            <section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">1. Identificação do modelo</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${field({id:'layoutListaId',label:'ID interno',help:'Código interno do modelo. Não aparece para o aluno.'})}${field({id:'layoutListaNome',label:'Nome do modelo',help:'Nome que aparece no seletor de layouts.'})}${field({id:'layoutListaTipo',label:'Tipo',help:'Lista ou simulado. Muda os textos padrão.',type:'select',options:'<option value="lista">Lista</option><option value="simulado">Simulado</option>'})}${field({id:'layoutListaEstilo',label:'Estilo visual',help:'Organiza a estética base do documento.',type:'select',options:'<option value="classico">Clássico roxo</option><option value="estudo">Estudo</option><option value="resposta">Com resposta</option><option value="formal">Formal</option><option value="caderno">Caderno enxuto</option>'})}</div></section>
+            <section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">2. Cabeçalho, logo e rodapé</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${field({id:'layoutListaTitulo',label:'Título principal',help:'Texto grande no topo do documento.'})}${field({id:'layoutListaSubtitulo',label:'Subtítulo',help:'Linha menor abaixo do título.'})}${fileField('layoutListaLogoFile','layoutListaLogoUrl','Logo do cabeçalho','Cole a URL da logo ou envie um arquivo do seu computador. Se ficar vazio, aparece o monograma AO.')}${field({id:'layoutListaCabecalho',label:'Campos do cabeçalho',help:'Aluno, turma, professor, data, nota etc.',textarea:true})}</div><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">${field({id:'layoutListaRodape',label:'Rodapé / instruções',help:'Texto final que aparece no fim da folha.',textarea:true})}${check('layoutListaAssinatura','Campo de assinatura','Mostra linhas para assinatura do aluno e do professor/correção.')}</div></section>
+            <section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">3. Marca d'água</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${field({id:'layoutListaWatermarkMode',label:'Tipo da marca d\'água',help:'Escolha se a marca d\'água será um texto ou uma imagem.',type:'select',options:'<option value="text">Texto</option><option value="image">Imagem</option>'})}${field({id:'layoutListaMarcaDagua',label:'Texto da marca d\'água',help:'Usado quando o tipo da marca d\'água for texto.'})}${fileField('layoutListaWatermarkImageFile','layoutListaWatermarkImageUrl','Imagem da marca d\'água','Usado quando o tipo da marca d\'água for imagem. Pode ser logo, brasão, selo etc.')}${field({id:'layoutListaWatermarkImageOpacity',label:'Opacidade da marca (%)',help:'Controla a visibilidade da marca d\'água sobre as questões.',type:'range',attrs:'min="0" max="100" step="1"'})}${field({id:'layoutListaWatermarkImageWidth',label:'Largura da marca (px)',help:'Tamanho visual da marca d\'água.',type:'range',attrs:'min="60" max="420" step="1"'})}${field({id:'layoutListaWatermarkRotate',label:'Rotação da marca',help:'Inclina a marca d\'água em graus.',type:'range',attrs:'min="-90" max="90" step="1"'})}${field({id:'layoutListaWatermarkX',label:'Posição horizontal (%)',help:'Move a marca d\'água para esquerda/direita.',type:'range',attrs:'min="0" max="100" step="1"'})}${field({id:'layoutListaWatermarkY',label:'Posição vertical (%)',help:'Move a marca d\'água para cima/baixo.',type:'range',attrs:'min="0" max="100" step="1"'})}${check('layoutListaMostrarMarcaDagua','Exibir marca d\'água','Liga/desliga a marca d\'água no documento.')}</div></section>
+            <section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">4. Aparência geral</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-3">${field({id:'layoutListaCorPrimaria',label:'Cor principal',help:'Faixas, títulos e detalhes principais.',type:'color'})}${field({id:'layoutListaCorSecundaria',label:'Cor secundária',help:'Cor de apoio para degradês.',type:'color'})}${field({id:'layoutListaLogoTamanho',label:'Tamanho da logo',help:'Tamanho visual do bloco da logo.',type:'range',attrs:'min="40" max="120"'})}${field({id:'layoutListaFonteBase',label:'Fonte base',help:'Tamanho geral do texto.',type:'range',attrs:'min="10" max="16"'})}${field({id:'layoutListaMargem',label:'Margem A4',help:'Margem de impressão em milímetros.',type:'range',attrs:'min="6" max="22"'})}${check('layoutListaFundoSuave','Fundo suave no cabeçalho','Aplica um fundo lilás claro no cabeçalho.')}</div></section>
+            <section class="rounded-2xl border border-gray-700 bg-gray-950/30 p-4"><h4 class="text-xs font-black text-purple-200 uppercase mb-3">5. Questões e respostas</h4><div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${check('layoutListaMetadados','Mostrar metadados','Exibe código, disciplina, área, tema, nível e dificuldade.')}${check('layoutListaAlternativas','Mostrar alternativas','Exibe A–E quando a questão for objetiva.')}${check('layoutListaAlternativasDuasColunas','Alternativas em 2 colunas','Melhora o uso do espaço em questões objetivas.')}${check('layoutListaLinhasResposta','Espaço para resposta','Adiciona linhas abaixo da questão.')}${field({id:'layoutListaRespostaAltura',label:'Quantidade de linhas',help:'Se o espaço para resposta estiver ativo, define quantas linhas serão mostradas.',type:'range',attrs:'min="1" max="10" step="1"'})}${check('layoutListaQuestaoPorPagina','Uma questão por página','Ideal para cadernos formais ou provas mais longas.')}${check('layoutListaBordaLateral','Borda lateral roxa','Destaca visualmente cada questão.')}${check('layoutListaCompacto','Modo compacto','Reduz espaçamentos para caber mais conteúdo por folha.')}</div></section>
+            ${positionBlock(1,'6. Imagem livre 1')}
+            ${positionBlock(2,'7. Imagem livre 2')}
+            ${positionBlock(3,'8. Imagem livre 3')}
+          </div>
+          <aside class="rounded-2xl border border-purple-900/50 bg-purple-950/10 p-4 sticky top-2 self-start"><div class="flex items-center justify-between gap-3 mb-3"><div><h4 class="text-xs font-black text-purple-200 uppercase">Pré-visualização A4</h4><p class="text-[10px] text-gray-400">A folha abaixo representa a página A4 completa.</p></div><button type="button" id="btnAtualizarPreviewLayoutV3" class="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-[10px] font-black uppercase"><i class="fa-solid fa-rotate mr-1"></i>Atualizar</button></div><div id="previewLayoutLiveCorpo" class="rounded-xl overflow-auto bg-gray-200 border border-gray-700 max-h-[1050px]"></div></aside>
+        </div>
+      </div>`;
+
+    const toggleBtn = document.getElementById('btnToggleLayoutListasV3');
+    const content = document.getElementById('layoutListasV3Conteudo');
+    toggleBtn.onclick = () => {
+      const hidden = content.classList.toggle('hidden');
+      toggleBtn.textContent = hidden ? 'Expandir' : 'Recolher';
+      if (!hidden) updatePreviewEx();
+    };
+
+    document.getElementById('btnAtualizarPreviewLayoutV3').onclick = updatePreviewEx;
+
+    const layouts = await popularLayoutsSelectEx();
+    setLayoutFormEx(layouts[0] || normLayoutEx({}));
+    updatePreviewEx();
+
+    document.getElementById('layoutListaSelect').onchange = async () => {
+      const loaded = await carregarLayoutsEx();
+      setLayoutFormEx(loaded.find(l => l.id === document.getElementById('layoutListaSelect').value) || loaded[0] || normLayoutEx({}));
+      updatePreviewEx();
+    };
+    document.getElementById('btnNovoLayoutDef').onclick = async () => {
+      setLayoutFormEx(normLayoutEx({id:`layout_${Date.now()}`, nome:'Novo layout'}));
+      updatePreviewEx();
+    };
+    document.getElementById('btnSalvarLayoutDef').onclick = async () => {
+      const btn = document.getElementById('btnSalvarLayoutDef');
+      try {
+        btn.disabled = true; btn.textContent = 'Salvando...';
+        const [logoUrl, wmUrl, s1, s2, s3] = await Promise.all([
+          resolveImageField('layoutListaLogoFile','layoutListaLogoUrl','logo_lista'),
+          resolveImageField('layoutListaWatermarkImageFile','layoutListaWatermarkImageUrl','watermark_lista'),
+          resolveImageField('layoutListaSticker1File','layoutListaSticker1Url','sticker1_lista'),
+          resolveImageField('layoutListaSticker2File','layoutListaSticker2Url','sticker2_lista'),
+          resolveImageField('layoutListaSticker3File','layoutListaSticker3Url','sticker3_lista'),
+        ]);
+        const l = getLayoutFormEx();
+        l.logoUrl = logoUrl || l.logoUrl;
+        l.watermarkImageUrl = wmUrl || l.watermarkImageUrl;
+        l.sticker1Url = s1 || l.sticker1Url;
+        l.sticker2Url = s2 || l.sticker2Url;
+        l.sticker3Url = s3 || l.sticker3Url;
+        const all = await carregarLayoutsEx();
+        const idx = all.findIndex(x => x.id === l.id);
+        if (idx >= 0) all[idx] = l; else all.push(l);
+        await salvarLayoutsEx(all);
+        await popularLayoutsSelectEx(l.id);
+        setLayoutFormEx(l);
+        updatePreviewEx();
+        alert('Layout salvo com sucesso.');
+      } catch(err) {
+        console.error(err);
+        alert('Não foi possível salvar o layout: ' + (err?.message || err));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Salvar';
+      }
+    };
+    document.getElementById('btnExcluirLayoutDef').onclick = async () => {
+      const id = document.getElementById('layoutListaSelect').value;
+      const all = await carregarLayoutsEx();
+      if (all.length <= 1) return alert('Você não pode excluir o último layout. Crie outro primeiro.');
+      if (!confirm(`Excluir o layout ${id}?`)) return;
+      const rest = all.filter(l => l.id !== id);
+      await salvarLayoutsEx(rest);
+      await popularLayoutsSelectEx(rest[0]?.id || '');
+      setLayoutFormEx(rest[0]);
+      updatePreviewEx();
+    };
+
+    painel.addEventListener('input', (e) => { if (String(e.target?.id || '').startsWith('layoutLista')) updatePreviewEx(); });
+    painel.addEventListener('change', (e) => { if (String(e.target?.id || '').startsWith('layoutLista')) updatePreviewEx(); });
+  }
+
+  window.atualizarPreviewLayoutLiveFinal = updatePreviewEx;
+  window.prepararPreviewLiveLayout = function(){ rebuildLayoutEditorEx(); };
+  window.renderizarPreviewMiniListaLayout = async function(){
+    const layouts = await carregarLayoutsEx();
+    const id = document.getElementById('miniListaLayout')?.value || '';
+    const l = layouts.find(x => x.id === id) || layouts[0] || normLayoutEx({});
+    let qs = [];
+    try {
+      const ids = new Set(JSON.parse(localStorage.getItem(`avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || 'anon'}_${typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026'}`) || '[]').map(String));
+      qs = (getStorage('app_questoes', []) || []).filter(q => ids.has(String(q.id)));
+    } catch(_) {}
+    const html = renderLayoutDocEx(qs.length ? qs : qFakeEx(), l, false);
+    const corpo = document.getElementById('miniListaQuestoesCorpoAvancado');
+    const print = document.getElementById('printMiniListaQuestoesAvancada');
+    if (corpo) corpo.innerHTML = html;
+    if (print) print.innerHTML = html;
+  };
+
+  // Auto-rebuild when opening question bank view.
+  const oldNav = window.navegarAba || null;
+  if (oldNav && !window.__layoutWatermarkPatchNav) {
+    window.__layoutWatermarkPatchNav = true;
+    const wrapped = function(aba, btn){
+      const r = oldNav.apply(this, arguments);
+      setTimeout(() => { if (aba === 'questoes') rebuildLayoutEditorEx(); }, 220);
+      return r;
+    };
+    window.navegarAba = wrapped;
+    try { navegarAba = wrapped; } catch(_) {}
+  }
+  document.addEventListener('DOMContentLoaded', () => setTimeout(rebuildLayoutEditorEx, 500));
+})();
