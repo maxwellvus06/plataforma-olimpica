@@ -20294,7 +20294,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       categoria: 'plataforma',
       origem: 'plataforma',
       tipo,
-      status: 'Pendente',
+      status: 'Aberto',
       prioridade: tipo.includes('não abre') || tipo.includes('quebrado') ? 'Alta' : 'Normal',
       alvoId: String(materialId || ''),
       alvoTitulo: material?.titulo || 'Atividade da Plataforma',
@@ -20397,4 +20397,356 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   };
 
   console.log(TAG, 'ativo. Use diagnosticarRelatoProblemaPlataforma() no console.');
+})();
+
+
+// ============================================================
+// PATCH — Diagnóstico de permissões das interações da Plataforma
+// ============================================================
+(function patchDiagnosticoPermissoesInteracoesPlataforma(){
+  window.diagnosticarPermissaoInteracaoPlataforma = async function diagnosticarPermissaoInteracaoPlataforma(materialId){
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      const resultado = {
+        authUid: firebaseAuth?.currentUser?.uid || null,
+        authEmail: firebaseAuth?.currentUser?.email || null,
+        usuarioNivel: usuarioLogado?.nivel || null,
+        usuarioNome: usuarioLogado?.nome || null,
+        materialId: materialId || null,
+        colecao: typeof getMateriaisCollectionName === 'function' ? getMateriaisCollectionName() : null,
+        firestoreOk: !!firebaseFirestore
+      };
+      if (!materialId) {
+        const primeiro = (getStorage('app_plataforma', []) || [])[0];
+        materialId = primeiro?.id;
+        resultado.materialId = materialId || null;
+      }
+      if (firebaseFirestore && materialId) {
+        const ref = firebaseFirestore.collection(resultado.colecao).doc(String(materialId));
+        const snap = await ref.get();
+        resultado.leitura = snap.exists ? 'ok' : 'documento não encontrado';
+        resultado.campos = snap.exists ? Object.keys(snap.data() || {}) : [];
+      }
+      console.table(resultado);
+      return resultado;
+    } catch (erro) {
+      console.error('[diagnosticarPermissaoInteracaoPlataforma]', erro);
+      return { erro: erro?.message || String(erro), code: erro?.code || '' };
+    }
+  };
+})();
+
+
+// ============================================================
+// PATCH — Plataforma: moderação de comentários + atualização em tempo real
+// ============================================================
+(function patchPlataformaModeracaoPush(){
+  const TAG = '[Plataforma Moderação/Push]';
+  let plataformaUnsub = null;
+  let plataformaRenderTimer = null;
+  let plataformaAtualizandoPorSnapshot = false;
+  let plataformaUltimaAssinatura = '';
+  let plataformaEnviandoInteracao = false;
+
+  function normModeracao(v) {
+    return String(v ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[@]/g, 'a')
+      .replace(/[0]/g, 'o')
+      .replace(/[1!|]/g, 'i')
+      .replace(/[3]/g, 'e')
+      .replace(/[4]/g, 'a')
+      .replace(/[5$]/g, 's')
+      .replace(/[7]/g, 't')
+      .trim();
+  }
+
+  function compactarModeracao(v) {
+    return normModeracao(v).replace(/[^a-z0-9]+/g, '');
+  }
+
+  function moderarTextoPlataforma(texto, contexto = {}) {
+    const original = String(texto || '');
+    const n = normModeracao(original);
+    const c = compactarModeracao(original);
+
+    const regras = [
+      { cat: 'baixo_calão', termo: 'fode/foder', re: /\b(fode|foder|fodase|foda-se|sexfoda)\b/i, compact: /(fode|foder|fodase)/ },
+      { cat: 'ofensa', termo: 'viado/veado usado como ofensa', re: /\b(v[i1!]ado|veado|b[i1!]cha|bo[i1!]ola)\b/i, compact: /(viado|veado|bicha|boiola)/ },
+      { cat: 'ofensa', termo: 'ofensa direta', re: /\b(idiota|imbecil|retardado|arrombado|otario|otariozinho|lixo|vagabundo|burro|burra)\b/i, compact: /(idiota|imbecil|retardado|arrombado|otario|lixo|vagabundo)/ },
+      { cat: 'baixo_calão', termo: 'palavrão explícito', re: /\b(caralho|porra|puta|merda|fdp|pqp|desgraca)\b/i, compact: /(caralho|porra|puta|merda|fdp|pqp)/ },
+      { cat: 'ameaça', termo: 'ameaça/agressão', re: /\b(vou te matar|matar voce|te quebrar|te pegar|vou bater|apanhar)\b/i, compact: /(voutematar|matarvoce|tequebrar|voubater)/ }
+    ];
+
+    const encontrados = [];
+    for (const regra of regras) {
+      if (regra.re.test(n) || (regra.compact && regra.compact.test(c))) {
+        encontrados.push({ categoria: regra.cat, termo: regra.termo });
+      }
+    }
+
+    // Evita mensagem vazia/disfarçada.
+    const letras = c.replace(/[0-9]/g, '');
+    if (letras.length < 2) encontrados.push({ categoria: 'vazio', termo: 'texto sem conteúdo útil' });
+
+    // Repetição agressiva.
+    if (/([a-z])\1{7,}/i.test(c)) encontrados.push({ categoria: 'spam', termo: 'repetição excessiva' });
+
+    const nivel = String(contexto.nivel || usuarioLogado?.nivel || '');
+    const aluno = nivel === 'Aluno';
+    const bloqueia = encontrados.length > 0 && (aluno || encontrados.some(e => ['ameaça','ofensa','baixo_calão'].includes(e.categoria)));
+
+    return {
+      aprovado: !bloqueia,
+      motivo: encontrados.map(e => e.termo).join(', '),
+      categorias: encontrados.map(e => e.categoria),
+      nivel,
+      aluno
+    };
+  }
+
+  function mensagemModeracao(resultado) {
+    if (!resultado || resultado.aprovado) return '';
+    return `Comentário bloqueado pela moderação.\n\nMotivo: ${resultado.motivo || 'linguagem inadequada'}.\n\nReescreva de forma respeitosa e objetiva.`;
+  }
+
+  async function enviarArquivoForumSeHouver(materialId, interacao) {
+    const imagemEl = document.getElementById(`interacaoImagem_${materialId}`);
+    if (!imagemEl?.files?.length) return;
+    const imagem = imagemEl.files[0];
+    if (!String(imagem.type || '').startsWith('image/')) throw new Error('Anexe apenas imagens nas interações do fórum.');
+    if (imagem.size / (1024 * 1024) > LIMITE_ANEXO_MONITORIA_MB) throw new Error(`Imagem muito grande. Use até ${LIMITE_ANEXO_MONITORIA_MB} MB.`);
+    const upload = await enviarArquivoParaFirebaseStorage(imagem, 'forum');
+    interacao.imagemUrl = upload.fileUrl;
+    interacao.storagePath = upload.storagePath;
+    interacao.driveFileId = upload.storagePath;
+    interacao.nomeArquivo = upload.fileName || imagem.name;
+    interacao.mimeType = imagem.type;
+    interacao.tamanhoBytes = imagem.size;
+  }
+
+  function atualizarMaterialLocalInteracao(materialId, interacao) {
+    try {
+      const lista = getStorage('app_plataforma', []) || [];
+      const nova = lista.map(m => {
+        if (String(m.id) !== String(materialId)) return m;
+        const interacoes = Array.isArray(m.interacoes) ? [...m.interacoes] : [];
+        if (!interacoes.some(i => String(i.id) === String(interacao.id))) interacoes.push(interacao);
+        return { ...m, interacoes, atualizadoEm: Date.now() };
+      });
+      if (typeof setStorageLocal === 'function') setStorageLocal('app_plataforma', nova);
+    } catch (e) {
+      console.warn(TAG, 'falha ao atualizar material local', e);
+    }
+  }
+
+  window.moderarTextoPlataforma = moderarTextoPlataforma;
+
+  // Substitui o envio de comentário por uma versão moderada e com atualização imediata.
+  window.publicarInteracaoMaterial = async function publicarInteracaoMaterialModerado(materialId, event) {
+    event.preventDefault();
+    if (!usuarioLogado) return alert('Você precisa estar logado para interagir no fórum.');
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) return alert('Cloud Firestore não inicializado.');
+
+    const tipo = document.getElementById(`interacaoTipo_${materialId}`)?.value || 'Comentário';
+    const textoEl = document.getElementById(`interacaoTexto_${materialId}`);
+    const imagemEl = document.getElementById(`interacaoImagem_${materialId}`);
+    const texto = textoEl?.value.trim() || '';
+    const btn = event.submitter;
+
+    if (!texto) return alert('Escreva uma dúvida, resolução ou comentário.');
+
+    const moderacao = moderarTextoPlataforma(texto, {
+      nivel: usuarioLogado?.nivel || '',
+      usuarioId: usuarioLogado?.id || usuarioLogado?.authUid || '',
+      materialId
+    });
+
+    if (!moderacao.aprovado) {
+      return alert(mensagemModeracao(moderacao));
+    }
+
+    try {
+      plataformaEnviandoInteracao = true;
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Enviando...'; }
+
+      const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error('Material não encontrado no Firestore.');
+      const material = snap.data() || {};
+      const interacoes = Array.isArray(material.interacoes) ? [...material.interacoes] : [];
+
+      const interacao = {
+        id: typeof novoId === 'function' ? novoId() : `${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+        tipo,
+        texto,
+        criadoPor: usuarioLogado.nome || 'Usuário',
+        criadoPorId: usuarioLogado.id || usuarioLogado.authUid || '',
+        criadoPorNivel: usuarioLogado.nivel || '',
+        criadoEm: Date.now(),
+        moderacao: {
+          status: 'aprovado_local',
+          categorias: moderacao.categorias || []
+        }
+      };
+
+      await enviarArquivoForumSeHouver(materialId, interacao);
+
+      interacoes.push(interacao);
+      await ref.update({ interacoes, atualizadoEm: Date.now() });
+
+      atualizarMaterialLocalInteracao(materialId, interacao);
+
+      if (textoEl) textoEl.value = '';
+      if (imagemEl) imagemEl.value = '';
+
+      // Atualização imediata da tela atual, sem F5.
+      if (typeof renderizarPlataformaEnsino === 'function') await renderizarPlataformaEnsino();
+      if (atividadePlataformaAbertaId === String(materialId) && typeof abrirAtividadePlataforma === 'function') {
+        await abrirAtividadePlataforma(materialId);
+      }
+    } catch (erro) {
+      console.error('Erro ao enviar interação no fórum:', erro);
+      alert(`Erro ao enviar interação.\n\n${erro.message || erro}`);
+    } finally {
+      plataformaEnviandoInteracao = false;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i>Enviar no fórum'; }
+    }
+  };
+
+  try { publicarInteracaoMaterial = window.publicarInteracaoMaterial; } catch (_) {}
+
+  function assinaturaMateriais(lista) {
+    try {
+      return JSON.stringify((lista || []).map(m => ({
+        id: m.id,
+        a: m.atualizadoEm || m.criadoEm || 0,
+        i: Array.isArray(m.interacoes) ? m.interacoes.length : 0,
+        c: Array.isArray(m.concluidos) ? m.concluidos.length : 0,
+        av: Array.isArray(m.avaliacoes) ? m.avaliacoes.length : 0
+      })));
+    } catch(_) {
+      return String(Date.now());
+    }
+  }
+
+  function usuarioDigitandoNoModalPlataforma() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    return !!el.closest?.('#modalAtividadePlataforma') && (tag === 'textarea' || tag === 'input' || tag === 'select');
+  }
+
+  function agendarRenderPlataformaPush(materialIdAberto = null) {
+    if (plataformaRenderTimer) clearTimeout(plataformaRenderTimer);
+    plataformaRenderTimer = setTimeout(async () => {
+      try {
+        if (usuarioDigitandoNoModalPlataforma() && !plataformaEnviandoInteracao) return;
+        const view = document.getElementById('view-plataforma');
+        const plataformaVisivel = view && !view.classList.contains('hidden');
+        if (plataformaVisivel && typeof renderizarPlataformaEnsino === 'function') {
+          await renderizarPlataformaEnsino();
+        }
+        const aberto = materialIdAberto || atividadePlataformaAbertaId;
+        if (aberto && typeof abrirAtividadePlataforma === 'function' && !usuarioDigitandoNoModalPlataforma()) {
+          await abrirAtividadePlataforma(aberto);
+        }
+      } catch (e) {
+        console.warn(TAG, 'falha no render push', e);
+      }
+    }, 250);
+  }
+
+  function iniciarListenerPlataformaTempoReal() {
+    try {
+      if (plataformaUnsub || !usuarioLogado) return;
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore || typeof getMateriaisCollectionName !== 'function') return;
+
+      const colName = getMateriaisCollectionName();
+      plataformaUnsub = firebaseFirestore.collection(colName).onSnapshot(snapshot => {
+        const lista = [];
+        snapshot.forEach(doc => {
+          const data = doc.data() || {};
+          lista.push({ id: data.id || doc.id, ...data });
+        });
+        lista.sort((a,b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
+
+        const ass = assinaturaMateriais(lista);
+        if (ass === plataformaUltimaAssinatura) return;
+        plataformaUltimaAssinatura = ass;
+
+        if (typeof setStorageLocal === 'function') setStorageLocal('app_plataforma', lista);
+        else if (typeof memoriaDadosSistema !== 'undefined') memoriaDadosSistema.app_plataforma = lista;
+
+        plataformaAtualizandoPorSnapshot = true;
+        agendarRenderPlataformaPush(atividadePlataformaAbertaId);
+        setTimeout(() => { plataformaAtualizandoPorSnapshot = false; }, 800);
+      }, erro => {
+        console.warn(TAG, 'listener da plataforma falhou', erro);
+        plataformaUnsub = null;
+      });
+
+      console.info(TAG, 'listener em tempo real ativo:', colName);
+    } catch (e) {
+      console.warn(TAG, 'não foi possível iniciar listener', e);
+    }
+  }
+
+  function pararListenerPlataformaTempoReal() {
+    try { if (plataformaUnsub) plataformaUnsub(); } catch(_) {}
+    plataformaUnsub = null;
+    plataformaUltimaAssinatura = '';
+  }
+
+  window.iniciarListenerPlataformaTempoReal = iniciarListenerPlataformaTempoReal;
+  window.pararListenerPlataformaTempoReal = pararListenerPlataformaTempoReal;
+
+  const renderBase = typeof renderizarPlataformaEnsino === 'function' ? renderizarPlataformaEnsino : null;
+  if (renderBase) {
+    renderizarPlataformaEnsino = async function renderizarPlataformaEnsinoComPush() {
+      iniciarListenerPlataformaTempoReal();
+      return await renderBase.apply(this, arguments);
+    };
+    window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
+  }
+
+  const navBase = typeof navegarAba === 'function' ? navegarAba : null;
+  if (navBase) {
+    navegarAba = function navegarAbaComPushPlataforma(abaId, botao) {
+      const r = navBase.apply(this, arguments);
+      if (abaId === 'plataforma') setTimeout(iniciarListenerPlataformaTempoReal, 150);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+
+  const logoutBase = typeof logout === 'function' ? logout : null;
+  if (logoutBase) {
+    logout = async function logoutComPushPlataforma() {
+      pararListenerPlataformaTempoReal();
+      return await logoutBase.apply(this, arguments);
+    };
+    window.logout = logout;
+  }
+
+  window.diagnosticarPlataformaPushModeracao = function diagnosticarPlataformaPushModeracao() {
+    const teste = moderarTextoPlataforma('fode viado', { nivel: 'Aluno' });
+    return {
+      listenerAtivo: !!plataformaUnsub,
+      colecao: typeof getMateriaisCollectionName === 'function' ? getMateriaisCollectionName() : null,
+      materiais: (getStorage('app_plataforma', []) || []).length,
+      atividadeAberta: atividadePlataformaAbertaId || null,
+      moderacaoTesteBloqueia: !teste.aprovado,
+      ultimaAssinatura: plataformaUltimaAssinatura ? plataformaUltimaAssinatura.slice(0, 80) + '...' : ''
+    };
+  };
+
+  document.addEventListener('DOMContentLoaded', () => setTimeout(() => {
+    if (!document.getElementById('view-plataforma')?.classList.contains('hidden')) iniciarListenerPlataformaTempoReal();
+  }, 1200));
+
+  console.log(TAG, 'ativo. Use diagnosticarPlataformaPushModeracao() no console.');
 })();
