@@ -72,7 +72,13 @@
 
         .brand-banner-preview { min-height: 120px; background-size: cover; background-position: center; }
         #brandLoginLogoSlot img, #brandSidebarLogoSlot img { width: 100%; height: 100%; object-fit: cover; }
-    </style>
+    
+/* Segurança: impede tela branca se algum patch antigo esquecer de liberar o login. */
+body.login-final-ready #loginScreen {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+</style>
     <style id="layoutDynamicStyle"></style>
 
     <style>
@@ -121,7 +127,7 @@ body.login-final-ready #loginScreen {
 </style>
 
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans login-visual-pending login-final-pending">
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans login-visual-pending login-final-ready">
 
     <!-- ===================== TELA DE LOGIN ===================== -->
     <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 px-4">
@@ -1743,8 +1749,12 @@ MAT-N2-ARI-DIV-0002"></textarea>
     <script>
       // Fallback: se o Firebase demorar ou falhar, libera a tela de login sem troca visual brusca.
       window.__loginVisualReady = function(){
-        try { document.body.classList.add('login-visual-ready'); document.body.classList.remove('login-visual-pending'); } catch(e) {}
+        try {
+          document.body.classList.add('login-visual-ready', 'login-final-ready');
+          document.body.classList.remove('login-visual-pending', 'login-final-pending');
+        } catch(e) {}
       };
+      setTimeout(window.__loginVisualReady, 400);
       setTimeout(window.__loginVisualReady, 1400);
     </script>
     <script src="database.js"></script>

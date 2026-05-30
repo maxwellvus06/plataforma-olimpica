@@ -21312,3 +21312,46 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, 'ativo. Use diagnosticarPlataformaPlusFinal() no console.');
 })();
+
+
+// ============================================================
+// PATCH EMERGENCIAL — Evita tela branca no login
+// Causa corrigida: login-final-pending escondia #loginScreen e não era liberado.
+// ============================================================
+(function patchTelaBrancaLoginFinal(){
+  function liberarLoginVisivel(){
+    try {
+      if (!document.body) return;
+      document.body.classList.add('login-visual-ready', 'login-final-ready');
+      document.body.classList.remove('login-visual-pending', 'login-final-pending');
+      const login = document.getElementById('loginScreen');
+      const main = document.getElementById('mainPanel');
+      if (login && (!main || main.classList.contains('hidden'))) {
+        login.style.opacity = '1';
+        login.style.visibility = 'visible';
+      }
+    } catch(e) {
+      console.warn('[Tela branca login] falha ao liberar login', e);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', liberarLoginVisivel);
+  } else {
+    liberarLoginVisivel();
+  }
+  setTimeout(liberarLoginVisivel, 300);
+  setTimeout(liberarLoginVisivel, 1200);
+  window.diagnosticarTelaBrancaLogin = function diagnosticarTelaBrancaLogin(){
+    return {
+      bodyClass: document.body?.className || '',
+      loginExiste: !!document.getElementById('loginScreen'),
+      mainHidden: document.getElementById('mainPanel')?.classList.contains('hidden'),
+      loginComputed: (() => {
+        const el = document.getElementById('loginScreen');
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { opacity: cs.opacity, visibility: cs.visibility, display: cs.display };
+      })()
+    };
+  };
+})();
