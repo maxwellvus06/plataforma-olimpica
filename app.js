@@ -21355,3 +21355,434 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     };
   };
 })();
+
+
+// ============================================================
+// PATCH — Visualização compacta: Plataforma, Banco de Questões e Simulados
+// ============================================================
+(function patchVisualizacoesCompactas(){
+  const TAG = '[Visualizações compactas]';
+  const esc = (v) => typeof textoSeguro === 'function'
+    ? textoSeguro(v)
+    : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function'
+    ? normalizarTexto(v)
+    : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const stripHtml = (v) => String(v ?? '').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+
+  function ensureStyleCompacto(){
+    if (document.getElementById('styleVisualizacoesCompactas')) return;
+    const st = document.createElement('style');
+    st.id = 'styleVisualizacoesCompactas';
+    st.textContent = `
+      /* Plataforma */
+      #view-plataforma .view-mode-active {
+        background: rgba(37,99,235,.22)!important;
+        color:#bfdbfe!important;
+        border-color:rgba(59,130,246,.55)!important;
+      }
+      #gridMateriais[data-view="grade"] > .space-y-3 > .grid {
+        display:grid!important;
+        grid-template-columns:repeat(auto-fit,minmax(300px,1fr))!important;
+        grid-auto-flow:row!important;
+        align-items:stretch!important;
+        gap:12px!important;
+      }
+      #gridMateriais[data-view="grade"] .bg-gray-800.border.border-gray-700.rounded-2xl.p-5 {
+        padding:14px!important;
+        gap:6px!important;
+      }
+      #gridMateriais[data-view="lista"] {
+        display:flex!important;
+        flex-direction:column!important;
+        gap:10px!important;
+      }
+      #gridMateriais[data-view="lista"] > .space-y-3 > .grid {
+        display:flex!important;
+        flex-direction:column!important;
+        gap:8px!important;
+      }
+      #gridMateriais[data-view="lista"] .bg-gray-800.border.border-gray-700.rounded-2xl.p-5 {
+        padding:12px!important;
+        display:grid!important;
+        grid-template-columns:minmax(0,1fr) auto!important;
+        align-items:center!important;
+        gap:8px 14px!important;
+      }
+      #gridMateriais[data-view="lista"] .bg-gray-800.border.border-gray-700.rounded-2xl.p-5 > div,
+      #gridMateriais[data-view="lista"] .bg-gray-800.border.border-gray-700.rounded-2xl.p-5 > p {
+        margin-top:0!important;
+      }
+      #gridMateriais[data-view="lista"] .bg-gray-800.border.border-gray-700.rounded-2xl.p-5 > p.text-gray-400 {
+        grid-column:1 / -1!important;
+        display:-webkit-box!important;
+        -webkit-line-clamp:2!important;
+        -webkit-box-orient:vertical!important;
+        overflow:hidden!important;
+      }
+      #gridMateriais[data-view="lista"] details,
+      #gridMateriais[data-view="lista"] .text-\\[10px\\].text-gray-500.border-t {
+        grid-column:1 / -1!important;
+      }
+      #gridMateriais[data-view="lista"] button[onclick*="abrirAtividadePlataforma"],
+      #gridMateriais[data-view="lista"] button[onclick*="abrirRelatoProblemaPlataforma"] {
+        padding:9px 12px!important;
+        margin:0!important;
+      }
+
+      /* Banco de questões compacto */
+      #gridQuestoes.bq-compact-list {
+        display:flex!important;
+        flex-direction:column!important;
+        gap:8px!important;
+      }
+      .bq-compact-row {
+        border:1px solid rgba(55,65,81,.95);
+        background:rgba(31,41,55,.92);
+        border-radius:14px;
+        padding:10px 12px;
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        gap:10px 14px;
+        align-items:center;
+      }
+      .bq-compact-row:hover { border-color:rgba(96,165,250,.55); background:rgba(31,41,55,1); }
+      .bq-compact-title { font-weight:900; color:white; font-size:13px; line-height:1.25; }
+      .bq-compact-preview {
+        color:#9ca3af;
+        font-size:12px;
+        line-height:1.35;
+        display:-webkit-box;
+        -webkit-line-clamp:2;
+        -webkit-box-orient:vertical;
+        overflow:hidden;
+        margin-top:4px;
+      }
+      .bq-compact-badges { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+      .bq-compact-badge {
+        font-size:10px;
+        font-weight:800;
+        border-radius:8px;
+        padding:3px 7px;
+        background:#111827;
+        color:#d1d5db;
+        border:1px solid #374151;
+      }
+      .bq-compact-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+      .bq-compact-actions button {
+        border-radius:10px;
+        padding:7px 9px;
+        font-size:11px;
+        font-weight:800;
+        border:1px solid #374151;
+        background:#111827;
+        color:#d1d5db;
+      }
+      .bq-compact-actions button:hover { background:#1f2937; color:white; }
+      .bq-compact-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:8px; }
+      .bq-compact-stat { border:1px solid #374151; background:#1f2937; border-radius:14px; padding:10px; }
+      .bq-compact-stat p:first-child { font-size:10px; color:#6b7280; text-transform:uppercase; font-weight:900; }
+      .bq-compact-stat p:last-child { font-size:20px; color:#fff; font-weight:900; margin-top:2px; }
+
+      /* Modal de questão */
+      #modalQuestaoCompacta .questao-corpo-html img,
+      #modalQuestaoCompacta .questao-modal-html img {
+        max-width:100%;
+        max-height:70vh;
+        object-fit:contain;
+        border:1px solid #374151;
+        border-radius:12px;
+        background:#020617;
+        padding:4px;
+        display:block;
+        margin:10px auto;
+      }
+
+      /* Simulados compacto */
+      #gridSimulados.simulados-lista-compacta {
+        display:flex!important;
+        flex-direction:column!important;
+        gap:8px!important;
+      }
+      #gridSimulados.simulados-lista-compacta > .bg-gray-800,
+      #gridSimulados.simulados-lista-compacta > div {
+        padding:12px!important;
+        border-radius:14px!important;
+      }
+      #gridSimulados.simulados-lista-compacta h3,
+      #gridSimulados.simulados-lista-compacta h4 {
+        font-size:14px!important;
+        line-height:1.25!important;
+      }
+      #gridSimulados.simulados-lista-compacta p {
+        font-size:12px!important;
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // -------------------- PLATAFORMA --------------------
+  function getModoPlataforma(){
+    return localStorage.getItem('avance_plataforma_view_mode') || 'grade';
+  }
+  function setModoPlataforma(modo){
+    localStorage.setItem('avance_plataforma_view_mode', modo === 'lista' ? 'lista' : 'grade');
+  }
+  function inserirControleModoPlataforma(){
+    const view = document.getElementById('view-plataforma');
+    const grid = document.getElementById('gridMateriais');
+    if (!view || !grid) return;
+    let ctrl = document.getElementById('plataformaModoVisualizacao');
+    if (!ctrl) {
+      ctrl = document.createElement('div');
+      ctrl.id = 'plataformaModoVisualizacao';
+      ctrl.className = 'flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-700 bg-gray-900/70 p-3 mb-3';
+      ctrl.innerHTML = `
+        <div>
+          <p class="text-[10px] uppercase tracking-wider font-black text-blue-300">Visualização dos materiais</p>
+          <p class="text-xs text-gray-500 mt-1">Grade preenche da esquerda para direita; lista deixa tudo mais compacto.</p>
+        </div>
+        <div class="flex gap-2">
+          <button id="btnPlataformaModoGrade" type="button" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-black uppercase"><i class="fa-solid fa-grip mr-1"></i>Grade</button>
+          <button id="btnPlataformaModoLista" type="button" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-black uppercase"><i class="fa-solid fa-list mr-1"></i>Lista</button>
+        </div>`;
+      grid.parentNode.insertBefore(ctrl, grid);
+      document.getElementById('btnPlataformaModoGrade').onclick = () => { setModoPlataforma('grade'); aplicarModoPlataforma(); };
+      document.getElementById('btnPlataformaModoLista').onclick = () => { setModoPlataforma('lista'); aplicarModoPlataforma(); };
+    }
+    aplicarModoPlataforma();
+  }
+  function aplicarModoPlataforma(){
+    ensureStyleCompacto();
+    const grid = document.getElementById('gridMateriais');
+    const modo = getModoPlataforma();
+    if (grid) grid.dataset.view = modo;
+    document.getElementById('btnPlataformaModoGrade')?.classList.toggle('view-mode-active', modo === 'grade');
+    document.getElementById('btnPlataformaModoLista')?.classList.toggle('view-mode-active', modo === 'lista');
+  }
+  const renderPlataformaBase = typeof renderizarPlataformaEnsino === 'function' ? renderizarPlataformaEnsino : null;
+  if (renderPlataformaBase) {
+    renderizarPlataformaEnsino = async function renderizarPlataformaEnsinoCompacta(){
+      const r = await renderPlataformaBase.apply(this, arguments);
+      setTimeout(() => { inserirControleModoPlataforma(); aplicarModoPlataforma(); }, 60);
+      return r;
+    };
+    window.renderizarPlataformaEnsino = renderizarPlataformaEnsino;
+  }
+
+  // -------------------- BANCO DE QUESTÕES --------------------
+  function fQuest(id){ return document.getElementById(id)?.value || 'TODOS'; }
+  function listaBanco(){ return Array.isArray(getStorage('app_questoes', [])) ? getStorage('app_questoes', []) : []; }
+  function passaFiltrosCompacto(q){
+    const pairs = [
+      ['filtroQuestaoDisciplina','disciplina'],
+      ['filtroQuestaoNivel','nivel'],
+      ['filtroQuestaoArea','area'],
+      ['filtroQuestaoTema','tema'],
+      ['filtroQuestaoSubtema','subtema'],
+      ['filtroQuestaoDificuldade','dificuldade'],
+      ['filtroQuestaoTipo','tipo']
+    ];
+    for (const [id,campo] of pairs) {
+      const v = fQuest(id);
+      if (v !== 'TODOS' && String(q[campo] || '') !== v) return false;
+    }
+    const busca = norm(document.getElementById('filtroQuestaoBusca')?.value || '');
+    if (busca) {
+      const alvo = norm([
+        q.codigo, q.titulo, q.disciplina, q.nivel, q.area, q.tema, q.subtema, q.dificuldade, q.tipo,
+        q.fonte, q.ano, q.fase, q.enunciado, stripHtml(q.enunciadoHtml), ...(q.tags || []), ...Object.values(q.alternativas || {})
+      ].join(' '));
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  }
+  function ordenaQuestoes(a,b){
+    return String(a.disciplina||'').localeCompare(String(b.disciplina||''),'pt-BR')
+      || String(a.area||'').localeCompare(String(b.area||''),'pt-BR')
+      || String(a.tema||'').localeCompare(String(b.tema||''),'pt-BR')
+      || String(a.codigo||a.titulo||'').localeCompare(String(b.codigo||b.titulo||''),'pt-BR',{numeric:true});
+  }
+  function miniListaIdsCompacta(){
+    try {
+      return JSON.parse(localStorage.getItem(`avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || 'anon'}_${typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026'}`) || '[]').map(String);
+    } catch(_) { return []; }
+  }
+  function temImagem(q){
+    return /<img/i.test(String(q.enunciadoHtml || '')) || (q.arquivos || []).some(a => /^image\//i.test(String(a.mimeType || a.tipo || '')) || /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(String(a.url || a.fileUrl || a.arquivoUrl || a.nome || a.name || '')));
+  }
+  function podeEditarQuestaoCompacto(){
+    try { if (typeof podeGerenciarQuestoes === 'function' && podeGerenciarQuestoes()) return true; } catch(_) {}
+    const n = String(usuarioLogado?.nivel || '');
+    return ['ADM','Staff','Monitor','Professor/Orientador'].includes(n);
+  }
+  function renderQuestionRow(q){
+    const id = String(q.id || '');
+    const inList = miniListaIdsCompacta().includes(id);
+    const preview = stripHtml(q.enunciadoHtml || q.enunciado || q.titulo || '');
+    const canEdit = podeEditarQuestaoCompacto();
+    return `<div class="bq-compact-row">
+      <div class="min-w-0">
+        <div class="bq-compact-title">${esc(q.codigo ? q.codigo + ' — ' : '')}${esc(q.titulo || 'Questão sem título')}</div>
+        <div class="bq-compact-preview">${esc(preview || 'Sem prévia textual. Abra a questão para ver imagens, anexos e enunciado completo.')}</div>
+        <div class="bq-compact-badges">
+          <span class="bq-compact-badge">${esc(q.disciplina || 'Geral')}</span>
+          <span class="bq-compact-badge">${esc(q.nivel || 'Geral')}</span>
+          ${q.area ? `<span class="bq-compact-badge">${esc(q.area)}</span>` : ''}
+          ${q.tema ? `<span class="bq-compact-badge">${esc(q.tema)}</span>` : ''}
+          ${q.dificuldade ? `<span class="bq-compact-badge">${esc(q.dificuldade)}</span>` : ''}
+          ${temImagem(q) ? `<span class="bq-compact-badge"><i class="fa-solid fa-image mr-1"></i>tem imagem/anexo</span>` : ''}
+          ${inList ? `<span class="bq-compact-badge" style="color:#bfdbfe;border-color:#1d4ed8"><i class="fa-solid fa-check mr-1"></i>na lista</span>` : ''}
+        </div>
+      </div>
+      <div class="bq-compact-actions">
+        <button onclick="abrirQuestaoBancoCompacta('${esc(id)}')"><i class="fa-solid fa-up-right-and-down-left-from-center mr-1"></i>Abrir</button>
+        ${inList ? `<button onclick="removerQuestaoMiniLista('${esc(id)}')"><i class="fa-solid fa-minus mr-1"></i>Lista</button>` : `<button onclick="adicionarQuestaoMiniLista('${esc(id)}')"><i class="fa-solid fa-plus mr-1"></i>Lista</button>`}
+        ${typeof abrirRelatoProblemaQuestao === 'function' ? `<button onclick="abrirRelatoProblemaQuestao('${esc(id)}')"><i class="fa-solid fa-flag mr-1"></i>Relatar</button>` : ''}
+        ${canEdit && typeof editarQuestaoBanco === 'function' ? `<button onclick="editarQuestaoBanco('${esc(id)}')"><i class="fa-solid fa-pen mr-1"></i>Editar</button>` : ''}
+        ${canEdit && typeof adicionarSolucaoQuestao === 'function' ? `<button onclick="adicionarSolucaoQuestao('${esc(id)}')"><i class="fa-solid fa-lightbulb mr-1"></i>Solução</button>` : ''}
+      </div>
+    </div>`;
+  }
+  function renderizarBancoQuestoesCompacto(){
+    ensureStyleCompacto();
+    const grid = document.getElementById('gridQuestoes');
+    if (!grid) return;
+    if (!usuarioLogado) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-400">Faça login para acessar o banco.</div>`;
+      return;
+    }
+    const qs = listaBanco().filter(passaFiltrosCompacto).sort(ordenaQuestoes);
+    grid.classList.add('bq-compact-list');
+    if (!qs.length) {
+      grid.innerHTML = `<div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center text-gray-500"><i class="fa-solid fa-database text-3xl mb-3 text-gray-600"></i><p class="font-bold">Nenhuma questão encontrada.</p><p class="text-xs mt-1">Ajuste os filtros.</p></div>`;
+      return;
+    }
+    const mini = miniListaIdsCompacta().length;
+    const stats = `<div class="bq-compact-stats">
+      <div class="bq-compact-stat"><p>Questões filtradas</p><p>${qs.length}</p></div>
+      <div class="bq-compact-stat"><p>Na mini-lista</p><p>${mini}</p></div>
+      <div class="bq-compact-stat"><p>Com imagem/anexo</p><p>${qs.filter(temImagem).length}</p></div>
+      <div class="bq-compact-stat"><p>Modo</p><p style="font-size:14px">Lista compacta</p></div>
+    </div>`;
+    grid.innerHTML = stats + qs.map(renderQuestionRow).join('');
+  }
+  const renderBancoBase = typeof renderizarBancoQuestoes === 'function' ? renderizarBancoQuestoes : null;
+  renderizarBancoQuestoes = function renderizarBancoQuestoesListaCompacta(){
+    return renderizarBancoQuestoesCompacto();
+  };
+  window.renderizarBancoQuestoes = renderizarBancoQuestoes;
+
+  function renderAnexosQuestao(q){
+    const arqs = Array.isArray(q.arquivos) ? q.arquivos : [];
+    if (!arqs.length) return '';
+    return `<div class="mt-4 space-y-2"><h4 class="text-xs font-black text-gray-400 uppercase">Anexos</h4>${arqs.map((a,i)=>{
+      const url = a.url || a.fileUrl || a.arquivoUrl || a.downloadURL || '';
+      const nome = a.nome || a.name || a.fileName || `Anexo ${i+1}`;
+      const mime = String(a.mimeType || a.tipo || '').toLowerCase();
+      const img = mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(url || nome);
+      return img
+        ? `<div class="rounded-xl border border-gray-700 bg-gray-950 p-2"><img src="${esc(url)}" class="max-h-[70vh] mx-auto object-contain rounded-lg"><p class="text-xs text-gray-500 mt-2">${esc(nome)}</p></div>`
+        : `<a href="${esc(url)}" target="_blank" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs"><i class="fa-solid fa-paperclip"></i>${esc(nome)}</a>`;
+    }).join('')}</div>`;
+  }
+  function renderAlternativasQuestao(q){
+    const alts = q.alternativas || {};
+    if (!['A','B','C','D','E'].some(k=>alts[k])) return '';
+    return `<div class="mt-4 rounded-xl border border-gray-700 bg-gray-950/60 p-3"><h4 class="text-xs font-black text-gray-400 uppercase mb-2">Alternativas</h4><ol class="space-y-1 text-sm text-gray-200">${['A','B','C','D','E'].filter(k=>alts[k]).map(k=>`<li><b>${k})</b> ${esc(alts[k])}</li>`).join('')}</ol></div>`;
+  }
+  window.abrirQuestaoBancoCompacta = function abrirQuestaoBancoCompacta(id){
+    ensureStyleCompacto();
+    let modal = document.getElementById('modalQuestaoCompacta');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'modalQuestaoCompacta';
+      modal.className = 'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+      modal.innerHTML = `<div class="absolute inset-0" onclick="fecharQuestaoBancoCompacta()"></div><div class="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl border border-gray-700 bg-gray-900 shadow-2xl"><div id="modalQuestaoCompactaConteudo"></div></div>`;
+      document.body.appendChild(modal);
+    }
+    const q = listaBanco().find(x => String(x.id) === String(id));
+    if (!q) return alert('Questão não encontrada.');
+    const body = document.getElementById('modalQuestaoCompactaConteudo');
+    body.innerHTML = `
+      <div class="p-5 border-b border-gray-800 flex items-start justify-between gap-3">
+        <div>
+          <div class="flex flex-wrap gap-2 mb-2">
+            <span class="bq-compact-badge">${esc(q.codigo || q.id)}</span>
+            <span class="bq-compact-badge">${esc(q.disciplina || 'Geral')}</span>
+            <span class="bq-compact-badge">${esc(q.nivel || 'Geral')}</span>
+            ${q.tema ? `<span class="bq-compact-badge">${esc(q.tema)}</span>` : ''}
+          </div>
+          <h3 class="text-lg font-black text-white">${esc(q.titulo || 'Questão sem título')}</h3>
+          <p class="text-xs text-gray-500 mt-1">${esc([q.fonte,q.ano,q.fase,q.area,q.subtema,q.dificuldade].filter(Boolean).join(' · '))}</p>
+        </div>
+        <button onclick="fecharQuestaoBancoCompacta()" class="px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold"><i class="fa-solid fa-xmark mr-1"></i>Fechar</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="rounded-2xl border border-gray-700 bg-gray-950/50 p-4 text-gray-200 questao-modal-html">${q.enunciadoHtml ? q.enunciadoHtml : esc(q.enunciado || '').replace(/\n/g,'<br>')}</div>
+        ${renderAnexosQuestao(q)}
+        ${renderAlternativasQuestao(q)}
+        ${q.resolucaoHtml || q.resolucao ? `<details class="rounded-xl border border-emerald-900/50 bg-emerald-950/20 p-3"><summary class="cursor-pointer text-xs font-black uppercase text-emerald-300">Resolução / comentário</summary><div class="mt-3 text-sm text-emerald-50">${q.resolucaoHtml || esc(q.resolucao).replace(/\n/g,'<br>')}</div></details>` : ''}
+      </div>`;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  };
+  window.fecharQuestaoBancoCompacta = function fecharQuestaoBancoCompacta(){
+    const modal = document.getElementById('modalQuestaoCompacta');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+  };
+
+  // -------------------- SIMULADOS --------------------
+  const renderSimBase = typeof renderizarSimulados === 'function' ? renderizarSimulados : null;
+  if (renderSimBase) {
+    renderizarSimulados = function renderizarSimuladosCompactos(){
+      const r = renderSimBase.apply(this, arguments);
+      setTimeout(() => {
+        ensureStyleCompacto();
+        const grid = document.getElementById('gridSimulados');
+        if (grid) grid.classList.add('simulados-lista-compacta');
+        const ctrl = document.getElementById('simuladosRevisaoCtrl');
+        if (ctrl && !document.getElementById('simuladosCompactoAviso')) {
+          ctrl.insertAdjacentHTML('beforeend', `<span id="simuladosCompactoAviso" class="text-[10px] text-gray-500 font-bold uppercase">Lista compacta ativa</span>`);
+        }
+      }, 60);
+      return r;
+    };
+    window.renderizarSimulados = renderizarSimulados;
+  }
+
+  const navBase = typeof navegarAba === 'function' ? navegarAba : null;
+  if (navBase) {
+    navegarAba = function navegarAbaVisualCompacta(abaId, botao){
+      const r = navBase.apply(this, arguments);
+      if (abaId === 'plataforma') setTimeout(() => { inserirControleModoPlataforma(); aplicarModoPlataforma(); }, 180);
+      if (abaId === 'questoes') setTimeout(() => { if (typeof renderizarBancoQuestoes === 'function') renderizarBancoQuestoes(); }, 220);
+      if (abaId === 'simulados') setTimeout(() => { const g=document.getElementById('gridSimulados'); if(g) g.classList.add('simulados-lista-compacta'); }, 220);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureStyleCompacto();
+    setTimeout(() => {
+      inserirControleModoPlataforma();
+      aplicarModoPlataforma();
+      if (!document.getElementById('view-questoes')?.classList.contains('hidden')) renderizarBancoQuestoesCompacto();
+      document.getElementById('gridSimulados')?.classList.add('simulados-lista-compacta');
+    }, 1200);
+  });
+
+  window.diagnosticarVisualizacoesCompactas = function diagnosticarVisualizacoesCompactas(){
+    return {
+      plataformaModo: getModoPlataforma(),
+      gridMateriaisView: document.getElementById('gridMateriais')?.dataset.view || null,
+      bancoQuestoesCompacto: document.getElementById('gridQuestoes')?.classList.contains('bq-compact-list') || false,
+      simuladosCompactos: document.getElementById('gridSimulados')?.classList.contains('simulados-lista-compacta') || false,
+      questoesCarregadas: listaBanco().length
+    };
+  };
+
+  console.log(TAG, 'ativo. Use diagnosticarVisualizacoesCompactas() no console.');
+})();
