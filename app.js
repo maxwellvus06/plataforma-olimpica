@@ -20750,3 +20750,565 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, 'ativo. Use diagnosticarPlataformaPushModeracao() no console.');
 })();
+
+
+// ============================================================
+// PATCH — Plataforma Plus: problemas sem duplicar, comentários deletáveis,
+// moderação contextual e atualização em tempo real por aba.
+// ============================================================
+(function patchPlataformaModeracaoDeletePushGlobal(){
+  const TAG = '[Plataforma Plus Final]';
+  const esc = (v) => typeof textoSeguro === 'function'
+    ? textoSeguro(v)
+    : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = (v) => typeof normalizarTexto === 'function'
+    ? normalizarTexto(v)
+    : String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+
+  const anoAtual = () => {
+    try { return typeof anoDadosAtivo !== 'undefined' ? String(anoDadosAtivo || '2026') : '2026'; }
+    catch(_) { return '2026'; }
+  };
+
+  // ------------------------------------------------------------
+  // 1) Relato de problema da Plataforma sem duplicar na central
+  // ------------------------------------------------------------
+  async function salvarProblemaPlataformaUnico(relato) {
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+    const ano = anoAtual();
+
+    // Salva APENAS na central unificada. Antes salvava também em
+    // sistema_plataforma_problemas; como a central lê as duas, aparecia duplicado.
+    await firebaseFirestore
+      .collection(`anos/${ano}/sistema_problemas`)
+      .doc(String(relato.id))
+      .set({ ...relato, categoria: 'plataforma', origem: 'plataforma', status: relato.status || 'Aberto' }, { merge: true });
+  }
+
+  window.enviarRelatoProblemaPlataforma = async function enviarRelatoProblemaPlataformaSemDuplicar(){
+    const materialId = document.getElementById('relatoPlataformaMaterialId')?.value || '';
+    const tipo = document.getElementById('relatoPlataformaTipo')?.value || 'Problema na Plataforma';
+    const descricao = String(document.getElementById('relatoPlataformaDescricao')?.value || '').trim();
+    const btn = document.getElementById('btnEnviarRelatoPlataforma');
+    const material = typeof materialPlataformaPorId === 'function'
+      ? materialPlataformaPorId(materialId)
+      : ((getStorage('app_plataforma', []) || []).find(m => String(m.id) === String(materialId)) || null);
+
+    if (!descricao) return alert('Descreva o problema antes de enviar.');
+
+    const relato = {
+      id: typeof novoId === 'function' ? novoId() : `${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+      categoria: 'plataforma',
+      origem: 'plataforma',
+      tipo,
+      status: 'Aberto',
+      prioridade: /não abre|quebrado|ilegível|audio|áudio|vídeo|video/i.test(tipo) ? 'Alta' : 'Normal',
+      alvoId: String(materialId || ''),
+      alvoTitulo: material?.titulo || 'Atividade da Plataforma',
+      titulo: `Problema em atividade da Plataforma: ${material?.titulo || materialId || 'sem título'}`,
+      descricao,
+      detalhes: descricao,
+      materialResumo: material ? {
+        id: material.id || '',
+        titulo: material.titulo || '',
+        disciplina: material.disciplina || '',
+        nivel: material.nivel || '',
+        tipoMaterial: material.tipoMaterial || '',
+        tipo: material.tipo || '',
+        url: material.url || material.arquivoUrl || ''
+      } : {},
+      criadoPor: usuarioLogado?.nome || 'Usuário',
+      criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || '',
+      criadoPorNivel: usuarioLogado?.nivel || '',
+      criadoEm: Date.now(),
+      atualizadoEm: Date.now(),
+      ano: anoAtual()
+    };
+
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+      await salvarProblemaPlataformaUnico(relato);
+      if (typeof fecharRelatoProblemaPlataforma === 'function') fecharRelatoProblemaPlataforma();
+      alert('Relato enviado com sucesso. A equipe poderá acompanhar pela central Problemas.');
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao enviar relato.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-flag mr-2"></i>Enviar relato'; }
+    }
+  };
+
+  // Dedupe extra para centrais antigas que leem sistema_problemas + sistema_plataforma_problemas.
+  window.deduplicarProblemasCentral = function deduplicarProblemasCentral(lista) {
+    const mapa = new Map();
+    (lista || []).forEach(p => {
+      const chave = [
+        p.id,
+        p.categoria || p.origem || '',
+        p.alvoId || p.eventoId || p.questaoId || '',
+        p.tipo || '',
+        p.descricao || p.detalhes || ''
+      ].map(x => norm(x)).join('|');
+      if (!mapa.has(chave)) mapa.set(chave, p);
+    });
+    return Array.from(mapa.values());
+  };
+
+  // ------------------------------------------------------------
+  // 2) Moderação contextual mais inteligente
+  // ------------------------------------------------------------
+  function normalizarMod(v) {
+    return String(v ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[@]/g, 'a')
+      .replace(/[0]/g, 'o')
+      .replace(/[1!|]/g, 'i')
+      .replace(/[3]/g, 'e')
+      .replace(/[4]/g, 'a')
+      .replace(/[5$]/g, 's')
+      .replace(/[7]/g, 't')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function contextoAnimalVeado(n) {
+    // Permite usos claramente biológicos/naturais.
+    return /\b(veado|viado)\b/.test(n)
+      && /\b(animal|fauna|mamifero|mamifero|biologia|natureza|cerrado|floresta|mato|especie|herbivoro|habitat|cervo|cervideo|chifre|galhada)\b/.test(n)
+      && !/\b(seu|sua|tu|voce|vc|ele|ela|esse|essa|aquele|aquela|colega|aluno|professor|monitor|fulano)\s+(veado|viado)\b/.test(n)
+      && !/\b(veado|viado)\s+(do|da|de|lixo|burro|idiota|arrombado|otario)\b/.test(n);
+  }
+
+  function moderarTextoContextualPlataforma(texto, contexto = {}) {
+    const original = String(texto || '');
+    const n = normalizarMod(original);
+    const compacto = n.replace(/[^a-z0-9]+/g, '');
+    const achados = [];
+
+    if (compacto.replace(/[0-9]/g,'').length < 2) {
+      achados.push({ categoria: 'vazio', termo: 'texto sem conteúdo útil' });
+    }
+
+    // Baixo calão explícito: normalmente bloqueia para aluno.
+    const baixoCalao = [
+      ['fode/foder', /\b(fode|foder|fodase|foda-se|foda)\b/, /(fode|foder|fodase)/],
+      ['palavrão explícito', /\b(caralho|porra|puta|merda|fdp|pqp|desgraca)\b/, /(caralho|porra|puta|merda|fdp|pqp)/]
+    ];
+    baixoCalao.forEach(([termo, re, cre]) => {
+      if (re.test(n) || cre.test(compacto)) achados.push({ categoria: 'baixo_calão', termo });
+    });
+
+    // Termos potencialmente ofensivos com contexto.
+    if (/\b(viado|veado)\b/.test(n) || /(viado|veado)/.test(compacto)) {
+      if (!contextoAnimalVeado(n)) {
+        const pareceAtaque = /\b(seu|sua|tu|voce|vc|ele|ela|esse|essa|aquele|aquela|colega|aluno|professor|monitor|fulano|isso e|isso é|chamar|xingou|xingar)\b/.test(n)
+          || /\b(viado|veado)\s+(do|da|de|lixo|burro|idiota|arrombado|otario)\b/.test(n)
+          || n.split(/\s+/).length <= 5;
+        if (pareceAtaque) achados.push({ categoria: 'ofensa', termo: 'termo usado como ofensa' });
+      }
+    }
+
+    const ofensasDiretas = [
+      ['ofensa direta', /\b(idiota|imbecil|retardado|arrombado|otario|otariozinho|lixo|vagabundo)\b/, /(idiota|imbecil|retardado|arrombado|otario|lixo|vagabundo)/],
+      ['ameaça/agressão', /\b(vou te matar|matar voce|matar vc|te quebrar|te pegar|vou bater|apanhar)\b/, /(voutematar|matarvoce|matarvc|tequebrar|voubater)/]
+    ];
+    ofensasDiretas.forEach(([termo, re, cre]) => {
+      if (re.test(n) || cre.test(compacto)) achados.push({ categoria: termo.includes('ameaça') ? 'ameaça' : 'ofensa', termo });
+    });
+
+    if (/([a-z])\1{7,}/i.test(compacto)) achados.push({ categoria: 'spam', termo: 'repetição excessiva' });
+
+    const nivel = String(contexto.nivel || usuarioLogado?.nivel || '');
+    const aluno = nivel === 'Aluno';
+
+    // Para aluno, bloqueia achados relevantes. Para equipe, permite mais coisas,
+    // mas ameaça/ofensa direta continua bloqueada.
+    const bloqueia = achados.some(a => {
+      if (a.categoria === 'ameaça') return true;
+      if (aluno && ['baixo_calão','ofensa','spam','vazio'].includes(a.categoria)) return true;
+      return ['ofensa'].includes(a.categoria) && n.split(/\s+/).length <= 6;
+    });
+
+    return {
+      aprovado: !bloqueia,
+      motivo: achados.map(a => a.termo).join(', '),
+      categorias: achados.map(a => a.categoria),
+      nivel,
+      aluno,
+      sugestaoIA: 'Para moderação realmente inteligente, usar Cloud Function com OpenAI Moderation/LLM antes de gravar no Firestore.'
+    };
+  }
+
+  window.moderarTextoPlataforma = moderarTextoContextualPlataforma;
+
+  // ------------------------------------------------------------
+  // 3) Fórum: manter aberto, atualizar sem F5 e permitir apagar comentários
+  // ------------------------------------------------------------
+  function uidAtual() {
+    return String(usuarioLogado?.id || usuarioLogado?.authUid || usuarioLogado?.login || '');
+  }
+
+  function podeExcluirInteracao(interacao) {
+    const nivel = String(usuarioLogado?.nivel || '');
+    if (nivel === 'ADM' || nivel === 'Staff') return true;
+    return uidAtual() && String(interacao?.criadoPorId || '') === uidAtual();
+  }
+
+  function salvarEstadoForumAberto(materialId) {
+    try {
+      const det = document.querySelector(`#modalAtividadePlataforma details[data-forum-material-id="${CSS.escape(String(materialId))}"]`);
+      if (det?.open) sessionStorage.setItem(`forum_plataforma_aberto_${materialId}`, '1');
+    } catch(_) {}
+  }
+
+  function forumDeveAbrir(materialId) {
+    try { return sessionStorage.getItem(`forum_plataforma_aberto_${materialId}`) === '1'; }
+    catch(_) { return false; }
+  }
+
+  function marcarForumAberto(materialId, aberto = true) {
+    try {
+      if (aberto) sessionStorage.setItem(`forum_plataforma_aberto_${materialId}`, '1');
+      else sessionStorage.removeItem(`forum_plataforma_aberto_${materialId}`);
+    } catch(_) {}
+  }
+
+  // Recria o render do fórum com botão de apagar e estado open preservado.
+  window.renderizarInteracoesMaterial = function renderizarInteracoesMaterialComDelete(m) {
+    const interacoes = Array.isArray(m.interacoes) ? [...m.interacoes].sort((a,b)=>Number(b.criadoEm||0)-Number(a.criadoEm||0)) : [];
+    const mid = String(m.id || '');
+    const abertoAttr = forumDeveAbrir(mid) ? 'open' : '';
+
+    const lista = interacoes.length
+      ? interacoes.map(i => {
+          const del = podeExcluirInteracao(i)
+            ? `<button type="button" onclick="excluirInteracaoMaterial('${esc(mid)}','${esc(i.id)}')" class="text-red-300 hover:text-red-200 text-[10px] font-black uppercase" title="Apagar comentário"><i class="fa-solid fa-trash mr-1"></i>Apagar</button>`
+            : '';
+          return `
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${i.tipo === 'Dúvida' ? 'bg-amber-500/10 text-amber-300' : i.tipo === 'Resolução' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-blue-500/10 text-blue-300'}">${esc(i.tipo || 'Comentário')}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] text-gray-500">${esc(i.criadoPor || 'Usuário')} · ${typeof formatarDataHora === 'function' ? formatarDataHora(i.criadoEm) : ''}</span>
+                  ${del}
+                </div>
+              </div>
+              <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">${esc(i.texto || '')}</p>
+              ${i.imagemUrl ? `<button type="button" onclick="abrirVisualizadorGenerico('${esc(i.imagemUrl)}','Imagem enviada')" class="inline-block mt-2 text-left"><img src="${esc(i.imagemUrl)}" class="max-h-48 rounded-xl border border-gray-700 object-contain bg-gray-950" alt="Imagem enviada"></button>` : ''}
+            </div>`;
+        }).join('')
+      : `<p class="text-xs text-gray-600 italic">Nenhuma interação ainda. Seja o primeiro a comentar, perguntar ou enviar uma resolução.</p>`;
+
+    return `
+      <details ${abertoAttr} data-forum-material-id="${esc(mid)}" class="mt-3 border-t border-gray-700 pt-3" ontoggle="marcarForumAberto('${esc(mid)}', this.open)">
+        <summary class="cursor-pointer text-xs font-bold text-gray-300 hover:text-white"><i class="fa-solid fa-comments text-blue-400 mr-2"></i> Fórum do material (${interacoes.length})</summary>
+        <div class="mt-3 space-y-3">
+          ${lista}
+          <form onsubmit="publicarInteracaoMaterial('${esc(mid)}', event)" class="bg-gray-900/50 border border-gray-700 rounded-xl p-3 space-y-2">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <select id="interacaoTipo_${esc(mid)}" class="p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300 focus:outline-none">
+                ${(typeof TIPOS_INTERACAO_PLATAFORMA !== 'undefined' ? TIPOS_INTERACAO_PLATAFORMA : ['Dúvida','Resolução','Comentário']).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+              </select>
+              <input id="interacaoImagem_${esc(mid)}" type="file" accept="image/*" class="md:col-span-2 p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-300">
+            </div>
+            <textarea id="interacaoTexto_${esc(mid)}" rows="2" required class="w-full p-2 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200 focus:outline-none resize-none" placeholder="Escreva sua dúvida, resolução ou comentário..."></textarea>
+            <button type="submit" class="w-full md:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar no fórum</button>
+          </form>
+        </div>
+      </details>`;
+  };
+  try { renderizarInteracoesMaterial = window.renderizarInteracoesMaterial; } catch(_) {}
+  window.marcarForumAberto = marcarForumAberto;
+
+  async function enviarArquivoForumSeHouverPlus(materialId, interacao) {
+    const imagemEl = document.getElementById(`interacaoImagem_${materialId}`);
+    if (!imagemEl?.files?.length) return;
+    const imagem = imagemEl.files[0];
+    if (!String(imagem.type || '').startsWith('image/')) throw new Error('Anexe apenas imagens nas interações do fórum.');
+    if (imagem.size / (1024 * 1024) > LIMITE_ANEXO_MONITORIA_MB) throw new Error(`Imagem muito grande. Use até ${LIMITE_ANEXO_MONITORIA_MB} MB.`);
+    const upload = await enviarArquivoParaFirebaseStorage(imagem, 'forum');
+    interacao.imagemUrl = upload.fileUrl;
+    interacao.storagePath = upload.storagePath;
+    interacao.driveFileId = upload.storagePath;
+    interacao.nomeArquivo = upload.fileName || imagem.name;
+    interacao.mimeType = imagem.type;
+    interacao.tamanhoBytes = imagem.size;
+  }
+
+  function atualizarMaterialLocal(materialId, mutator) {
+    const lista = getStorage('app_plataforma', []) || [];
+    const nova = lista.map(m => String(m.id) === String(materialId) ? mutator(m) : m);
+    if (typeof setStorageLocal === 'function') setStorageLocal('app_plataforma', nova);
+  }
+
+  window.publicarInteracaoMaterial = async function publicarInteracaoMaterialPlus(materialId, event) {
+    event.preventDefault();
+    if (!usuarioLogado) return alert('Você precisa estar logado para interagir no fórum.');
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) return alert('Cloud Firestore não inicializado.');
+
+    const tipo = document.getElementById(`interacaoTipo_${materialId}`)?.value || 'Comentário';
+    const textoEl = document.getElementById(`interacaoTexto_${materialId}`);
+    const imagemEl = document.getElementById(`interacaoImagem_${materialId}`);
+    const texto = textoEl?.value.trim() || '';
+    const btn = event.submitter;
+
+    if (!texto) return alert('Escreva uma dúvida, resolução ou comentário.');
+
+    const moderacao = moderarTextoContextualPlataforma(texto, { nivel: usuarioLogado?.nivel || '', materialId });
+    if (!moderacao.aprovado) {
+      return alert(`Comentário bloqueado pela moderação.\n\nMotivo: ${moderacao.motivo || 'linguagem inadequada'}.\n\nReescreva de forma respeitosa e objetiva.`);
+    }
+
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Enviando...'; }
+      marcarForumAberto(materialId, true);
+
+      const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error('Material não encontrado no Firestore.');
+      const material = snap.data() || {};
+      const interacoes = Array.isArray(material.interacoes) ? [...material.interacoes] : [];
+
+      const interacao = {
+        id: typeof novoId === 'function' ? novoId() : `${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+        tipo,
+        texto,
+        criadoPor: usuarioLogado.nome || 'Usuário',
+        criadoPorId: uidAtual(),
+        criadoPorNivel: usuarioLogado.nivel || '',
+        criadoEm: Date.now(),
+        moderacao: { status: 'aprovado_contextual', categorias: moderacao.categorias || [] }
+      };
+
+      await enviarArquivoForumSeHouverPlus(materialId, interacao);
+      interacoes.push(interacao);
+      await ref.update({ interacoes, atualizadoEm: Date.now() });
+
+      atualizarMaterialLocal(materialId, m => ({ ...m, interacoes, atualizadoEm: Date.now() }));
+
+      if (textoEl) textoEl.value = '';
+      if (imagemEl) imagemEl.value = '';
+
+      if (typeof renderizarPlataformaEnsino === 'function') await renderizarPlataformaEnsino();
+      if (atividadePlataformaAbertaId === String(materialId) && typeof abrirAtividadePlataforma === 'function') {
+        await abrirAtividadePlataforma(materialId);
+      }
+    } catch (erro) {
+      console.error('Erro ao enviar interação no fórum:', erro);
+      alert(`Erro ao enviar interação.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i>Enviar no fórum'; }
+    }
+  };
+  try { publicarInteracaoMaterial = window.publicarInteracaoMaterial; } catch(_) {}
+
+  window.excluirInteracaoMaterial = async function excluirInteracaoMaterial(materialId, interacaoId) {
+    if (!usuarioLogado) return alert('Você precisa estar logado.');
+    if (!confirm('Apagar este comentário do fórum?')) return;
+
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+      marcarForumAberto(materialId, true);
+
+      const ref = firebaseFirestore.collection(getMateriaisCollectionName()).doc(String(materialId));
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error('Material não encontrado.');
+      const material = snap.data() || {};
+      const interacoes = Array.isArray(material.interacoes) ? [...material.interacoes] : [];
+      const interacao = interacoes.find(i => String(i.id) === String(interacaoId));
+      if (!interacao) throw new Error('Comentário não encontrado.');
+
+      if (!podeExcluirInteracao(interacao)) {
+        return alert('Você só pode apagar seus próprios comentários. ADM e Staff podem apagar qualquer comentário.');
+      }
+
+      const novas = interacoes.filter(i => String(i.id) !== String(interacaoId));
+      await ref.update({ interacoes: novas, atualizadoEm: Date.now() });
+
+      atualizarMaterialLocal(materialId, m => ({ ...m, interacoes: novas, atualizadoEm: Date.now() }));
+
+      if (typeof renderizarPlataformaEnsino === 'function') await renderizarPlataformaEnsino();
+      if (atividadePlataformaAbertaId === String(materialId) && typeof abrirAtividadePlataforma === 'function') {
+        await abrirAtividadePlataforma(materialId);
+      }
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao apagar comentário.\n\n${erro.message || erro}`);
+    }
+  };
+
+  // ------------------------------------------------------------
+  // 4) Tempo real por aba: sem F5 no restante da plataforma
+  // ------------------------------------------------------------
+  const realtime = {
+    unsubs: {},
+    timers: {},
+    assinaturas: {}
+  };
+
+  const MAPA_ABA_CHAVES = {
+    dashboard: ['app_premiados','app_alunos','app_escolas','app_cidades','app_olimpiadas'],
+    calendario: ['app_cronograma','app_olimpiadas'],
+    importar: ['app_premiados','app_alunos','app_escolas','app_cidades','app_olimpiadas'],
+    relatorios: ['app_premiados','app_alunos','app_escolas','app_cidades','app_olimpiadas'],
+    reuniao: ['app_premiados','app_alunos','app_escolas','app_cidades','app_olimpiadas','app_cronograma','app_plataforma'],
+    plataforma: ['app_plataforma'],
+    simulados: ['app_simulados','app_simulados_envios','app_questoes'],
+    aulas: ['app_aulas'],
+    questoes: ['app_questoes'],
+    alunos: ['app_alunos','app_escolas','app_cidades'],
+    usuarios: ['app_usuarios','app_escolas','app_cidades'],
+    olimpiadas: ['app_olimpiadas'],
+    cidades: ['app_cidades'],
+    escolas: ['app_escolas','app_cidades'],
+    meusresultados: ['app_premiados'],
+    monitoria: []
+  };
+
+  function assinaturaLista(lista) {
+    try {
+      return JSON.stringify((lista || []).map(x => ({
+        id: x.id,
+        a: x.atualizadoEm || x.criadoEm || x.dataAtualizacao || 0,
+        n: Array.isArray(x.interacoes) ? x.interacoes.length : undefined,
+        c: Array.isArray(x.concluidos) ? x.concluidos.length : undefined
+      })));
+    } catch(_) { return String(Date.now()); }
+  }
+
+  function abaAtualVisivel() {
+    const v = Array.from(document.querySelectorAll('.tab-view')).find(el => !el.classList.contains('hidden'));
+    return v?.id?.replace(/^view-/, '') || '';
+  }
+
+  function usuarioDigitandoEmFormulario() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    if (!['input','textarea','select'].includes(tag)) return false;
+    return !!el.closest('form') || !!el.closest('#modalAtividadePlataforma') || !!el.closest('[id*="modal"]');
+  }
+
+  function renderAbaAtualPorRealtime(chave) {
+    const aba = abaAtualVisivel();
+    if (!aba) return;
+    if (usuarioDigitandoEmFormulario() && aba !== 'plataforma') return;
+
+    clearTimeout(realtime.timers[aba]);
+    realtime.timers[aba] = setTimeout(async () => {
+      try {
+        const a = abaAtualVisivel();
+        if (!a) return;
+
+        if (a === 'dashboard' && typeof renderizarDashboard === 'function') return renderizarDashboard();
+        if (a === 'calendario' && typeof renderizarCronograma === 'function') return renderizarCronograma();
+        if (a === 'importar' && typeof renderizarResultadosImportacao === 'function') return renderizarResultadosImportacao();
+        if (a === 'relatorios' && typeof gerarRelatorioComparativo === 'function') return gerarRelatorioComparativo();
+        if (a === 'reuniao' && typeof gerarPainelReuniao === 'function') return gerarPainelReuniao();
+        if (a === 'plataforma' && typeof renderizarPlataformaEnsino === 'function') return renderizarPlataformaEnsino();
+        if (a === 'simulados' && typeof renderizarSimulados === 'function') return renderizarSimulados();
+        if (a === 'aulas' && typeof renderizarAulas === 'function') return renderizarAulas();
+        if (a === 'questoes' && typeof renderizarBancoQuestoes === 'function') return renderizarBancoQuestoes();
+        if (a === 'alunos' && typeof renderizarAlunos === 'function') return renderizarAlunos();
+        if (['usuarios','olimpiadas','cidades','escolas'].includes(a) && typeof renderizarTabelasGerenciais === 'function') return renderizarTabelasGerenciais();
+        if (a === 'meusresultados' && typeof renderizarMeusResultados === 'function') return renderizarMeusResultados();
+      } catch (e) {
+        console.warn(TAG, 'falha ao renderizar aba em tempo real', chave, e);
+      }
+    }, 450);
+  }
+
+  function iniciarListenerChave(chave) {
+    try {
+      if (!usuarioLogado || realtime.unsubs[chave]) return;
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore || typeof getFirebaseCollectionName !== 'function') return;
+
+      const col = getFirebaseCollectionName(chave);
+      const unsub = firebaseFirestore.collection(col).onSnapshot(snap => {
+        const lista = [];
+        snap.forEach(doc => {
+          const data = doc.data() || {};
+          lista.push({ id: data.id || doc.id, ...data });
+        });
+
+        // ordenação genérica
+        lista.sort((a,b) => Number(b.criadoEm || b.atualizadoEm || 0) - Number(a.criadoEm || a.atualizadoEm || 0));
+
+        const ass = assinaturaLista(lista);
+        if (ass === realtime.assinaturas[chave]) return;
+        realtime.assinaturas[chave] = ass;
+
+        if (typeof setStorageLocal === 'function') setStorageLocal(chave, lista);
+        else if (typeof memoriaDadosSistema !== 'undefined') memoriaDadosSistema[chave] = lista;
+
+        renderAbaAtualPorRealtime(chave);
+      }, erro => {
+        console.warn(TAG, 'listener falhou', chave, erro);
+        try { if (realtime.unsubs[chave]) realtime.unsubs[chave](); } catch(_) {}
+        delete realtime.unsubs[chave];
+      });
+
+      realtime.unsubs[chave] = unsub;
+      console.info(TAG, 'listener ativo:', chave, col);
+    } catch (e) {
+      console.warn(TAG, 'não iniciou listener', chave, e);
+    }
+  }
+
+  function iniciarRealtimeAba(aba) {
+    (MAPA_ABA_CHAVES[aba] || []).forEach(iniciarListenerChave);
+  }
+
+  function pararTodosRealtime() {
+    Object.values(realtime.unsubs).forEach(fn => { try { fn(); } catch(_) {} });
+    realtime.unsubs = {};
+    realtime.assinaturas = {};
+  }
+
+  window.iniciarRealtimeAba = iniciarRealtimeAba;
+  window.pararTodosRealtime = pararTodosRealtime;
+
+  const navBase = typeof navegarAba === 'function' ? navegarAba : null;
+  if (navBase) {
+    navegarAba = function navegarAbaComRealtimeGlobal(abaId, botao) {
+      const r = navBase.apply(this, arguments);
+      setTimeout(() => iniciarRealtimeAba(abaId), 180);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+
+  const logoutBase = typeof logout === 'function' ? logout : null;
+  if (logoutBase) {
+    logout = async function logoutComRealtimeGlobal() {
+      pararTodosRealtime();
+      return await logoutBase.apply(this, arguments);
+    };
+    window.logout = logout;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      const aba = abaAtualVisivel();
+      if (aba) iniciarRealtimeAba(aba);
+    }, 1800);
+  });
+
+  window.diagnosticarPlataformaPlusFinal = function diagnosticarPlataformaPlusFinal() {
+    return {
+      moderacaoVeadoAnimal: moderarTextoContextualPlataforma('O veado é um animal da fauna brasileira.', { nivel:'Aluno' }),
+      moderacaoOfensa: moderarTextoContextualPlataforma('seu viado', { nivel:'Aluno' }),
+      listenersAtivos: Object.keys(realtime.unsubs),
+      abaAtual: abaAtualVisivel(),
+      forumAbertoAtividade: atividadePlataformaAbertaId ? forumDeveAbrir(atividadePlataformaAbertaId) : null,
+      problemasSemDuplicar: true
+    };
+  };
+
+  console.log(TAG, 'ativo. Use diagnosticarPlataformaPlusFinal() no console.');
+})();
