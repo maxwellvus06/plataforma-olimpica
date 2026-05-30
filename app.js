@@ -18514,692 +18514,87 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 })();
 
 
+
+
 // ============================================================
-// PROBLEMAS — CENTRAL LIMPA E ÚNICA
-// Este módulo substitui todos os botões superiores antigos de problemas.
-// Mantém os botões/funções de "Relatar problema" dentro dos módulos.
+// MÓDULO LIMPO DEFINITIVO — CENTRAL DE PROBLEMAS
+// Substitui todas as centrais/botões antigos após a limpeza.
+// Regras:
+// - Um único botão no slotProblemasHeaderLimpo.
+// - O botão só aparece após login ADM/Staff e painel principal visível.
+// - Clique abre a central imediatamente, antes de qualquer leitura Firestore.
+// - Sem observer agressivo, sem botão fixo por cima do header, sem wrapper de wrappers.
 // ============================================================
-(function problemasCentralLimpaFinal(){
-  const TAG = '[Problemas Central Limpa]';
+(function moduloProblemasLimpoDefinitivo(){
   const BTN_ID = 'btnProblemasCentralLimpa';
   const BADGE_ID = 'badgeProblemasCentralLimpa';
+  const SLOT_ID = 'slotProblemasHeaderLimpo';
   const MODAL_ID = 'modalProblemasCentralLimpa';
+  const MODAL_RELATO_ID = 'modalRelatoProblemaGeralLimpo';
   const ANO = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
   const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
-  const now = () => Date.now();
-  let cache = [];
-  let loadedAt = 0;
-
-  const oldIds = [
-    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado','btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin',
-    'badgeProblemasQuestoes','badgeProblemasCalendario','badgeProblemasUnificado'
-  ];
-  const oldModalIds = ['modalProblemasQuestoes','modalProblemasCalendarioAdmin','modalProblemasUnificado','modalProblemasRevisao'];
-
-  function collectionPaths() {
-    const ano = ANO();
-    return [
-      {path:`anos/${ano}/sistema_problemas`, categoria:'Geral'},
-      {path:`anos/${ano}/sistema_questoes_problemas`, categoria:'Questões'},
-      {path:`anos/${ano}/sistema_cronograma_problemas`, categoria:'Calendário'},
-      {path:`anos/${ano}/sistema_resultados_problemas`, categoria:'Resultados'},
-      {path:`anos/${ano}/sistema_plataforma_problemas`, categoria:'Plataforma'},
-      {path:`anos/${ano}/sistema_aulas_problemas`, categoria:'Aulas'},
-      {path:`anos/${ano}/sistema_simulados_problemas`, categoria:'Simulados'},
-      {path:'sistema_problemas', categoria:'Geral'}
-    ];
-  }
-
-  function inferCategoria(p, fallback='Geral') {
-    const raw = String(p.modulo || p.tipoModulo || p.categoria || p.area || p.origem || p.origemPath || fallback || 'Geral').toLowerCase();
-    if (raw.includes('quest')) return 'Questões';
-    if (raw.includes('cronograma') || raw.includes('calend')) return 'Calendário';
-    if (raw.includes('result')) return 'Resultados';
-    if (raw.includes('plataforma') || raw.includes('material')) return 'Plataforma';
-    if (raw.includes('aula')) return 'Aulas';
-    if (raw.includes('simulado')) return 'Simulados';
-    return fallback || 'Geral';
-  }
-  function isAberto(p) {
-    return !['Resolvido','Descartado'].includes(String(p.status || 'Aberto'));
-  }
-  function tituloProblema(p) {
-    return p.titulo || p.itemTitulo || p.questaoTitulo || p.eventoResumo || p.simuladoTitulo || p.materialTitulo || p.aulaTitulo || p.alvoTitulo || p.tipo || p.id || 'Relato de problema';
-  }
-  function textoProblema(p) {
-    return p.descricao || p.comentario || p.detalhe || p.relato || p.resolucaoComentario || p.observacao || (Array.isArray(p.tipos) ? p.tipos.join(', ') : '') || 'Sem descrição detalhada.';
-  }
-
-  function cleanupOldProblemButtons() {
-    oldIds.forEach(id => document.getElementById(id)?.remove());
-    // Remove qualquer botão antigo no header que seja claramente de problema e não seja o novo.
-    document.querySelectorAll('header button, header a, .topbar button').forEach(el => {
-      const id = String(el.id || '');
-      const txt = String(el.textContent || '');
-      const cls = String(el.className || '');
-      if (id === BTN_ID) return;
-      if (/problemas?|calend[aá]rio/i.test(txt) && /problema|bell|triangle|red|amber/i.test(id + ' ' + cls + ' ' + txt)) {
-        el.remove();
-      }
-    });
-  }
-
-  function killLegacyProblemIntervals() {
-    try {
-      (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
-        const src = String(item.src || '');
-        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|inserirBotaoCentralProblemas|garantirBotaoProblemas|badgeProblemas/i.test(src)) {
-          clearInterval(item.id);
-          item.killedByProblemasCentralLimpa = true;
-        }
-      });
-    } catch(e) { console.warn(TAG, 'interval cleanup', e); }
-  }
-
-  async function fetchCollection(path, categoriaFallback) {
-    try {
-      if (typeof initFirebase === 'function') initFirebase();
-      if (!firebaseFirestore || !isEquipe()) return [];
-      const snap = await firebaseFirestore.collection(path).orderBy('criadoEm','desc').limit(300).get();
-      const arr = [];
-      snap.forEach(doc => {
-        const data = doc.data() || {};
-        arr.push({ id: doc.id, ...data, origemPath: path, categoria: inferCategoria(data, categoriaFallback), categoriaFallback });
-      });
-      return arr;
-    } catch(e) {
-      // Não estoura popup por coleção que ainda não existe/sem índice. Só ignora.
-      console.warn(TAG, 'falha ao carregar', path, e?.message || e);
-      return [];
-    }
-  }
-
-  async function carregarProblemasCentral(force=false) {
-    if (!isEquipe()) return [];
-    if (!force && cache.length && (now() - loadedAt < 45000)) return cache;
-    const listas = await Promise.all(collectionPaths().map(c => fetchCollection(c.path, c.categoria)));
-    const map = new Map();
-    listas.flat().forEach(p => {
-      const key = `${p.origemPath}::${p.id}`;
-      if (!map.has(key)) map.set(key, p);
-    });
-    cache = Array.from(map.values()).sort((a,b)=>Number(b.criadoEm || b.atualizadoEm || 0)-Number(a.criadoEm || a.atualizadoEm || 0));
-    loadedAt = now();
-    return cache;
-  }
-
-  async function atualizarBadgeCentral(force=false) {
-    if (!isEquipe()) { document.getElementById(BTN_ID)?.remove(); return; }
-    const b = document.getElementById(BADGE_ID);
-    try {
-      const arr = await carregarProblemasCentral(force);
-      const abertos = arr.filter(isAberto).length;
-      if (b) {
-        b.textContent = String(abertos);
-        b.classList.toggle('hidden', !abertos);
-      }
-      const btn = document.getElementById(BTN_ID);
-      if (btn) btn.classList.toggle('border-red-700', !!abertos);
-    } catch(e) { console.warn(TAG, 'badge', e); }
-  }
-
-  function headerTarget() {
-    return document.getElementById('btnToggleTema')?.parentElement || document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header div:last-child') || document.querySelector('header');
-  }
-
-  function garantirBotaoCentralLimpa() {
-    cleanupOldProblemButtons();
-    if (!isEquipe()) { document.getElementById(BTN_ID)?.remove(); return; }
-    if (document.getElementById(BTN_ID)) return;
-    const parent = headerTarget();
-    if (!parent) return;
-    const btn = document.createElement('button');
-    btn.id = BTN_ID;
-    btn.type = 'button';
-    btn.className = 'relative px-3 py-2 rounded-xl bg-red-950/40 border border-red-900/60 text-red-100 text-xs font-black uppercase hover:bg-red-900/60 transition';
-    btn.onclick = () => abrirCentralProblemasLimpa(true);
-    btn.innerHTML = `<i class="fa-solid fa-bell mr-2"></i>Problemas <span id="${BADGE_ID}" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-    const themeBtn = document.getElementById('btnToggleTema');
-    if (themeBtn && themeBtn.parentElement === parent) parent.insertBefore(btn, themeBtn);
-    else parent.prepend(btn);
-    atualizarBadgeCentral(false);
-  }
-
-  function garantirModalCentral() {
-    oldModalIds.forEach(id => document.getElementById(id)?.remove());
-    let modal = document.getElementById(MODAL_ID);
-    if (modal) return modal;
-    modal = document.createElement('div');
-    modal.id = MODAL_ID;
-    modal.className = 'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
-    modal.innerHTML = `
-      <div class="absolute inset-0" onclick="fecharCentralProblemasLimpa()"></div>
-      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
-        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 border-b border-gray-700 pb-4">
-          <div>
-            <h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-300 mr-2"></i>Central única de problemas</h3>
-            <p class="text-xs text-gray-400 mt-1">Questões, calendário, resultados, plataforma, aulas e simulados em uma única fila de análise.</p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <select id="filtroProblemasCentralCategoria" onchange="renderizarCentralProblemasLimpa()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200">
-              <option value="TODOS">Todas as áreas</option><option>Questões</option><option>Calendário</option><option>Resultados</option><option>Plataforma</option><option>Aulas</option><option>Simulados</option><option>Geral</option>
-            </select>
-            <select id="filtroProblemasCentralStatus" onchange="renderizarCentralProblemasLimpa()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200">
-              <option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option value="Em análise">Em análise</option><option value="Resolvido">Resolvidos</option><option value="Descartado">Descartados</option>
-            </select>
-            <input id="buscaProblemasCentral" oninput="renderizarCentralProblemasLimpa()" placeholder="Buscar relato..." class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[220px]">
-            <button onclick="abrirCentralProblemasLimpa(true)" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
-            <button onclick="fecharCentralProblemasLimpa()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button>
-          </div>
-        </div>
-        <div id="resumoProblemasCentral" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2"></div>
-        <div id="listaProblemasCentralLimpa" class="space-y-3"></div>
-      </div>`;
-    document.body.appendChild(modal);
-    return modal;
-  }
-
-  window.abrirCentralProblemasLimpa = async function abrirCentralProblemasLimpa(force=false) {
-    if (!isEquipe()) return alert('Apenas ADM/Staff podem acessar a central de problemas.');
-    garantirBotaoCentralLimpa();
-    const modal = garantirModalCentral();
-    modal.classList.remove('hidden'); modal.classList.add('flex');
-    const box = document.getElementById('listaProblemasCentralLimpa');
-    if (box) box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando relatos...</p></div>`;
-    cache = await carregarProblemasCentral(force);
-    renderizarCentralProblemasLimpa();
-    atualizarBadgeCentral(false);
-  };
-  window.fecharCentralProblemasLimpa = function fecharCentralProblemasLimpa(){
-    const m = document.getElementById(MODAL_ID);
-    m?.classList.add('hidden'); m?.classList.remove('flex');
-  };
-
-  window.renderizarCentralProblemasLimpa = function renderizarCentralProblemasLimpa(){
-    const box = document.getElementById('listaProblemasCentralLimpa');
-    const resumo = document.getElementById('resumoProblemasCentral');
-    if (!box) return;
-    const cat = document.getElementById('filtroProblemasCentralCategoria')?.value || 'TODOS';
-    const st = document.getElementById('filtroProblemasCentralStatus')?.value || 'ABERTOS';
-    const busca = String(document.getElementById('buscaProblemasCentral')?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    let arr = cache.slice();
-    if (cat !== 'TODOS') arr = arr.filter(p => String(p.categoria) === cat);
-    if (st === 'ABERTOS') arr = arr.filter(isAberto);
-    else if (st !== 'TODOS') arr = arr.filter(p => String(p.status || 'Aberto') === st);
-    if (busca) arr = arr.filter(p => String([p.categoria, tituloProblema(p), textoProblema(p), p.usuarioNome, p.alunoNome, p.origemPath].join(' ')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(busca));
-
-    const cats = ['Questões','Calendário','Resultados','Plataforma','Aulas','Simulados','Geral'];
-    if (resumo) resumo.innerHTML = cats.map(c => {
-      const qtd = cache.filter(p => p.categoria === c && isAberto(p)).length;
-      return `<button onclick="document.getElementById('filtroProblemasCentralCategoria').value='${c}';renderizarCentralProblemasLimpa()" class="rounded-xl border border-gray-700 bg-gray-950/70 p-3 text-left hover:border-red-700"><p class="text-[10px] uppercase text-gray-500 font-black">${c}</p><p class="text-xl font-black text-white">${qtd}</p><p class="text-[10px] text-gray-500">aberto(s)</p></button>`;
-    }).join('');
-
-    if (!arr.length) {
-      box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-10 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl text-emerald-400 mb-3"></i><p class="font-bold">Nenhum relato encontrado nessa visualização.</p></div>`;
-      return;
-    }
-    box.innerHTML = arr.map(p => cardProblema(p)).join('');
-  };
-
-  function cardProblema(p) {
-    const criado = p.criadoEm ? new Date(p.criadoEm).toLocaleString('pt-BR') : '';
-    const status = p.status || 'Aberto';
-    const statusClass = status === 'Resolvido' ? 'bg-emerald-900/40 text-emerald-200' : status === 'Descartado' ? 'bg-gray-800 text-gray-300' : status === 'Em análise' ? 'bg-blue-900/40 text-blue-200' : 'bg-red-900/40 text-red-200';
-    const tipos = Array.isArray(p.tipos) ? p.tipos.join(', ') : (p.tipoProblema || p.tipo || 'Relato');
-    return `<article class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4">
-      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-        <div class="space-y-2 flex-1">
-          <div class="flex flex-wrap items-center gap-2"><span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-black uppercase">${esc(p.categoria)}</span><span class="px-2 py-1 rounded-lg ${statusClass} text-[10px] font-black uppercase">${esc(status)}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-400 text-[10px] uppercase">${esc(tipos)}</span></div>
-          <h4 class="text-sm font-black text-white">${esc(tituloProblema(p))}</h4>
-          <p class="text-sm text-gray-300 whitespace-pre-wrap">${esc(textoProblema(p))}</p>
-          <p class="text-[10px] text-gray-500">${esc(p.usuarioNome || p.alunoNome || p.criadoPorNome || 'Usuário')} ${criado ? '· ' + criado : ''} ${p.origemPath ? '· ' + esc(p.origemPath) : ''}</p>
-        </div>
-        <div class="flex flex-wrap lg:flex-col gap-2 min-w-[150px]">
-          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Em análise')" class="px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold border border-blue-800/40">Em análise</button>
-          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold border border-emerald-800/40">Resolver</button>
-          <button onclick="atualizarStatusProblemaCentral('${esc(p.origemPath)}','${esc(p.id)}','Descartado')" class="px-3 py-2 rounded-xl bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button>
-        </div>
-      </div>
-    </article>`;
-  }
-
-  window.atualizarStatusProblemaCentral = async function atualizarStatusProblemaCentral(path, id, status) {
-    if (!isEquipe()) return alert('Apenas ADM/Staff podem atualizar problemas.');
-    try {
-      if (typeof initFirebase === 'function') initFirebase();
-      await firebaseFirestore.collection(path).doc(String(id)).set({ status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || '' }, { merge:true });
-      cache = cache.map(p => p.origemPath === path && String(p.id) === String(id) ? { ...p, status, atualizadoEm: Date.now() } : p);
-      renderizarCentralProblemasLimpa();
-      atualizarBadgeCentral(false);
-    } catch(e) { alert('Erro ao atualizar problema.\n\n' + (e.message || e)); }
-  };
-
-  // Função limpa para botões "Relatar problema" genéricos em qualquer módulo.
-  window.abrirRelatoProblemaGeral = function abrirRelatoProblemaGeral(categoria='Geral', alvoId='', titulo='Item') {
-    if (!usuarioLogado) return alert('Faça login para relatar problema.');
-    document.getElementById('modalRelatoProblemaGeralLimpo')?.remove();
-    const modal = document.createElement('div');
-    modal.id = 'modalRelatoProblemaGeralLimpo';
-    modal.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
-    modal.innerHTML = `<div class="absolute inset-0" onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl max-w-xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase"><i class="fa-solid fa-flag text-red-300 mr-2"></i>Relatar problema</h3><p class="text-xs text-gray-400 mt-1">${esc(categoria)} · ${esc(titulo)}</p></div><button onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><input type="hidden" id="relatoGeralCategoria" value="${esc(categoria)}"><input type="hidden" id="relatoGeralAlvoId" value="${esc(alvoId)}"><input type="hidden" id="relatoGeralTitulo" value="${esc(titulo)}"><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Tipo de problema</label><select id="relatoGeralTipo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option>Informação errada</option><option>Arquivo/link não abre</option><option>Erro de data/prazo</option><option>Erro de correção/gabarito</option><option>Problema de áudio/vídeo</option><option>Problema de visualização</option><option>Duplicado</option><option>Outro</option></select></div><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Descrição</label><textarea id="relatoGeralDescricao" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o que está errado..."></textarea></div><div class="flex justify-end gap-2"><button onclick="this.closest('#modalRelatoProblemaGeralLimpo').remove()" class="px-4 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button><button onclick="enviarRelatoProblemaGeralLimpo()" class="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase">Enviar</button></div></div>`;
-    document.body.appendChild(modal);
-  };
-
-  window.enviarRelatoProblemaGeralLimpo = async function enviarRelatoProblemaGeralLimpo() {
-    const categoria = document.getElementById('relatoGeralCategoria')?.value || 'Geral';
-    const alvoId = document.getElementById('relatoGeralAlvoId')?.value || '';
-    const titulo = document.getElementById('relatoGeralTitulo')?.value || 'Item';
-    const tipo = document.getElementById('relatoGeralTipo')?.value || 'Relato';
-    const descricao = String(document.getElementById('relatoGeralDescricao')?.value || '').trim();
-    if (!descricao) return alert('Escreva uma descrição do problema.');
-    try {
-      if (typeof initFirebase === 'function') initFirebase();
-      const id = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      await firebaseFirestore.collection(`anos/${ANO()}/sistema_problemas`).doc(id).set({
-        id, categoria, modulo: categoria, alvoId, titulo, itemTitulo: titulo, tipo, descricao, status:'Aberto',
-        usuarioId: usuarioLogado?.id || '', usuarioNome: usuarioLogado?.nome || '', usuarioEmail: usuarioLogado?.email || '',
-        criadoEm: Date.now(), origem:'relato_geral_limpo'
-      });
-      document.getElementById('modalRelatoProblemaGeralLimpo')?.remove();
-      alert('Relato enviado. A equipe vai analisar.');
-      cache = [];
-      atualizarBadgeCentral(true);
-    } catch(e) { alert('Erro ao enviar relato.\n\n' + (e.message || e)); }
-  };
-
-  // Compatibilidade: se algum botão antigo tentar abrir centrais antigas, redireciona para a nova.
-  window.abrirCentralProblemasUnificada = window.abrirCentralProblemasLimpa;
-  window.abrirCentralProblemasRevisao = window.abrirCentralProblemasLimpa;
-  window.abrirPainelProblemasQuestoes = window.abrirCentralProblemasLimpa;
-
-  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
-  if (typeof navBase === 'function' && !window.__problemasCentralLimpaNav) {
-    window.__problemasCentralLimpaNav = true;
-    const nav = function(aba, btn) {
-      const r = navBase.apply(this, arguments);
-      setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 80);
-      return r;
-    };
-    window.navegarAba = nav;
-    try { navegarAba = nav; } catch(_) {}
-  }
-
-  let obsBusy = false;
-  const obs = new MutationObserver(() => {
-    if (obsBusy) return;
-    obsBusy = true;
-    setTimeout(() => { obsBusy = false; cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 60);
-  });
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 250);
-    setTimeout(() => { killLegacyProblemIntervals(); cleanupOldProblemButtons(); garantirBotaoCentralLimpa(); }, 1200);
-    try { obs.observe(document.body, { childList:true, subtree:true }); } catch(_) {}
-  });
-  window.problemasCentralLimpaDiagnostico = function problemasCentralLimpaDiagnostico() {
-    const old = oldIds.filter(id => !!document.getElementById(id));
-    const intervals = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(i => /Problemas|btnProblemas|problemas/i.test(String(i.src || ''))).map(i => ({id:i.id, delay:i.delay, killed:!!i.killedByProblemasCentralLimpa, src:String(i.src||'').slice(0,180)}));
-    console.table({botaoNovo:!!document.getElementById(BTN_ID), botoesAntigos:old.join(',') || 'nenhum', totalCache:cache.length});
-    console.table(intervals);
-    return {botaoNovo:!!document.getElementById(BTN_ID), botoesAntigos:old, intervals};
-  };
-  console.log(TAG, 'ativo. Use problemasCentralLimpaDiagnostico() para conferir.');
-})();
-
-
-
-
-// [REMOVIDO] Patch antigo de botão Problemas fixo por fora do header.
-
-
-
-
-// ============================================================
-// PATCH DEFINITIVO — Login sem duas telas + Problemas no header correto
-// ============================================================
-(function patchLoginProblemasHeaderDefinitivo(){
-  const TAG = '[Login/Problemas header definitivo]';
-  const SLOT_ID = 'slotProblemasHeaderLimpo';
-  const BTN_ID = 'btnProblemasCentralLimpa';
-  const BADGE_ID = 'badgeProblemasCentralLimpa';
-  const FIXED_HOST_ID = 'problemasCentralFixoHost';
-  const LEGACY_IDS = [
-    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado',
-    'btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin'
-  ];
+  const norm = (v) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
   const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
   const mainVisivel = () => {
     const main = document.getElementById('mainPanel');
     return !!main && !main.classList.contains('hidden');
   };
+  let cache = [];
+  let cacheAt = 0;
+  let carregando = false;
 
-  function markLoginReady(){
-    try {
-      document.body?.classList.add('login-final-ready');
-      document.body?.classList.remove('login-final-pending');
-      document.body?.classList.add('login-visual-ready');
-      document.body?.classList.remove('login-visual-pending');
-    } catch(_) {}
-  }
-  function normalizarLoginTexto(){
-    try {
-      const sub = document.getElementById('brandLoginSubtitle');
-      if (sub && String(sub.textContent || '').trim().toLowerCase() === 'plataforma avance olímpico') {
-        sub.textContent = 'Plataforma de Resultados 2026';
-      }
-    } catch(_) {}
-  }
+  const LEGACY_IDS = [
+    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado','btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin','btnProblemasQuestao',
+    'badgeProblemasQuestoes','badgeProblemasCalendario','badgeProblemasUnificado',
+    'problemasCentralFixoHost'
+  ];
 
-  // Reforça o carregamento visual: só libera a tela depois de aplicar o layout.
-  const carregarLayoutBase = window.carregarLayoutVisual || (typeof carregarLayoutVisual === 'function' ? carregarLayoutVisual : null);
-  if (typeof carregarLayoutBase === 'function' && !window.__carregarLayoutVisualDefinitivoSemFlicker) {
-    window.__carregarLayoutVisualDefinitivoSemFlicker = true;
-    const wrapped = async function carregarLayoutVisualDefinitivoSemFlicker(){
-      try {
-        const r = await carregarLayoutBase.apply(this, arguments);
-        normalizarLoginTexto();
-        markLoginReady();
-        return r;
-      } catch(e) {
-        normalizarLoginTexto();
-        // Libera mesmo com falha de layout para não travar login; mas já com texto normalizado.
-        markLoginReady();
-        throw e;
-      }
-    };
-    window.carregarLayoutVisual = wrapped;
-    try { carregarLayoutVisual = wrapped; } catch(_) {}
+  function ensureStyle(){
+    if (document.getElementById('styleModuloProblemasLimpoDefinitivo')) return;
+    const st = document.createElement('style');
+    st.id = 'styleModuloProblemasLimpoDefinitivo';
+    st.textContent = `
+      #${SLOT_ID}{display:flex;align-items:center;gap:.5rem;position:relative;z-index:80;isolation:isolate;}
+      #${SLOT_ID}.hidden{display:none!important;}
+      #${BTN_ID}{position:relative;z-index:81;display:inline-flex;align-items:center;justify-content:center;gap:.4rem;height:32px;padding:0 .85rem;border-radius:.65rem;border:1px solid rgba(185,28,28,.72);background:rgba(69,10,10,.50);color:#fee2e2;font-size:.72rem;line-height:1;font-weight:900;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;cursor:pointer;pointer-events:auto;user-select:none;}
+      #${BTN_ID}:hover{background:rgba(127,29,29,.68);border-color:rgba(248,113,113,.78);}
+      #${BTN_ID}:active{transform:translateY(1px);}
+      #${BADGE_ID}{position:absolute;top:-.45rem;right:-.45rem;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:999px;background:#dc2626;color:white;font-size:.62rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
+      #${BADGE_ID}.hidden{display:none!important;}
+      ${LEGACY_IDS.map(id => '#'+id).join(',')}{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+    `;
+    document.head?.appendChild(st);
   }
 
-  const aplicarLayoutBase = window.aplicarLayoutVisual || (typeof aplicarLayoutVisual === 'function' ? aplicarLayoutVisual : null);
-  if (typeof aplicarLayoutBase === 'function' && !window.__aplicarLayoutVisualDefinitivoSemFlicker) {
-    window.__aplicarLayoutVisualDefinitivoSemFlicker = true;
-    const wrappedApply = function aplicarLayoutVisualDefinitivoSemFlicker(){
-      const r = aplicarLayoutBase.apply(this, arguments);
-      normalizarLoginTexto();
-      markLoginReady();
-      return r;
-    };
-    window.aplicarLayoutVisual = wrappedApply;
-    try { aplicarLayoutVisual = wrappedApply; } catch(_) {}
-  }
-
-  // Fallback seguro: se o layout demorar demais, mostra uma única versão normalizada.
-  document.addEventListener('DOMContentLoaded', () => {
-    try { document.body?.classList.add('login-final-pending'); } catch(_) {}
-    normalizarLoginTexto();
-    setTimeout(() => {
-      if (!document.body?.classList.contains('login-final-ready')) {
-        normalizarLoginTexto();
-        markLoginReady();
-      }
-    }, 2600);
-  });
-
-  function garantirSlot(){
-    let slot = document.getElementById(SLOT_ID);
-    if (slot) return slot;
-    const themeBtn = document.getElementById('btnToggleTema');
-    if (!themeBtn || !themeBtn.parentElement) return null;
-    slot = document.createElement('div');
-    slot.id = SLOT_ID;
-    slot.className = 'hidden';
-    themeBtn.parentElement.insertBefore(slot, themeBtn);
-    return slot;
-  }
-
-  function removerHostFixo(){
-    const h = document.getElementById(FIXED_HOST_ID);
-    if (h) {
-      try {
-        h.dataset.problemasFixo = 'false';
-        h.remove();
-      } catch(_) {
-        try { h.style.display = 'none'; } catch(__) {}
-      }
-    }
-  }
-
-  function limparBotoesProblemasLegados(){
-    removerHostFixo();
-
-    LEGACY_IDS.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        try { el.remove(); } catch(_) { try { el.style.display = 'none'; } catch(__) {} }
-      }
-    });
-
-    // Se existir mais de um botão oficial, mantém apenas o que está no slot.
-    const slot = document.getElementById(SLOT_ID);
-    const oficiais = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`));
-    oficiais.forEach(el => {
-      if (slot && slot.contains(el)) return;
-      try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
-    });
-
-    // Limpa botões soltos no header que tenham texto Problemas e não sejam o oficial no slot.
-    document.querySelectorAll('header button, header a').forEach(el => {
-      if (el.id === BTN_ID && slot && slot.contains(el)) return;
-      const txt = String(el.textContent || '');
-      const id = String(el.id || '');
-      if (/problemas?/i.test(txt + ' ' + id)) {
-        try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
-      }
-    });
-  }
-
-  function montarBotaoNoHeader(){
-    const slot = garantirSlot();
-    if (!slot) return;
-
-    limparBotoesProblemasLegados();
-
-    if (!isEquipe() || !mainVisivel()) {
-      slot.classList.add('hidden');
-      slot.innerHTML = '';
-      return;
-    }
-
-    slot.classList.remove('hidden');
-    let btn = slot.querySelector(`#${BTN_ID}`);
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.id = BTN_ID;
-      btn.type = 'button';
-      btn.className = 'relative px-3 py-1.5 rounded-lg border border-red-900/70 bg-red-950/45 text-xs font-black text-red-100 hover:bg-red-900/60 transition uppercase';
-      btn.innerHTML = `<i class="fa-solid fa-bell mr-2"></i>Problemas <span id="${BADGE_ID}" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
-      btn.onclick = () => {
-        if (typeof window.abrirCentralProblemasLimpa === 'function') return window.abrirCentralProblemasLimpa(true);
-        if (typeof window.abrirCentralProblemasUnificada === 'function') return window.abrirCentralProblemasUnificada(true);
-        alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
-      };
-      slot.appendChild(btn);
-    }
-
-    if (typeof window.atualizarBadgeCentral === 'function') {
-      try { window.atualizarBadgeCentral(false); } catch(_) {}
-    }
-  }
-
-  function matarTimersProblemasLegados(){
+  function killLegacyTimers(){
     try {
       (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
         const src = String(item.src || '');
-        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|btnCentralProblemas|garantirBotaoProblemas|problemasBotaoFixoSemPiscar/i.test(src)) {
+        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|btnCentralProblemas|garantirBotaoProblemas|removerBotoesProblemasDuplicados|problemasBotaoFixoSemPiscar|ProblemasCentralLimpa|CliqueProblemas/i.test(src)) {
           clearInterval(item.id);
-          item.killedByHeaderDefinitivo = true;
+          item.killedByProblemasModuloLimpo = true;
         }
       });
     } catch(_) {}
   }
 
-  const logarBase = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
-  if (typeof logarBase === 'function' && !window.__logarSucessoHeaderProblemasDefinitivo) {
-    window.__logarSucessoHeaderProblemasDefinitivo = true;
-    const wrappedLogin = async function logarSucessoHeaderProblemasDefinitivo(){
-      const r = await logarBase.apply(this, arguments);
-      markLoginReady();
-      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 120);
-      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 800);
-      return r;
-    };
-    window.logarSucesso = wrappedLogin;
-    try { logarSucesso = wrappedLogin; } catch(_) {}
-  }
-
-  const logoutBase = window.logout || (typeof logout === 'function' ? logout : null);
-  if (typeof logoutBase === 'function' && !window.__logoutHeaderProblemasDefinitivo) {
-    window.__logoutHeaderProblemasDefinitivo = true;
-    const wrappedLogout = function logoutHeaderProblemasDefinitivo(){
-      const r = logoutBase.apply(this, arguments);
-      setTimeout(() => { limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 80);
-      return r;
-    };
-    window.logout = wrappedLogout;
-    try { logout = wrappedLogout; } catch(_) {}
-  }
-
-  const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
-  if (typeof navBase === 'function' && !window.__navHeaderProblemasDefinitivo) {
-    window.__navHeaderProblemasDefinitivo = true;
-    const navWrapped = function navegarAbaHeaderProblemasDefinitivo(){
-      const r = navBase.apply(this, arguments);
-      setTimeout(() => { matarTimersProblemasLegados(); montarBotaoNoHeader(); }, 80);
-      return r;
-    };
-    window.navegarAba = navWrapped;
-    try { navegarAba = navWrapped; } catch(_) {}
-  }
-
-  let scheduled = false;
-  function scheduleClean(){
-    if (scheduled) return;
-    scheduled = true;
-    setTimeout(() => {
-      scheduled = false;
-      // Só mexe no botão se já estiver logado/painel visível, para não aparecer na tela de login.
-      if (mainVisivel()) montarBotaoNoHeader();
-      else limparBotoesProblemasLegados();
-    }, 120);
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => { matarTimersProblemasLegados(); limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 250);
-    setTimeout(() => { matarTimersProblemasLegados(); limparBotoesProblemasLegados(); montarBotaoNoHeader(); }, 1300);
-    try {
-      const obs = new MutationObserver(scheduleClean);
-      obs.observe(document.body, { childList:true, subtree:true });
-      window.__HEADER_PROBLEMAS_OBSERVER__ = obs;
-    } catch(_) {}
-  });
-
-  window.diagnosticarLoginProblemasHeader = function diagnosticarLoginProblemasHeader(){
-    const slot = document.getElementById(SLOT_ID);
-    const fixedHost = document.getElementById(FIXED_HOST_ID);
-    const botoes = Array.from(document.querySelectorAll(`[id="${BTN_ID}"]`)).map((el,i)=>({
-      i, noSlot: !!(slot && slot.contains(el)), visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length), text: el.textContent.trim()
-    }));
-    const legados = LEGACY_IDS.filter(id => !!document.getElementById(id));
-    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(t => /Problemas|btnProblemas|problemas/i.test(String(t.src || ''))).map(t => ({id:t.id, delay:t.delay, killed:!!t.killedByHeaderDefinitivo, src:String(t.src || '').slice(0,160)}));
-    console.table({mainVisivel:mainVisivel(), equipe:isEquipe(), slot:!!slot, fixedHost:!!fixedHost, botoes:botoes.length, legados:legados.join(',') || 'nenhum', loginReady:document.body?.classList.contains('login-final-ready')});
-    console.table(botoes);
-    console.table(timers);
-    return {mainVisivel:mainVisivel(), equipe:isEquipe(), slot:!!slot, fixedHost:!!fixedHost, botoes, legados, timers};
-  };
-
-  console.log(TAG, 'ativo. Rode diagnosticarLoginProblemasHeader() se precisar conferir.');
-})();
-
-
-// ============================================================
-// PATCH RAIZ — Botão Problemas sem piscar
-// Causa corrigida: função antiga removerBotoesProblemasDuplicados()
-// removia o botão novo por texto/id. Este patch consolida um único botão
-// no slot estático do header e impede remoção indevida.
-// ============================================================
-(function problemasSemPiscarRaiz(){
-  const SLOT_ID = 'slotProblemasHeaderLimpo';
-  const BTN_ID = 'btnProblemasCentralLimpa';
-  const BADGE_ID = 'badgeProblemasCentralLimpa';
-  const LEGACY_IDS = [
-    'btnProblemasQuestoes','btnProblemasCalendario','btnProblemasUnificado',
-    'btnProblemasUnicoRevisao','btnCentralProblemas','btnProblemasCalendarioAdmin',
-    'btnProblemasQuestao','badgeProblemasQuestoes','badgeProblemasCalendario','badgeProblemasUnificado'
-  ];
-
-  function isEquipe(){
-    try { return !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || '')); }
-    catch(_) { return false; }
-  }
-  function mainVisivel(){
-    const main = document.getElementById('mainPanel');
-    return !!main && !main.classList.contains('hidden');
-  }
   function limparLegados(){
     LEGACY_IDS.forEach(id => {
       const el = document.getElementById(id);
-      if (el) {
-        try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
-      }
+      if (el) { try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} } }
     });
-    // Só remove botões "Problemas" que NÃO sejam o oficial dentro do slot.
     const slot = document.getElementById(SLOT_ID);
-    document.querySelectorAll('header button, header a, #mainPanel button, #mainPanel a').forEach(el => {
-      if (el.id === BTN_ID && slot && slot.contains(el)) return;
-      const texto = String(el.textContent || '');
-      const id = String(el.id || '');
-      if (/problemas?/i.test(texto + ' ' + id) && id !== BTN_ID) {
+    document.querySelectorAll(`[id="${BTN_ID}"]`).forEach(el => {
+      if (slot && slot.contains(el)) return;
+      try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
+    });
+    document.querySelectorAll('header button, header a').forEach(el => {
+      if (el.id === BTN_ID) return;
+      const t = norm((el.id || '') + ' ' + (el.textContent || ''));
+      if (t.includes('problema')) {
         try { el.remove(); } catch(_) { try { el.style.display='none'; } catch(__){} }
       }
     });
-  }
-  function ensureStyle(){
-    if (document.getElementById('styleProblemasSemPiscarRaiz')) return;
-    const st = document.createElement('style');
-    st.id = 'styleProblemasSemPiscarRaiz';
-    st.textContent = `
-      #${SLOT_ID}{display:flex;align-items:center;gap:.5rem;}
-      #${SLOT_ID}.hidden{display:none!important;}
-      #${BTN_ID}{
-        position:relative;
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        gap:.35rem;
-        height:32px;
-        padding:0 .85rem;
-        border-radius:.65rem;
-        border:1px solid rgba(185,28,28,.72);
-        background:rgba(69,10,10,.48);
-        color:#fee2e2;
-        font-size:.72rem;
-        line-height:1;
-        font-weight:900;
-        text-transform:uppercase;
-        letter-spacing:.04em;
-        white-space:nowrap;
-        transition:background .15s ease,border-color .15s ease;
-      }
-      #${BTN_ID}:hover{background:rgba(127,29,29,.62);border-color:rgba(248,113,113,.72);}
-      #${BADGE_ID}{position:absolute;top:-.45rem;right:-.45rem;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:999px;background:#dc2626;color:white;font-size:.62rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
-      #${BADGE_ID}.hidden{display:none!important;}
-      ${LEGACY_IDS.map(id => '#'+id).join(',')}{display:none!important;visibility:hidden!important;pointer-events:none!important;}
-      body:not(.usuario-logado) #${SLOT_ID}{display:none!important;}
-    `;
-    document.head?.appendChild(st);
-  }
-
-  // Remove guard: se algum patch antigo tentar remover o botão oficial, ignora.
-  if (!window.__PROBLEMAS_SEM_PISCAR_REMOVE_GUARD__) {
-    window.__PROBLEMAS_SEM_PISCAR_REMOVE_GUARD__ = true;
-    const originalRemove = Element.prototype.remove;
-    Element.prototype.remove = function(){
-      try {
-        if (this.id === BTN_ID && this.closest && this.closest('#'+SLOT_ID)) return;
-      } catch(_) {}
-      return originalRemove.call(this);
-    };
   }
 
   function ensureSlot(){
@@ -19207,7 +18602,7 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     let slot = document.getElementById(SLOT_ID);
     if (!slot) {
       const theme = document.getElementById('btnToggleTema');
-      if (!theme || !theme.parentElement) return null;
+      if (!theme?.parentElement) return null;
       slot = document.createElement('div');
       slot.id = SLOT_ID;
       theme.parentElement.insertBefore(slot, theme);
@@ -19215,162 +18610,44 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
     return slot;
   }
 
-  function montar(){
-    ensureStyle();
+  function montarBotao(){
+    killLegacyTimers();
     limparLegados();
     const slot = ensureSlot();
     if (!slot) return;
     if (!isEquipe() || !mainVisivel()) {
       slot.classList.add('hidden');
       slot.innerHTML = '';
-      document.body?.classList.remove('usuario-logado');
       return;
     }
-    document.body?.classList.add('usuario-logado');
     slot.classList.remove('hidden');
-
     let btn = slot.querySelector('#'+BTN_ID);
-    if (!btn) {
-      // Se existir um oficial fora do slot, move ao invés de recriar.
-      btn = document.getElementById(BTN_ID);
-      if (btn && btn.parentElement !== slot) slot.appendChild(btn);
-    }
     if (!btn) {
       btn = document.createElement('button');
       btn.id = BTN_ID;
       btn.type = 'button';
-      btn.onclick = () => {
-        if (typeof window.abrirCentralProblemasLimpa === 'function') return window.abrirCentralProblemasLimpa(true);
-        if (typeof window.abrirCentralProblemasUnificada === 'function') return window.abrirCentralProblemasUnificada(true);
-        if (typeof window.abrirCentralProblemasRevisao === 'function') return window.abrirCentralProblemasRevisao(true);
-        alert('Central de problemas ainda não carregou. Aguarde alguns segundos e tente novamente.');
-      };
+      btn.innerHTML = `<i class="fa-solid fa-bell"></i><span>Problemas</span><span id="${BADGE_ID}" class="hidden">0</span>`;
       slot.appendChild(btn);
     }
-    btn.innerHTML = `<i class="fa-solid fa-bell"></i><span>Problemas</span><span id="${BADGE_ID}" class="${document.getElementById(BADGE_ID)?.classList?.contains('hidden') ? 'hidden' : 'hidden'}">0</span>`;
-  }
-
-  function matarTimersLegados(){
-    try {
-      (window.__AVANCE_TIMER_REGISTRY__ || []).forEach(item => {
-        const src = String(item.src || '');
-        // Mata apenas rotinas que criam/removem botões de problemas, não timers de simulado.
-        if (/btnProblemas|ProblemasCalendario|ProblemasQuestoes|btnCentralProblemas|garantirBotaoProblemas|removerBotoesProblemasDuplicados|problemasBotaoFixoSemPiscar/i.test(src)) {
-          clearInterval(item.id);
-          item.killedByProblemasSemPiscarRaiz = true;
-        }
-      });
-    } catch(_) {}
-  }
-
-  // Substitui central antiga por wrappers estáveis, sem observer agressivo.
-  const oldNav = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
-  if (typeof oldNav === 'function' && !window.__NAV_PROBLEMAS_SEM_PISCAR_RAIZ__) {
-    window.__NAV_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
-    const nav = function(){
-      const r = oldNav.apply(this, arguments);
-      setTimeout(() => { matarTimersLegados(); montar(); }, 60);
-      return r;
+    // Vinculação direta e determinística. Nada de wrapper antigo.
+    btn.onclick = function(ev){
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      abrirCentralProblemasLimpa(true);
+      return false;
     };
-    window.navegarAba = nav;
-    try { navegarAba = nav; } catch(_) {}
-  }
-
-  const oldLogin = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
-  if (typeof oldLogin === 'function' && !window.__LOGIN_PROBLEMAS_SEM_PISCAR_RAIZ__) {
-    window.__LOGIN_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
-    const login = async function(){
-      const r = await oldLogin.apply(this, arguments);
-      setTimeout(() => { matarTimersLegados(); montar(); }, 80);
-      return r;
+    btn.onpointerup = function(ev){
+      if (ev && ev.button !== undefined && ev.button !== 0) return;
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      abrirCentralProblemasLimpa(true);
+      return false;
     };
-    window.logarSucesso = login;
-    try { logarSucesso = login; } catch(_) {}
   }
 
-  const oldLogout = window.logout || (typeof logout === 'function' ? logout : null);
-  if (typeof oldLogout === 'function' && !window.__LOGOUT_PROBLEMAS_SEM_PISCAR_RAIZ__) {
-    window.__LOGOUT_PROBLEMAS_SEM_PISCAR_RAIZ__ = true;
-    const logout2 = function(){
-      const r = oldLogout.apply(this, arguments);
-      setTimeout(() => { limparLegados(); montar(); }, 60);
-      return r;
-    };
-    window.logout = logout2;
-    try { logout = logout2; } catch(_) {}
-  }
-
-  let ticking = false;
-  function agendar(){
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => { ticking = false; montar(); });
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    ensureStyle();
-    setTimeout(() => { matarTimersLegados(); montar(); }, 120);
-    setTimeout(() => { matarTimersLegados(); montar(); }, 900);
-    setTimeout(() => { matarTimersLegados(); montar(); }, 2200);
-    try {
-      const obs = new MutationObserver((mutations) => {
-        // Só reage quando mexerem no header ou no slot, não em qualquer mudança da página.
-        if (mutations.some(m => {
-          const t = m.target;
-          return t && (t.id === SLOT_ID || t.id === 'mainPanel' || t.tagName === 'HEADER' || t.closest?.('header'));
-        })) agendar();
-      });
-      const main = document.getElementById('mainPanel') || document.body;
-      obs.observe(main, {childList:true, subtree:true});
-      window.__PROBLEMAS_SEM_PISCAR_OBSERVER__ = obs;
-    } catch(_) {}
-  });
-
-  window.diagnosticarProblemasSemPiscar = function(){
-    const slot = document.getElementById(SLOT_ID);
-    const botoes = Array.from(document.querySelectorAll('#'+BTN_ID)).map((b,i)=>({i, noSlot:!!(slot&&slot.contains(b)), visible:!!(b.offsetWidth||b.offsetHeight||b.getClientRects().length), parent:b.parentElement?.id||b.parentElement?.tagName}));
-    const legados = LEGACY_IDS.filter(id => !!document.getElementById(id));
-    const timers = (window.__AVANCE_TIMER_REGISTRY__ || []).filter(t => /Problemas|btnProblemas|problemas/i.test(String(t.src || ''))).map(t => ({id:t.id, delay:t.delay, killedRaiz:!!t.killedByProblemasSemPiscarRaiz, killedHeader:!!t.killedByHeaderDefinitivo, src:String(t.src||'').slice(0,160)}));
-    console.table({slot:!!slot, equipe:isEquipe(), mainVisivel:mainVisivel(), botoes:botoes.length, legados:legados.join(',')||'nenhum'});
-    console.table(botoes);
-    console.table(timers);
-    return {slot:!!slot, equipe:isEquipe(), mainVisivel:mainVisivel(), botoes, legados, timers};
-  };
-
-  try { if (document.body) montar(); } catch(_) {}
-})();
-
-
-// ============================================================
-// PATCH — Clique do botão Problemas corrigido
-// O botão já estava estável, mas podia manter uma referência antiga sem ação
-// ao ser movido/recriado por patches anteriores. Este patch usa delegação
-// global e garante fallback da central.
-// ============================================================
-(function problemasCliqueCorrigido(){
-  const BTN_ID = 'btnProblemasCentralLimpa';
-  const MODAL_ID = 'modalProblemasCentralCliqueFallback';
-  const ANO = () => (typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026');
-  const esc = (v) => typeof textoSeguro === 'function' ? textoSeguro(v) : String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const isEquipe = () => !!usuarioLogado && ['ADM','Staff'].includes(String(usuarioLogado.nivel || ''));
-
-  function normalizarProblema(doc, data, path, categoriaDefault){
-    const raw = String(data.modulo || data.categoria || data.area || data.origem || categoriaDefault || 'Geral').toLowerCase();
-    let categoria = categoriaDefault || 'Geral';
-    if (raw.includes('quest')) categoria = 'Questões';
-    else if (raw.includes('calend') || raw.includes('cronograma')) categoria = 'Calendário';
-    else if (raw.includes('result')) categoria = 'Resultados';
-    else if (raw.includes('plataforma') || raw.includes('material')) categoria = 'Plataforma';
-    else if (raw.includes('aula')) categoria = 'Aulas';
-    else if (raw.includes('simulado')) categoria = 'Simulados';
-    return { id: doc.id, origemPath:path, categoria, ...data };
-  }
-  async function carregarProblemasFallback(){
-    if (!isEquipe()) return [];
-    try { if (typeof initFirebase === 'function') initFirebase(); } catch(_) {}
-    if (!firebaseFirestore) return [];
+  function caminhosProblemas(){
     const ano = ANO();
-    const paths = [
+    return [
       [`anos/${ano}/sistema_problemas`, 'Geral'],
       [`anos/${ano}/sistema_questoes_problemas`, 'Questões'],
       [`anos/${ano}/sistema_cronograma_problemas`, 'Calendário'],
@@ -19380,110 +18657,234 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
       [`anos/${ano}/sistema_simulados_problemas`, 'Simulados'],
       ['sistema_problemas', 'Geral']
     ];
-    const all=[];
-    for (const [path,cat] of paths) {
-      try {
-        const snap = await firebaseFirestore.collection(path).limit(250).get();
-        snap.forEach(d => all.push(normalizarProblema(d, d.data() || {}, path, cat)));
-      } catch(e) { console.warn('[Problemas clique] falha ao ler', path, e?.message || e); }
-    }
-    const seen=new Set();
-    return all.filter(p=>{ const k=p.origemPath+'::'+p.id; if(seen.has(k)) return false; seen.add(k); return true; })
-      .sort((a,b)=>Number(b.criadoEm||b.atualizadoEm||0)-Number(a.criadoEm||a.atualizadoEm||0));
   }
-  function titulo(p){ return p.titulo || p.itemTitulo || p.questaoTitulo || p.eventoResumo || p.simuladoTitulo || p.materialTitulo || p.aulaTitulo || p.alvoTitulo || p.tipo || p.id || 'Relato de problema'; }
-  function texto(p){ return p.descricao || p.comentario || p.detalhe || p.relato || p.observacao || (Array.isArray(p.tipos) ? p.tipos.join(', ') : '') || 'Sem descrição detalhada.'; }
-  function aberto(p){ return !['Resolvido','Descartado'].includes(String(p.status || 'Aberto')); }
+  function inferCategoria(data, fallback='Geral'){
+    const raw = norm([data.modulo, data.tipoModulo, data.categoria, data.area, data.origem, data.origemPath, fallback].filter(Boolean).join(' '));
+    if (raw.includes('quest')) return 'Questões';
+    if (raw.includes('cronograma') || raw.includes('calend')) return 'Calendário';
+    if (raw.includes('result')) return 'Resultados';
+    if (raw.includes('plataforma') || raw.includes('material')) return 'Plataforma';
+    if (raw.includes('aula')) return 'Aulas';
+    if (raw.includes('simulado')) return 'Simulados';
+    return fallback || 'Geral';
+  }
+  function tituloProblema(p){ return p.titulo || p.itemTitulo || p.questaoTitulo || p.eventoResumo || p.simuladoTitulo || p.materialTitulo || p.aulaTitulo || p.alvoTitulo || p.tipo || p.id || 'Relato de problema'; }
+  function textoProblema(p){ return p.descricao || p.comentario || p.detalhe || p.relato || p.observacao || p.resolucaoComentario || (Array.isArray(p.tipos) ? p.tipos.join(', ') : '') || 'Sem descrição detalhada.'; }
+  function isAberto(p){ return !['Resolvido','Descartado'].includes(String(p.status || 'Aberto')); }
 
-  function garantirModalFallback(){
-    let m=document.getElementById(MODAL_ID);
+  async function lerColecaoProblemas(path, categoriaDefault){
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      if (!firebaseFirestore) return [];
+      const snap = await firebaseFirestore.collection(path).limit(300).get();
+      const arr = [];
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        arr.push({ id: doc.id, ...data, origemPath:path, categoria:inferCategoria(data, categoriaDefault) });
+      });
+      return arr;
+    } catch(e) {
+      console.warn('[Problemas Limpo] falha ao ler', path, e?.message || e);
+      return [];
+    }
+  }
+
+  async function carregarProblemas(force=false){
+    if (!isEquipe()) return [];
+    if (!force && cache.length && Date.now() - cacheAt < 45000) return cache;
+    if (carregando) return cache;
+    carregando = true;
+    try {
+      const listas = await Promise.all(caminhosProblemas().map(([p,c]) => lerColecaoProblemas(p,c)));
+      const map = new Map();
+      listas.flat().forEach(p => {
+        const k = `${p.origemPath}::${p.id}`;
+        if (!map.has(k)) map.set(k,p);
+      });
+      cache = Array.from(map.values()).sort((a,b)=>Number(b.criadoEm || b.atualizadoEm || 0)-Number(a.criadoEm || a.atualizadoEm || 0));
+      cacheAt = Date.now();
+      return cache;
+    } finally { carregando = false; }
+  }
+
+  function ensureModal(){
+    let m = document.getElementById(MODAL_ID);
     if (m) return m;
-    m=document.createElement('div');
-    m.id=MODAL_ID;
-    m.className='fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
-    m.innerHTML=`<div class="absolute inset-0" data-prob-close="1"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-300 mr-2"></i>Central de problemas</h3><p class="text-xs text-gray-400 mt-1">Fila única de relatos enviados pelos usuários.</p></div><div class="flex flex-wrap gap-2"><select id="probCliqueCat" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="TODOS">Todas as áreas</option><option>Questões</option><option>Calendário</option><option>Resultados</option><option>Plataforma</option><option>Aulas</option><option>Simulados</option><option>Geral</option></select><select id="probCliqueStatus" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option>Em análise</option><option>Resolvido</option><option>Descartado</option></select><input id="probCliqueBusca" placeholder="Buscar relato..." class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[220px]"><button id="probCliqueReload" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button><button data-prob-close="1" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div><div id="probCliqueResumo" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2"></div><div id="probCliqueLista" class="space-y-3"></div></div>`;
+    m = document.createElement('div');
+    m.id = MODAL_ID;
+    m.className = 'fixed inset-0 z-[99999] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    m.innerHTML = `
+      <div class="absolute inset-0" data-prob-close="1"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 border-b border-gray-700 pb-4">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-300 mr-2"></i>Central de problemas</h3><p class="text-xs text-gray-400 mt-1">Questões, calendário, resultados, plataforma, aulas e simulados em uma única central.</p></div>
+          <div class="flex flex-wrap gap-2">
+            <select id="probCentralCat" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="TODOS">Todas as áreas</option><option>Questões</option><option>Calendário</option><option>Resultados</option><option>Plataforma</option><option>Aulas</option><option>Simulados</option><option>Geral</option></select>
+            <select id="probCentralStatus" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option>Aberto</option><option>Em análise</option><option>Resolvido</option><option>Descartado</option></select>
+            <input id="probCentralBusca" placeholder="Buscar relato..." class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200 min-w-[220px]">
+            <button id="probCentralReload" type="button" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button>
+            <button type="button" data-prob-close="1" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button>
+          </div>
+        </div>
+        <div id="probCentralResumo" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2"></div>
+        <div id="probCentralLista" class="space-y-3"></div>
+      </div>`;
     document.body.appendChild(m);
-    m.addEventListener('click',e=>{ if(e.target?.dataset?.probClose) fecharFallback(); });
-    ['probCliqueCat','probCliqueStatus','probCliqueBusca'].forEach(id=>m.querySelector('#'+id)?.addEventListener(id==='probCliqueBusca'?'input':'change', renderFallback));
-    m.querySelector('#probCliqueReload')?.addEventListener('click',()=>abrirFallback(true));
+    m.addEventListener('click', e => { if (e.target?.dataset?.probClose) fecharCentralProblemasLimpa(); });
+    ['probCentralCat','probCentralStatus','probCentralBusca'].forEach(id => m.querySelector('#'+id)?.addEventListener(id === 'probCentralBusca' ? 'input' : 'change', renderizarCentralProblemasLimpa));
+    m.querySelector('#probCentralReload')?.addEventListener('click', () => abrirCentralProblemasLimpa(true));
     return m;
   }
-  let fallbackCache=[];
-  async function abrirFallback(force=false){
+
+  async function abrirCentralProblemasLimpa(force=false){
     if (!isEquipe()) return alert('Apenas ADM/Staff podem acessar a central de problemas.');
-    const m=garantirModalFallback();
-    m.classList.remove('hidden'); m.classList.add('flex');
-    const box=document.getElementById('probCliqueLista');
-    if (box) box.innerHTML='<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando relatos...</p></div>';
-    if (force || !fallbackCache.length) fallbackCache=await carregarProblemasFallback();
-    renderFallback();
+    const m = ensureModal();
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    const box = document.getElementById('probCentralLista');
+    if (box) box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando relatos...</p></div>`;
+    await carregarProblemas(force);
+    renderizarCentralProblemasLimpa();
+    atualizarBadgeProblemasLimpo(false);
   }
-  function fecharFallback(){ const m=document.getElementById(MODAL_ID); m?.classList.add('hidden'); m?.classList.remove('flex'); }
-  function renderFallback(){
-    const box=document.getElementById('probCliqueLista'); if(!box) return;
-    const resumo=document.getElementById('probCliqueResumo');
-    const cat=document.getElementById('probCliqueCat')?.value || 'TODOS';
-    const st=document.getElementById('probCliqueStatus')?.value || 'ABERTOS';
-    const busca=String(document.getElementById('probCliqueBusca')?.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    let arr=fallbackCache.slice();
-    if(cat!=='TODOS') arr=arr.filter(p=>p.categoria===cat);
-    if(st==='ABERTOS') arr=arr.filter(aberto); else if(st!=='TODOS') arr=arr.filter(p=>String(p.status||'Aberto')===st);
-    if(busca) arr=arr.filter(p=>String([p.categoria,titulo(p),texto(p),p.usuarioNome,p.alunoNome,p.origemPath].join(' ')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(busca));
-    const cats=['Questões','Calendário','Resultados','Plataforma','Aulas','Simulados','Geral'];
-    if(resumo) resumo.innerHTML=cats.map(c=>`<button type="button" data-cat="${c}" class="rounded-xl border border-gray-700 bg-gray-950/70 p-3 text-left hover:border-red-700"><p class="text-[10px] uppercase text-gray-500 font-black">${c}</p><p class="text-xl font-black text-white">${fallbackCache.filter(p=>p.categoria===c&&aberto(p)).length}</p><p class="text-[10px] text-gray-500">aberto(s)</p></button>`).join('');
-    resumo?.querySelectorAll('button[data-cat]').forEach(b=>b.onclick=()=>{document.getElementById('probCliqueCat').value=b.dataset.cat; renderFallback();});
-    if(!arr.length){box.innerHTML='<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-10 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl text-emerald-400 mb-3"></i><p class="font-bold">Nenhum relato encontrado nessa visualização.</p></div>';return;}
-    box.innerHTML=arr.map(p=>`<article class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div class="space-y-2 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-black uppercase">${esc(p.categoria)}</span><span class="px-2 py-1 rounded-lg bg-red-900/40 text-red-200 text-[10px] font-black uppercase">${esc(p.status||'Aberto')}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-400 text-[10px] uppercase">${esc(p.tipo||p.tipoProblema||'Relato')}</span></div><h4 class="text-sm font-black text-white">${esc(titulo(p))}</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${esc(texto(p))}</p><p class="text-[10px] text-gray-500">${esc(p.usuarioNome||p.alunoNome||p.criadoPorNome||'Usuário')} ${p.criadoEm?'· '+new Date(p.criadoEm).toLocaleString('pt-BR'):''} · ${esc(p.origemPath||'')}</p></div><div class="flex flex-wrap lg:flex-col gap-2 min-w-[150px]"><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Em análise" class="probStatusBtn px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold border border-blue-800/40">Em análise</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Resolvido" class="probStatusBtn px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold border border-emerald-800/40">Resolver</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Descartado" class="probStatusBtn px-3 py-2 rounded-xl bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button></div></div></article>`).join('');
-    box.querySelectorAll('.probStatusBtn').forEach(btn=>btn.onclick=async()=>{
-      try{ await firebaseFirestore.collection(btn.dataset.path).doc(btn.dataset.id).set({status:btn.dataset.status, atualizadoEm:Date.now(), atualizadoPorNome:usuarioLogado?.nome||''},{merge:true}); fallbackCache=fallbackCache.map(p=>p.origemPath===btn.dataset.path&&String(p.id)===String(btn.dataset.id)?{...p,status:btn.dataset.status}:p); renderFallback(); }catch(e){ alert('Erro ao atualizar problema.\n\n'+(e.message||e)); }
+  function fecharCentralProblemasLimpa(){
+    const m = document.getElementById(MODAL_ID);
+    m?.classList.add('hidden');
+    m?.classList.remove('flex');
+  }
+  function renderizarCentralProblemasLimpa(){
+    const box = document.getElementById('probCentralLista');
+    if (!box) return;
+    const resumo = document.getElementById('probCentralResumo');
+    const cat = document.getElementById('probCentralCat')?.value || 'TODOS';
+    const st = document.getElementById('probCentralStatus')?.value || 'ABERTOS';
+    const busca = norm(document.getElementById('probCentralBusca')?.value || '');
+    let arr = cache.slice();
+    if (cat !== 'TODOS') arr = arr.filter(p => p.categoria === cat);
+    if (st === 'ABERTOS') arr = arr.filter(isAberto);
+    else if (st !== 'TODOS') arr = arr.filter(p => String(p.status || 'Aberto') === st);
+    if (busca) arr = arr.filter(p => norm([p.categoria,tituloProblema(p),textoProblema(p),p.usuarioNome,p.alunoNome,p.criadoPorNome,p.origemPath].join(' ')).includes(busca));
+    const cats = ['Questões','Calendário','Resultados','Plataforma','Aulas','Simulados','Geral'];
+    if (resumo) {
+      resumo.innerHTML = cats.map(c => `<button type="button" data-cat="${c}" class="rounded-xl border border-gray-700 bg-gray-950/70 p-3 text-left hover:border-red-700"><p class="text-[10px] uppercase text-gray-500 font-black">${c}</p><p class="text-xl font-black text-white">${cache.filter(p=>p.categoria===c&&isAberto(p)).length}</p><p class="text-[10px] text-gray-500">aberto(s)</p></button>`).join('');
+      resumo.querySelectorAll('button[data-cat]').forEach(b => b.onclick = () => { document.getElementById('probCentralCat').value = b.dataset.cat; renderizarCentralProblemasLimpa(); });
+    }
+    if (!arr.length) {
+      box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-950/60 p-10 text-center text-gray-500"><i class="fa-solid fa-circle-check text-3xl text-emerald-400 mb-3"></i><p class="font-bold">Nenhum relato encontrado nessa visualização.</p></div>`;
+      return;
+    }
+    box.innerHTML = arr.map(cardProblema).join('');
+    box.querySelectorAll('.probStatusBtn').forEach(btn => btn.onclick = async () => {
+      try {
+        await firebaseFirestore.collection(btn.dataset.path).doc(btn.dataset.id).set({status:btn.dataset.status, atualizadoEm:Date.now(), atualizadoPorNome:usuarioLogado?.nome || ''},{merge:true});
+        cache = cache.map(p => p.origemPath === btn.dataset.path && String(p.id) === String(btn.dataset.id) ? {...p,status:btn.dataset.status,atualizadoEm:Date.now()} : p);
+        renderizarCentralProblemasLimpa();
+        atualizarBadgeProblemasLimpo(false);
+      } catch(e) { alert('Erro ao atualizar problema.\n\n' + (e.message || e)); }
     });
   }
-
-  const existing = typeof window.abrirCentralProblemasLimpa === 'function' ? window.abrirCentralProblemasLimpa : null;
-  window.abrirCentralProblemasLimpa = async function abrirCentralProblemasLimpaClickOK(force=true){
-    try {
-      if (existing && existing !== window.abrirCentralProblemasLimpa) {
-        const before = document.querySelectorAll('#modalProblemasCentralLimpa.flex,#modalProblemasCentralLimpa:not(.hidden)').length;
-        const r = await existing.apply(this, arguments);
-        setTimeout(()=>{
-          const opened = document.querySelector('#modalProblemasCentralLimpa.flex,#modalProblemasCentralLimpa:not(.hidden)');
-          if(!opened) abrirFallback(force);
-        },100);
-        return r;
-      }
-    } catch(e) { console.warn('[Problemas clique] central antiga falhou; abrindo fallback', e); }
-    return abrirFallback(force);
-  };
-  window.abrirCentralProblemasUnificada = window.abrirCentralProblemasLimpa;
-  window.abrirCentralProblemasRevisao = window.abrirCentralProblemasLimpa;
-  window.abrirPainelProblemasQuestoes = window.abrirCentralProblemasLimpa;
-
-  function bindButton(){
-    const btn=document.getElementById(BTN_ID);
-    if(!btn) return;
-    btn.style.cursor='pointer';
-    btn.onclick=function(ev){ ev?.preventDefault?.(); ev?.stopPropagation?.(); window.abrirCentralProblemasLimpa(true); };
-    btn.dataset.clickProblemasOk='true';
+  function cardProblema(p){
+    const criado = p.criadoEm ? new Date(p.criadoEm).toLocaleString('pt-BR') : '';
+    const status = p.status || 'Aberto';
+    const statusClass = status === 'Resolvido' ? 'bg-emerald-900/40 text-emerald-200' : status === 'Descartado' ? 'bg-gray-800 text-gray-300' : status === 'Em análise' ? 'bg-blue-900/40 text-blue-200' : 'bg-red-900/40 text-red-200';
+    const tipo = Array.isArray(p.tipos) ? p.tipos.join(', ') : (p.tipo || p.tipoProblema || 'Relato');
+    return `<article class="rounded-2xl border border-gray-700 bg-gray-900/70 p-4"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div class="space-y-2 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="px-2 py-1 rounded-lg bg-purple-900/40 text-purple-200 text-[10px] font-black uppercase">${esc(p.categoria)}</span><span class="px-2 py-1 rounded-lg ${statusClass} text-[10px] font-black uppercase">${esc(status)}</span><span class="px-2 py-1 rounded-lg bg-gray-950 border border-gray-700 text-gray-400 text-[10px] uppercase">${esc(tipo)}</span></div><h4 class="text-sm font-black text-white">${esc(tituloProblema(p))}</h4><p class="text-sm text-gray-300 whitespace-pre-wrap">${esc(textoProblema(p))}</p><p class="text-[10px] text-gray-500">${esc(p.usuarioNome || p.alunoNome || p.criadoPorNome || 'Usuário')} ${criado ? '· ' + criado : ''} ${p.origemPath ? '· ' + esc(p.origemPath) : ''}</p></div><div class="flex flex-wrap lg:flex-col gap-2 min-w-[150px]"><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Em análise" class="probStatusBtn px-3 py-2 rounded-xl bg-blue-900/40 text-blue-200 text-xs font-bold border border-blue-800/40">Em análise</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Resolvido" class="probStatusBtn px-3 py-2 rounded-xl bg-emerald-900/40 text-emerald-200 text-xs font-bold border border-emerald-800/40">Resolver</button><button data-path="${esc(p.origemPath)}" data-id="${esc(p.id)}" data-status="Descartado" class="probStatusBtn px-3 py-2 rounded-xl bg-gray-950 text-gray-300 text-xs font-bold border border-gray-700">Descartar</button></div></div></article>`;
   }
-  document.addEventListener('click', function(ev){
-    const btn=ev.target?.closest?.('#'+BTN_ID);
-    if(!btn) return;
-    ev.preventDefault(); ev.stopPropagation();
-    window.abrirCentralProblemasLimpa(true);
-  }, true);
+
+  async function atualizarBadgeProblemasLimpo(force=false){
+    try {
+      if (!isEquipe()) return;
+      await carregarProblemas(force);
+      const abertos = cache.filter(isAberto).length;
+      const b = document.getElementById(BADGE_ID);
+      if (b) { b.textContent = String(abertos); b.classList.toggle('hidden', !abertos); }
+    } catch(_) {}
+  }
+
+  // Relato genérico preservado para módulos que chamam abrirRelatoProblemaGeral(...)
+  function abrirRelatoProblemaGeral(categoria='Geral', alvoId='', titulo='Item'){
+    if (!usuarioLogado) return alert('Faça login para relatar problema.');
+    document.getElementById(MODAL_RELATO_ID)?.remove();
+    const modal = document.createElement('div');
+    modal.id = MODAL_RELATO_ID;
+    modal.className = 'fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    modal.innerHTML = `<div class="absolute inset-0" data-relato-close="1"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl max-w-xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 class="text-lg font-black text-white uppercase"><i class="fa-solid fa-flag text-red-300 mr-2"></i>Relatar problema</h3><p class="text-xs text-gray-400 mt-1">${esc(categoria)} · ${esc(titulo)}</p></div><button type="button" data-relato-close="1" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><input type="hidden" id="relatoGeralCategoria" value="${esc(categoria)}"><input type="hidden" id="relatoGeralAlvoId" value="${esc(alvoId)}"><input type="hidden" id="relatoGeralTitulo" value="${esc(titulo)}"><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Tipo de problema</label><select id="relatoGeralTipo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option>Informação errada</option><option>Arquivo/link não abre</option><option>Erro de data/prazo</option><option>Erro de correção/gabarito</option><option>Problema de áudio/vídeo</option><option>Problema de visualização</option><option>Duplicado</option><option>Outro</option></select></div><div><label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Descrição</label><textarea id="relatoGeralDescricao" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o que está errado..."></textarea></div><div class="flex justify-end gap-2"><button type="button" data-relato-close="1" class="px-4 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button><button type="button" id="btnEnviarRelatoProblemaGeralLimpo" class="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-black uppercase">Enviar</button></div></div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target?.dataset?.relatoClose) modal.remove(); });
+    document.getElementById('btnEnviarRelatoProblemaGeralLimpo').onclick = enviarRelatoProblemaGeralLimpo;
+  }
+  async function enviarRelatoProblemaGeralLimpo(){
+    const categoria = document.getElementById('relatoGeralCategoria')?.value || 'Geral';
+    const alvoId = document.getElementById('relatoGeralAlvoId')?.value || '';
+    const titulo = document.getElementById('relatoGeralTitulo')?.value || 'Item';
+    const tipo = document.getElementById('relatoGeralTipo')?.value || 'Relato';
+    const descricao = String(document.getElementById('relatoGeralDescricao')?.value || '').trim();
+    if (!descricao) return alert('Escreva uma descrição do problema.');
+    try {
+      if (typeof initFirebase === 'function') initFirebase();
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      await firebaseFirestore.collection(`anos/${ANO()}/sistema_problemas`).doc(id).set({id,categoria,modulo:categoria,alvoId,titulo,itemTitulo:titulo,tipo,descricao,status:'Aberto',usuarioId:usuarioLogado?.id||'',usuarioNome:usuarioLogado?.nome||'',usuarioEmail:usuarioLogado?.email||'',criadoEm:Date.now(),origem:'relato_geral_limpo'});
+      document.getElementById(MODAL_RELATO_ID)?.remove();
+      alert('Relato enviado. A equipe vai analisar.');
+      cache = [];
+      atualizarBadgeProblemasLimpo(true);
+    } catch(e) { alert('Erro ao enviar relato.\n\n' + (e.message || e)); }
+  }
+
+  // Exposição pública única.
+  window.abrirCentralProblemasLimpa = abrirCentralProblemasLimpa;
+  window.fecharCentralProblemasLimpa = fecharCentralProblemasLimpa;
+  window.renderizarCentralProblemasLimpa = renderizarCentralProblemasLimpa;
+  window.atualizarBadgeProblemasLimpo = atualizarBadgeProblemasLimpo;
+  window.abrirCentralProblemasUnificada = abrirCentralProblemasLimpa;
+  window.abrirCentralProblemasRevisao = abrirCentralProblemasLimpa;
+  window.abrirPainelProblemasQuestoes = abrirCentralProblemasLimpa;
+  window.abrirRelatoProblemaGeral = abrirRelatoProblemaGeral;
+  window.enviarRelatoProblemaGeralLimpo = enviarRelatoProblemaGeralLimpo;
 
   const navBase = window.navegarAba || (typeof navegarAba === 'function' ? navegarAba : null);
-  if (typeof navBase === 'function' && !window.__PROBLEMAS_CLICK_NAV__) {
-    window.__PROBLEMAS_CLICK_NAV__=true;
-    const nav=function(){ const r=navBase.apply(this,arguments); setTimeout(bindButton,100); return r; };
-    window.navegarAba=nav; try{navegarAba=nav;}catch(_){}
+  if (typeof navBase === 'function' && !window.__NAV_PROBLEMAS_LIMPO_DEFINITIVO__) {
+    window.__NAV_PROBLEMAS_LIMPO_DEFINITIVO__ = true;
+    const nav = function(){ const r = navBase.apply(this, arguments); setTimeout(montarBotao, 80); return r; };
+    window.navegarAba = nav;
+    try { navegarAba = nav; } catch(_) {}
   }
-  document.addEventListener('DOMContentLoaded',()=>{ setTimeout(bindButton,200); setTimeout(bindButton,1200); });
-  try { if(document.body) bindButton(); } catch(_) {}
-  window.diagnosticarCliqueProblemas = function(){
-    const btn=document.getElementById(BTN_ID);
-    const modal=document.getElementById('modalProblemasCentralLimpa')||document.getElementById(MODAL_ID);
-    console.table({botao:!!btn, clickOk:btn?.dataset?.clickProblemasOk||'', hasAbrir:typeof window.abrirCentralProblemasLimpa, modal:!!modal, modalVisivel:!!(modal && !modal.classList.contains('hidden'))});
-    return {botao:!!btn, btn, modal, abrir:window.abrirCentralProblemasLimpa};
+  const loginBase = window.logarSucesso || (typeof logarSucesso === 'function' ? logarSucesso : null);
+  if (typeof loginBase === 'function' && !window.__LOGIN_PROBLEMAS_LIMPO_DEFINITIVO__) {
+    window.__LOGIN_PROBLEMAS_LIMPO_DEFINITIVO__ = true;
+    const login = async function(){ const r = await loginBase.apply(this, arguments); setTimeout(montarBotao, 120); setTimeout(()=>atualizarBadgeProblemasLimpo(true), 700); return r; };
+    window.logarSucesso = login;
+    try { logarSucesso = login; } catch(_) {}
+  }
+  const logoutBase = window.logout || (typeof logout === 'function' ? logout : null);
+  if (typeof logoutBase === 'function' && !window.__LOGOUT_PROBLEMAS_LIMPO_DEFINITIVO__) {
+    window.__LOGOUT_PROBLEMAS_LIMPO_DEFINITIVO__ = true;
+    const logout2 = function(){ const r = logoutBase.apply(this, arguments); setTimeout(montarBotao, 80); return r; };
+    window.logout = logout2;
+    try { logout = logout2; } catch(_) {}
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureStyle();
+    setTimeout(montarBotao, 250);
+    setTimeout(montarBotao, 1200);
+    setTimeout(()=>atualizarBadgeProblemasLimpo(true), 1800);
+  });
+  // Delegação como backup, mas sem wrapper antigo.
+  document.addEventListener('click', e => {
+    const btn = e.target?.closest?.('#'+BTN_ID);
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    abrirCentralProblemasLimpa(true);
+  }, true);
+  window.diagnosticarProblemasModuloLimpo = function(){
+    const slot = document.getElementById(SLOT_ID);
+    const btns = Array.from(document.querySelectorAll('#'+BTN_ID)).map((b,i)=>({i,noSlot:!!(slot&&slot.contains(b)),visible:!!(b.offsetWidth||b.offsetHeight||b.getClientRects().length),parent:b.parentElement?.id||b.parentElement?.tagName,onclick:typeof b.onclick}));
+    const legados = LEGACY_IDS.filter(id=>!!document.getElementById(id));
+    const modal = document.getElementById(MODAL_ID);
+    console.table({slot:!!slot,equipe:isEquipe(),mainVisivel:mainVisivel(),btns:btns.length,legados:legados.join(',')||'nenhum',modal:!!modal,modalVisivel:!!(modal&&!modal.classList.contains('hidden'))});
+    console.table(btns);
+    return {slot,btns,legados,modal};
   };
+  try { if (document.body) montarBotao(); } catch(_) {}
 })();
