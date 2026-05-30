@@ -19182,3 +19182,435 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, "carregado");
 })();
+
+
+// ============================================================
+// PATCH FINALÍSSIMO — Checkboxes estáveis, simulados listando e layout robusto
+// ============================================================
+(function patchCheckboxSimuladosLayoutRobusto(){
+  const TAG = "[fix-checkbox-sim-layout]";
+  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+  const uniq = (arr) => Array.from(new Set((arr||[]).map(v => String(v||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"pt-BR",{sensitivity:"base",numeric:true}));
+  const MINI_KEY = () => `avance_mini_lista_questoes_v1_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${ANO()}`;
+
+  function getArr(chave) { try { return Array.isArray(getStorage(chave, [])) ? getStorage(chave, []) : []; } catch(_) { return []; } }
+  function setLocal(chave, arr) { try { if (typeof setStorageLocal === "function") setStorageLocal(chave, arr); } catch(_) {} }
+  async function lerFirestore(path) {
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (!firebaseFirestore) return [];
+      const snap = await firebaseFirestore.collection(path).get();
+      const arr = [];
+      snap.forEach(d => arr.push({id: d.id, ...(d.data() || {})}));
+      return arr;
+    } catch(e) {
+      console.warn(TAG, "falha ao ler", path, e?.message || e);
+      return [];
+    }
+  }
+  async function carregarRobusto(chave, force=false) {
+    const atual = getArr(chave);
+    if (!force && atual.length) return atual;
+    const base = String(chave).replace(/^app_/, "sistema_");
+    const paths = chave === "app_usuarios" ? [base] : [`anos/${ANO()}/${base}`, base];
+    for (const p of paths) {
+      const arr = await lerFirestore(p);
+      if (arr.length) { setLocal(chave, arr); return arr; }
+    }
+    return atual;
+  }
+
+  // =========================
+  // 1) Mini-lista aleatória: substitui a renderização que desmarcava checkbox
+  // =========================
+  let miniState = { inc:{}, exc:{} };
+  const CAMPOS_MINI = ["disciplina","area","tema","subtema","nivel","dificuldade","tipo"];
+
+  function lerStateMiniDoDOM() {
+    CAMPOS_MINI.forEach(c => {
+      miniState.inc[c] = Array.from(document.querySelectorAll(`#modalMiniListaAleatoria input[data-mini-tipo="inc"][data-campo="${c}"]:checked`)).map(i=>i.value);
+      miniState.exc[c] = Array.from(document.querySelectorAll(`#modalMiniListaAleatoria input[data-mini-tipo="exc"][data-campo="${c}"]:checked`)).map(i=>i.value);
+    });
+  }
+  function baseMini(campo) {
+    const qs = getArr("app_questoes");
+    const disc = miniState.inc.disciplina || [];
+    const areas = miniState.inc.area || [];
+    const temas = miniState.inc.tema || [];
+    if (campo === "disciplina") return qs;
+    if (campo === "area") return disc.length ? qs.filter(q => disc.includes(q.disciplina)) : [];
+    if (campo === "tema") return disc.length && areas.length ? qs.filter(q => disc.includes(q.disciplina) && areas.includes(q.area)) : [];
+    if (campo === "subtema") return disc.length && areas.length && temas.length ? qs.filter(q => disc.includes(q.disciplina) && areas.includes(q.area) && temas.includes(q.tema)) : [];
+    return qs;
+  }
+  function miniGrupo(campo, label, aviso) {
+    const vals = uniq(baseMini(campo).map(q => q[campo]));
+    const make = (tipo, v) => {
+      const marcado = (miniState[tipo][campo] || []).includes(v);
+      const red = tipo === "exc";
+      return `<label class="flex items-center gap-2 p-2 rounded-lg ${red ? "bg-red-950/20 border-red-900/50 text-red-100" : "bg-gray-950 border-gray-700 text-gray-200"} border text-[11px] cursor-pointer hover:bg-gray-800/70">
+        <input type="checkbox" data-mini-tipo="${tipo}" data-campo="${esc(campo)}" value="${esc(v)}" ${marcado ? "checked" : ""} class="${red ? "accent-red-500" : "accent-purple-500"}">
+        <span>${esc(v)}</span>
+      </label>`;
+    };
+    const corpo = vals.length ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+        <div><p class="text-[10px] text-emerald-300 font-black uppercase mb-2">Quero que esteja na lista</p><div class="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${vals.map(v => make("inc", v)).join("")}</div></div>
+        <div><p class="text-[10px] text-red-300 font-black uppercase mb-2">Não quero que esteja na lista</p><div class="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">${vals.map(v => make("exc", v)).join("")}</div></div>
+      </div>` : `<p class="text-xs text-gray-500 mt-3">${esc(aviso)}</p>`;
+    return `<details class="rounded-2xl border border-gray-700 bg-gray-900/50 p-3" open>
+      <summary class="cursor-pointer text-xs font-black text-gray-200 uppercase">${esc(label)}</summary>${corpo}
+    </details>`;
+  }
+  function renderMiniGrupos() {
+    const box = document.getElementById("bqRandGrupos");
+    if (!box) return;
+    box.innerHTML = [
+      miniGrupo("disciplina", "Disciplina", "Cadastre questões para aparecerem disciplinas."),
+      miniGrupo("area", "Área", "Escolha uma disciplina primeiro."),
+      miniGrupo("tema", "Tema", "Escolha uma área primeiro."),
+      miniGrupo("subtema", "Subtema", "Escolha um tema primeiro."),
+      miniGrupo("nivel", "Nível", "Nenhum nível cadastrado."),
+      miniGrupo("dificuldade", "Dificuldade", "Nenhuma dificuldade cadastrada."),
+      miniGrupo("tipo", "Tipo", "Nenhum tipo cadastrado.")
+    ].join("");
+  }
+  function garantirModalMiniNova() {
+    document.getElementById("modalMiniListaAleatoria")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "modalMiniListaAleatoria";
+    modal.className = "hidden fixed inset-0 z-[95] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharGeradorMiniListaAleatoria()"></div>
+      <div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5">
+        <div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3">
+          <div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-shuffle text-purple-400 mr-2"></i>Gerar mini-lista aleatória</h3>
+          <p class="text-xs text-gray-400 mt-1">Agora a seleção é estável: marcar uma disciplina não apaga o checkbox; ela apenas libera Área → Tema → Subtema relacionados.</p></div>
+          <button type="button" onclick="fecharGeradorMiniListaAleatoria()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 rounded-2xl border border-purple-900/40 bg-purple-950/15 p-4">
+          <div><label class="block text-[11px] font-bold text-purple-200 uppercase mb-1.5">Quantidade</label><input id="bqRandQtd" type="number" min="1" max="100" value="10" class="w-full p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white"></div>
+          <label class="md:col-span-2 flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandUsarFiltrosAtuais" type="checkbox" class="accent-purple-500">Usar filtros atuais como base inicial</label>
+          <label class="flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandSomenteAtivas" type="checkbox" checked class="accent-emerald-500">Somente questões ativas</label>
+          <label class="flex items-center gap-2 p-3 rounded-xl bg-gray-950 border border-gray-700 text-xs text-gray-200"><input id="bqRandSubstituirLista" type="checkbox" class="accent-red-500">Substituir minha lista atual</label>
+        </div>
+        <div id="bqRandGrupos" class="space-y-3"></div>
+        <div id="bqRandResumo" class="text-xs text-gray-400"></div>
+        <div class="flex flex-col md:flex-row justify-end gap-2">
+          <button type="button" onclick="fecharGeradorMiniListaAleatoria()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button>
+          <button type="button" onclick="gerarMiniListaAleatoriaQuestoes()" class="px-4 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-black uppercase"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Gerar lista</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener("change", e => {
+      if (e.target?.matches?.('input[data-mini-tipo]')) {
+        lerStateMiniDoDOM();
+        if (["disciplina","area","tema"].includes(e.target.dataset.campo)) {
+          // Limpa dependentes apenas se o valor dependente não existir mais no novo universo.
+          const qs = getArr("app_questoes");
+          const validAreas = new Set(baseMini("area").map(q => q.area));
+          miniState.inc.area = (miniState.inc.area || []).filter(v => validAreas.has(v));
+          miniState.exc.area = (miniState.exc.area || []).filter(v => validAreas.has(v));
+          const validTemas = new Set(baseMini("tema").map(q => q.tema));
+          miniState.inc.tema = (miniState.inc.tema || []).filter(v => validTemas.has(v));
+          miniState.exc.tema = (miniState.exc.tema || []).filter(v => validTemas.has(v));
+          const validSubs = new Set(baseMini("subtema").map(q => q.subtema));
+          miniState.inc.subtema = (miniState.inc.subtema || []).filter(v => validSubs.has(v));
+          miniState.exc.subtema = (miniState.exc.subtema || []).filter(v => validSubs.has(v));
+        }
+        renderMiniGrupos();
+      }
+    });
+  }
+  window.abrirGeradorMiniListaAleatoria = async function abrirGeradorMiniListaAleatoriaCorrigido() {
+    await carregarRobusto("app_questoes", false);
+    miniState = { inc:{}, exc:{} };
+    CAMPOS_MINI.forEach(c => { miniState.inc[c] = []; miniState.exc[c] = []; });
+    garantirModalMiniNova();
+    const modal = document.getElementById("modalMiniListaAleatoria");
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+    renderMiniGrupos();
+  };
+  window.fecharGeradorMiniListaAleatoria = function fecharGeradorMiniListaAleatoriaCorrigido() {
+    document.getElementById("modalMiniListaAleatoria")?.classList.add("hidden");
+    document.getElementById("modalMiniListaAleatoria")?.classList.remove("flex");
+  };
+  window.gerarMiniListaAleatoriaQuestoes = async function gerarMiniListaAleatoriaQuestoesCorrigido() {
+    lerStateMiniDoDOM();
+    let qs = getArr("app_questoes");
+    if (document.getElementById("bqRandSomenteAtivas")?.checked) qs = qs.filter(q => !q.status || q.status === "Ativa");
+    CAMPOS_MINI.forEach(c => {
+      const inc = miniState.inc[c] || [], exc = miniState.exc[c] || [];
+      if (inc.length) qs = qs.filter(q => inc.includes(q[c]));
+      if (exc.length) qs = qs.filter(q => !exc.includes(q[c]));
+    });
+    const qtd = Math.max(1, Number(document.getElementById("bqRandQtd")?.value || 10));
+    qs = qs.sort(() => Math.random() - 0.5).slice(0, qtd);
+    if (!qs.length) return alert("Nenhuma questão encontrada com esses critérios.");
+    const antigos = document.getElementById("bqRandSubstituirLista")?.checked ? [] : (() => { try { return JSON.parse(localStorage.getItem(MINI_KEY()) || "[]"); } catch(_) { return []; } })();
+    const ids = Array.from(new Set([...antigos, ...qs.map(q => String(q.id))]));
+    localStorage.setItem(MINI_KEY(), JSON.stringify(ids));
+    document.getElementById("bqRandResumo").innerHTML = `<span class="text-emerald-300 font-bold">${qs.length} questão(ões) adicionada(s) à mini-lista.</span>`;
+    if (typeof renderizarBancoQuestoes === "function") renderizarBancoQuestoes();
+  };
+
+  // =========================
+  // 2) Simulados: carrega e lista mesmo com lazy-load
+  // =========================
+  const renderSimsAnterior = typeof window.renderizarSimulados === "function" ? window.renderizarSimulados : (typeof renderizarSimulados === "function" ? renderizarSimulados : null);
+  let carregandoSims = false;
+  async function garantirSimuladosCarregados(force=false) {
+    if (carregandoSims) return getArr("app_simulados");
+    const atual = getArr("app_simulados");
+    if (!force && atual.length) return atual;
+    carregandoSims = true;
+    try {
+      const arr = await carregarRobusto("app_simulados", true);
+      return arr;
+    } finally { carregandoSims = false; }
+  }
+  function simTexto(s) { return norm([s.titulo,s.descricao,s.disciplina,s.nivel,s.area,s.tema,s.subtema].join(" ")); }
+  function simPassaExtras(s) {
+    const tema = document.getElementById("filtroSimTema")?.value || "TODOS";
+    const subtema = document.getElementById("filtroSimSubtema")?.value || "TODOS";
+    const area = document.getElementById("filtroSimArea")?.value || "TODOS";
+    if (area !== "TODOS" && String(s.area || "") !== area && !(Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.area === area))) return false;
+    if (tema !== "TODOS" && String(s.tema || "") !== tema && !(Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.tema === tema))) return false;
+    if (subtema !== "TODOS" && String(s.subtema || "") !== subtema && !(Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.subtema === subtema))) return false;
+    return true;
+  }
+  function garantirFiltroAreaSimulados() {
+    const filtroBox = document.querySelector("#view-simulados .grid");
+    if (!filtroBox || document.getElementById("filtroSimArea")) return;
+    const temaBox = document.getElementById("filtroSimTema")?.closest("div");
+    const html = `<div><label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Área</label><select id="filtroSimArea" onchange="renderizarSimulados()" class="w-full p-2.5 rounded-xl bg-gray-900 border border-gray-700 text-sm text-gray-300 focus:outline-none"><option value="TODOS">Escolha uma disciplina primeiro</option></select></div>`;
+    (temaBox || filtroBox).insertAdjacentHTML("beforebegin", html);
+  }
+  function popularSelectSim(id, vals, placeholder, disabled=false) {
+    const el = document.getElementById(id); if (!el) return;
+    const old = el.value || "TODOS";
+    const options = `<option value="TODOS">${esc(placeholder)}</option>` + uniq(vals).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    el.innerHTML = options; el.disabled = !!disabled;
+    if (Array.from(el.options).some(o => o.value === old)) el.value = old;
+  }
+  function atualizarFiltrosSimuladosExtras() {
+    garantirFiltroAreaSimulados();
+    const sims = getArr("app_simulados");
+    const disc = document.getElementById("filtroSimDisciplina")?.value || "TODOS";
+    const area = document.getElementById("filtroSimArea")?.value || "TODOS";
+    const tema = document.getElementById("filtroSimTema")?.value || "TODOS";
+    const baseDisc = disc === "TODOS" ? [] : sims.filter(s => s.disciplina === disc || (Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.disciplina === disc)));
+    const areas = baseDisc.flatMap(s => [s.area, ...(Array.isArray(s.questoesBanco) ? s.questoesBanco.map(q=>q.area) : [])]);
+    const baseArea = area === "TODOS" ? [] : baseDisc.filter(s => s.area === area || (Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.area === area)));
+    const temas = baseArea.flatMap(s => [s.tema, ...(Array.isArray(s.questoesBanco) ? s.questoesBanco.map(q=>q.tema) : [])]);
+    const baseTema = tema === "TODOS" ? [] : baseArea.filter(s => s.tema === tema || (Array.isArray(s.questoesBanco) && s.questoesBanco.some(q => q.tema === tema)));
+    const subs = baseTema.flatMap(s => [s.subtema, ...(Array.isArray(s.questoesBanco) ? s.questoesBanco.filter(q=>!tema || q.tema === tema).map(q=>q.subtema) : [])]);
+    popularSelectSim("filtroSimArea", areas, disc === "TODOS" ? "Escolha uma disciplina primeiro" : "Todas", disc === "TODOS");
+    popularSelectSim("filtroSimTema", temas, area === "TODOS" ? "Escolha uma área primeiro" : "Todos", disc === "TODOS" || area === "TODOS");
+    popularSelectSim("filtroSimSubtema", subs, tema === "TODOS" ? "Escolha um tema primeiro" : "Todos", disc === "TODOS" || area === "TODOS" || tema === "TODOS");
+  }
+  window.renderizarSimulados = function renderizarSimuladosRobusto() {
+    const grid = document.getElementById("gridSimulados");
+    if (!grid) return;
+    const atual = getArr("app_simulados");
+    if (!atual.length && !carregandoSims) {
+      grid.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i><p>Carregando simulados...</p></div>`;
+      garantirSimuladosCarregados(true).then(() => window.renderizarSimulados()).catch(e => {
+        grid.innerHTML = `<div class="bg-gray-800 border border-red-900/40 rounded-2xl p-8 text-center text-red-200">Não foi possível carregar simulados: ${esc(e.message || e)}</div>`;
+      });
+      return;
+    }
+    atualizarFiltrosSimuladosExtras();
+    const todos = getArr("app_simulados");
+    const filtrados = todos.filter(s => simPassaExtras(s));
+    setLocal("app_simulados", filtrados);
+    try { if (renderSimsAnterior) renderSimsAnterior(); }
+    finally { setLocal("app_simulados", todos); }
+    const grid2 = document.getElementById("gridSimulados");
+    if (grid2 && !filtrados.length) {
+      grid2.innerHTML = `<div class="bg-gray-800 border border-gray-700 rounded-2xl p-10 text-center text-gray-500"><i class="fa-solid fa-clipboard-question text-3xl mb-3 opacity-40"></i><p>Nenhum simulado encontrado para este filtro.</p><p class="text-xs mt-2">Foram carregados ${todos.length} simulado(s) do banco.</p></div>`;
+    }
+  };
+  try { renderizarSimulados = window.renderizarSimulados; } catch(_) {}
+  document.addEventListener("change", e => {
+    if (e.target?.id === "filtroSimDisciplina") { const a=document.getElementById("filtroSimArea"), t=document.getElementById("filtroSimTema"), s=document.getElementById("filtroSimSubtema"); if(a)a.value="TODOS"; if(t)t.value="TODOS"; if(s)s.value="TODOS"; setTimeout(window.renderizarSimulados, 30); }
+    if (e.target?.id === "filtroSimArea") { const t=document.getElementById("filtroSimTema"), s=document.getElementById("filtroSimSubtema"); if(t)t.value="TODOS"; if(s)s.value="TODOS"; setTimeout(window.renderizarSimulados, 30); }
+    if (e.target?.id === "filtroSimTema") { const s=document.getElementById("filtroSimSubtema"); if(s)s.value="TODOS"; setTimeout(window.renderizarSimulados, 30); }
+  });
+
+  // =========================
+  // 3) Layout: editor mais explicado, preview confiável e campos extras
+  // =========================
+  function addTooltipsLayout() {
+    const dicas = {
+      layoutListaId: "Identificador interno. Use letras, números e underline. Evite acentos.",
+      layoutListaNome: "Nome que aparecerá na lista de modelos para aluno/professor escolher.",
+      layoutListaTipo: "Define se o modelo se comporta como lista de exercícios ou simulado.",
+      layoutListaEstilo: "Variação visual: clássico, estudo, resposta, formal ou caderno.",
+      layoutListaTitulo: "Título principal impresso no topo do documento.",
+      layoutListaSubtitulo: "Texto menor abaixo do título.",
+      layoutListaLogoUrl: "URL da logo. Também pode enviar arquivo no campo ao lado.",
+      layoutListaMarcaDagua: "Texto que aparece bem claro ao fundo da página.",
+      layoutListaCabecalho: "Campos de identificação: aluno, turma, professor, data etc.",
+      layoutListaRodape: "Texto final/instruções. Deixe vazio para não imprimir rodapé interno.",
+      layoutListaMetadados: "Mostra código, disciplina, nível, tema e dificuldade da questão.",
+      layoutListaAlternativas: "Mostra alternativas A–E quando existirem.",
+      layoutListaLinhasResposta: "Adiciona linhas para o aluno resolver por escrito.",
+      layoutListaQuestaoPorPagina: "Força uma questão por página. Bom para simulados formais.",
+      layoutListaMostrarMarcaDagua: "Liga/desliga a marca d’água.",
+      layoutListaAssinatura: "Adiciona campos de assinatura ao final do documento."
+    };
+    Object.entries(dicas).forEach(([id, dica]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.title = dica;
+        const parent = el.closest("div") || el.parentElement;
+        if (parent && !parent.querySelector(`[data-help-for="${id}"]`)) {
+          parent.insertAdjacentHTML("beforeend", `<p data-help-for="${id}" class="text-[10px] text-gray-500 mt-1 leading-snug">${esc(dica)}</p>`);
+        }
+      }
+    });
+  }
+  function garantirCamposAvancadosLayout() {
+    const painel = document.getElementById("painelLayoutsMiniListaQuestoes");
+    if (!painel || document.getElementById("layoutListaCorPrimaria")) { addTooltipsLayout(); return; }
+    const alvo = document.getElementById("layoutListaCabecalho")?.closest(".grid") || painel.querySelector(".layout-conteudo-retratil") || painel;
+    const html = `<div class="rounded-2xl border border-purple-900/40 bg-purple-950/10 p-4 mt-3">
+      <h4 class="text-xs font-black uppercase text-purple-200 mb-2"><i class="fa-solid fa-sliders mr-2"></i>Personalização visual avançada</h4>
+      <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Cor principal</label><input id="layoutListaCorPrimaria" type="color" value="#5b21b6" class="w-full h-10 rounded-xl bg-gray-950 border border-gray-700 p-1" title="Cor usada em faixas, títulos e detalhes."></div>
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Cor secundária</label><input id="layoutListaCorSecundaria" type="color" value="#a855f7" class="w-full h-10 rounded-xl bg-gray-950 border border-gray-700 p-1" title="Cor de apoio para gradientes e detalhes."></div>
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Tamanho da logo</label><input id="layoutListaLogoTamanho" type="range" min="40" max="120" value="76" class="w-full" title="Controla o tamanho da logo no cabeçalho."></div>
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Fonte base</label><input id="layoutListaFonteBase" type="range" min="10" max="16" value="12" class="w-full" title="Controla o tamanho geral do texto impresso."></div>
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Opacidade marca</label><input id="layoutListaMarcaOpacidade" type="range" min="0" max="18" value="7" class="w-full" title="Controla a força visual da marca d’água."></div>
+        <div><label class="text-[10px] uppercase font-bold text-gray-400">Margem A4</label><input id="layoutListaMargem" type="range" min="6" max="22" value="12" class="w-full" title="Controla a margem da página impressa em milímetros."></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-xs text-gray-300">
+        <label class="flex items-center gap-2"><input id="layoutListaBordaLateral" type="checkbox" checked class="accent-purple-500"> Borda lateral roxa</label>
+        <label class="flex items-center gap-2"><input id="layoutListaFundoSuave" type="checkbox" checked class="accent-purple-500"> Fundo suave no cabeçalho</label>
+        <label class="flex items-center gap-2"><input id="layoutListaCompacto" type="checkbox" class="accent-purple-500"> Modo compacto</label>
+      </div>
+    </div>`;
+    alvo.insertAdjacentHTML("afterend", html);
+    addTooltipsLayout();
+  }
+  function fakeQuestoes() {
+    return [
+      {codigo:"MAT-N2-ARI-DIV-0001", disciplina:"Matemática", nivel:"N2 — 8º/9º Ano", area:"Aritmética", tema:"Divisibilidade", subtema:"Critérios de divisibilidade", dificuldade:"Médio", titulo:"Divisibilidade no cotidiano", enunciado:"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Um estudante organiza cartões numerados e deseja descobrir quais obedecem a um critério de divisibilidade. Qual alternativa representa corretamente a condição descrita?", alternativas:{A:"Apenas os números pares.", B:"Números cuja soma dos algarismos é múltipla de 3.", C:"Números terminados em 5.", D:"Todos os números primos.", E:"Nenhuma das anteriores."}},
+      {codigo:"FIS-EM-MEC-CIN-0002", disciplina:"Física", nivel:"Ensino Médio", area:"Mecânica", tema:"Cinemática", subtema:"Velocidade média", dificuldade:"Fácil", titulo:"Percurso em uma viagem", enunciado:"Lorem ipsum dolor sit amet, sed do eiusmod tempor incididunt ut labore. Durante uma viagem, um ônibus percorre diferentes trechos com velocidades distintas. Determine a velocidade média no percurso total.", alternativas:{A:"20 km/h", B:"35 km/h", C:"50 km/h", D:"70 km/h", E:"90 km/h"}}
+    ];
+  }
+  function configLayoutAtual() {
+    const get = id => document.getElementById(id);
+    return {
+      tipo: get("layoutListaTipo")?.value || "lista",
+      titulo: get("layoutListaTitulo")?.value || "Avance Olímpico",
+      subtitulo: get("layoutListaSubtitulo")?.value || "Lista de Exercícios",
+      logoUrl: get("layoutListaLogoUrl")?.value || "",
+      cabecalhoTexto: get("layoutListaCabecalho")?.value || "Aluno(a): ____________________ Turma: ______ Data: ____/____/______",
+      rodapeTexto: get("layoutListaRodape")?.value || "",
+      marcaDaguaTexto: get("layoutListaMarcaDagua")?.value || "AVANCE OLÍMPICO",
+      mostrarMarcaDagua: !!get("layoutListaMostrarMarcaDagua")?.checked,
+      mostrarAssinatura: !!get("layoutListaAssinatura")?.checked,
+      mostrarMetadados: !!get("layoutListaMetadados")?.checked,
+      mostrarAlternativas: !!get("layoutListaAlternativas")?.checked,
+      linhasResposta: !!get("layoutListaLinhasResposta")?.checked,
+      questaoPorPagina: !!get("layoutListaQuestaoPorPagina")?.checked,
+      corPrimaria: get("layoutListaCorPrimaria")?.value || "#5b21b6",
+      corSecundaria: get("layoutListaCorSecundaria")?.value || "#a855f7",
+      logoTamanho: Number(get("layoutListaLogoTamanho")?.value || 76),
+      fonteBase: Number(get("layoutListaFonteBase")?.value || 12),
+      marcaOpacidade: Number(get("layoutListaMarcaOpacidade")?.value || 7),
+      margem: Number(get("layoutListaMargem")?.value || 12),
+      bordaLateral: !!get("layoutListaBordaLateral")?.checked,
+      fundoSuave: !!get("layoutListaFundoSuave")?.checked,
+      compacto: !!get("layoutListaCompacto")?.checked
+    };
+  }
+  function htmlListaAvancado(qs, l, preview=false) {
+    const alt = q => q.alternativas ? `<ol style="margin:10px 0 0 20px;padding:0">${["A","B","C","D","E"].filter(k=>q.alternativas[k]).map(k=>`<li style="margin:4px 0"><b>${k})</b> ${esc(q.alternativas[k])}</li>`).join("")}</ol>` : "";
+    const linhas = l.linhasResposta ? `<div style="margin-top:10px">${Array.from({length:l.compacto?3:5}).map(()=>`<div style="border-bottom:1px solid #d1d5db;height:${l.compacto?16:22}px"></div>`).join("")}</div>` : "";
+    const meta = q => l.mostrarMetadados ? `<div style="font-size:11px;color:${l.corPrimaria};margin-bottom:7px;font-weight:700">${esc([q.codigo,q.disciplina,q.nivel,q.area,q.tema,q.subtema,q.dificuldade].filter(Boolean).join(" · "))}</div>` : "";
+    const qshtml = qs.map((q,i)=>`<article style="break-inside:avoid;page-break-inside:avoid;${l.questaoPorPagina?'page-break-after:always;':''}border:1px solid #e5e7eb;${l.bordaLateral?`border-left:5px solid ${l.corPrimaria};`:''}border-radius:14px;padding:${l.compacto?10:14}px;margin-bottom:${l.compacto?10:14}px;background:#fff">
+      ${meta(q)}<div style="font-weight:800;color:#111827;margin-bottom:6px">Questão ${i+1}</div>
+      <div style="font-size:${l.fonteBase+1}px;line-height:1.45;color:#111827">${esc(q.enunciado || q.titulo || "Lorem ipsum dolor sit amet.")}</div>
+      ${l.mostrarAlternativas ? alt(q) : ""}${linhas}</article>`).join("");
+    const marca = l.mostrarMarcaDagua && l.marcaDaguaTexto ? `<div style="position:absolute;left:8%;top:42%;transform:rotate(-28deg);font-size:48px;font-weight:900;letter-spacing:.08em;color:${l.corPrimaria};opacity:${Math.max(0,Math.min(18,l.marcaOpacidade))/100};white-space:nowrap;pointer-events:none">${esc(l.marcaDaguaTexto)}</div>` : "";
+    return `<div style="position:relative;background:#fff;color:#111827;font-family:Arial,sans-serif;font-size:${l.fonteBase}px;line-height:1.42;padding:${preview?16:l.margem+'mm'};max-width:794px;margin:0 auto;min-height:${preview?900:0}px;box-sizing:border-box">
+      ${marca}
+      <header style="position:relative;z-index:1;border:1px solid #e9d5ff;border-radius:18px;overflow:hidden;margin-bottom:18px;${l.fundoSuave?'background:linear-gradient(180deg,#faf5ff 0%,#fff 55%);':''}">
+        <div style="height:14px;background:linear-gradient(90deg,${l.corPrimaria},${l.corSecundaria})"></div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px">
+          <div style="width:${l.logoTamanho}px;height:${l.logoTamanho}px;border-radius:18px;border:2px solid #ddd6fe;display:flex;align-items:center;justify-content:center;color:${l.corPrimaria};font-weight:900;font-size:${Math.max(18,l.logoTamanho/3)}px;background:white">${l.logoUrl ? `<img src="${esc(l.logoUrl)}" style="max-width:90%;max-height:90%;object-fit:contain">` : "AO"}</div>
+          <div style="flex:1"><div style="font-size:11px;color:${l.corPrimaria};font-weight:900;letter-spacing:.18em">AVANCE OLÍMPICO</div><h1 style="margin:4px 0 0;color:#2e1065;font-size:24px;text-transform:uppercase">${esc(l.titulo)}</h1><p style="margin:4px 0 0;color:${l.corPrimaria};font-weight:700">${esc(l.subtitulo)}</p></div>
+        </div>
+        ${l.cabecalhoTexto ? `<div style="margin:0 16px 16px;border:1px solid #ddd6fe;border-radius:12px;background:#faf5ff;padding:10px;color:#3b0764;font-size:12px">${esc(l.cabecalhoTexto).replace(/\n/g,"<br>")}</div>` : ""}
+      </header>
+      <main style="position:relative;z-index:1">${qshtml}</main>
+      ${l.mostrarAssinatura ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:28px;font-size:11px;color:#4b5563"><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Assinatura do estudante</div><div style="border-top:1px solid #9ca3af;text-align:center;padding-top:7px">Professor(a) / Correção</div></div>` : ""}
+      ${l.rodapeTexto ? `<footer style="border-top:1px solid #ddd6fe;margin-top:16px;padding-top:8px;color:#6b7280;font-size:11px">${esc(l.rodapeTexto).replace(/\n/g,"<br>")}</footer>` : ""}
+    </div>`;
+  }
+  function atualizarPreviewAvancado() {
+    garantirCamposAvancadosLayout();
+    const target = document.getElementById("previewLayoutLiveCorpo");
+    if (target) target.innerHTML = htmlListaAvancado(fakeQuestoes(), configLayoutAtual(), true);
+  }
+  const previewOld = window.atualizarPreviewLayoutLiveFinal;
+  window.atualizarPreviewLayoutLiveFinal = atualizarPreviewAvancado;
+  document.addEventListener("input", e => { if (String(e.target?.id || "").startsWith("layoutLista")) setTimeout(atualizarPreviewAvancado, 20); });
+  document.addEventListener("change", e => { if (String(e.target?.id || "").startsWith("layoutLista")) setTimeout(atualizarPreviewAvancado, 20); });
+  const prepararOld = window.prepararPreviewLiveLayout || null;
+  window.prepararPreviewLiveLayout = function prepararPreviewLiveLayoutRobusto() {
+    if (typeof prepararOld === "function") try { prepararOld(); } catch(_) {}
+    garantirCamposAvancadosLayout();
+    setTimeout(atualizarPreviewAvancado, 50);
+  };
+  // Também substitui a prévia/print final da mini-lista para usar o visual avançado quando possível.
+  const previewMiniOld = window.renderizarPreviewMiniListaLayout;
+  window.renderizarPreviewMiniListaLayout = async function renderizarPreviewMiniListaLayoutAvancado() {
+    try {
+      const ids = JSON.parse(localStorage.getItem(MINI_KEY()) || "[]").map(String);
+      const qs = getArr("app_questoes").filter(q => ids.includes(String(q.id)));
+      const layout = window.__miniListaLayoutAtual || configLayoutAtual();
+      const corpo = document.getElementById("miniListaQuestoesCorpoAvancado");
+      const print = document.getElementById("printMiniListaQuestoesAvancada");
+      if (corpo) corpo.innerHTML = htmlListaAvancado(qs.length ? qs : fakeQuestoes(), layout, true);
+      if (print) print.innerHTML = htmlListaAvancado(qs.length ? qs : fakeQuestoes(), layout, false);
+    } catch(e) {
+      if (typeof previewMiniOld === "function") return previewMiniOld.apply(this, arguments);
+    }
+  };
+
+  // Navegação pós-carregamento.
+  const navOld = window.navegarAba || (typeof navegarAba === "function" ? navegarAba : null);
+  if (typeof navOld === "function" && !window.__navFixCheckboxSimLayoutRobusto) {
+    window.__navFixCheckboxSimLayoutRobusto = true;
+    const nav = function(aba, btn) {
+      const r = navOld.apply(this, arguments);
+      setTimeout(async () => {
+        if (aba === "simulados") {
+          await garantirSimuladosCarregados(true);
+          window.renderizarSimulados();
+        }
+        if (aba === "questoes" || aba === "plataforma") {
+          await carregarRobusto("app_questoes", false);
+          if (aba === "questoes") setTimeout(() => { garantirCamposAvancadosLayout(); atualizarPreviewAvancado(); }, 250);
+        }
+      }, 250);
+      return r;
+    };
+    window.navegarAba = nav; try { navegarAba = nav; } catch(_) {}
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    setInterval(() => {
+      if (!document.getElementById("view-simulados")?.classList.contains("hidden")) {
+        garantirSimuladosCarregados(false).then(()=>{ atualizarFiltrosSimuladosExtras(); });
+      }
+      if (!document.getElementById("painelLayoutsMiniListaQuestoes")?.classList.contains("hidden")) {
+        garantirCamposAvancadosLayout();
+      }
+    }, 1500);
+  });
+  console.log(TAG, "carregado");
+})();
