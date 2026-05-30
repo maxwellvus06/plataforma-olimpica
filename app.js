@@ -1042,25 +1042,24 @@ function sincronizarLookupPublicoAlunos(alunos = getStorage("app_alunos", [])) {
 }
 
 function logarSucesso(usuario) {
-    document.getElementById("loginScreen").classList.add("hidden");
-    document.getElementById("mainPanel").classList.remove("hidden");
-    document.getElementById("userLoggedNome").innerText = usuario.nome;
-    document.getElementById("userLoggedNivel").innerText = usuario.nivel;
+    document.getElementById("loginScreen")?.classList.add("hidden");
+    document.getElementById("mainPanel")?.classList.remove("hidden");
+    const nomeEl = document.getElementById("userLoggedNome");
+    const nivelEl = document.getElementById("userLoggedNivel");
+    if (nomeEl) nomeEl.innerText = usuario.nome || "Usuário";
+    if (nivelEl) nivelEl.innerText = usuario.nivel || "";
 
-    if (["ADM", "Staff"].includes(usuario.nivel)) sincronizarLookupPublicoAlunos();
+    if (["ADM", "Staff"].includes(usuario.nivel)) {
+        try { sincronizarLookupPublicoAlunos(); } catch (e) { console.warn("Lookup público de alunos não sincronizado no login:", e); }
+    }
+
     aplicarPermissoesNavegacao(usuario);
-    popularSeletores();
-    renderizarPlataformaDashboard();
-    renderizarCronograma();
-    renderizarTabelasGerenciais();
-    renderizarResultadosImportacao();
-    ajustarCamposFormUsuario();
-    renderizarPlataformaEnsino();
     carregarConfigListasSuspensasEmMemoria();
-    aplicarCustomizacoesListasSuspensas(document);
-    popularFiltrosSimulados(); renderizarSimulados();
-    popularFiltrosAulas(); renderizarAulas();
-    prepararFiltrosRelatoriosComparativos();
+    setTimeout(() => aplicarCustomizacoesListasSuspensas(document), 100);
+    ajustarCamposFormUsuario();
+
+    // Carregamento preguiçoso: nada de renderizar todas as abas ao entrar.
+    // A primeira aba permitida é aberta e cada módulo carrega seus dados quando for acessado.
     ativarPrimeiraAbaPermitida();
 }
 
@@ -16886,10 +16885,15 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   // Renomeia textos remanescentes.
   function aplicarNomesCalendario() {
-    document.querySelectorAll("#btnNav-calendario, #pageTitleDisplay").forEach(el => {
-      if (String(el.textContent || "").includes("Calendário Olímpico")) el.innerHTML = el.innerHTML.replace(/Calendário Olímpico/g, "Calendário Olímpico");
-      if (String(el.textContent || "").includes("Calendário Olímpico")) el.textContent = "Calendário Olímpico";
-    });
+    const btn = document.getElementById("btnNav-calendario");
+    if (btn && !btn.querySelector("i")) {
+      btn.innerHTML = '<i class="fa-solid fa-calendar-days text-base w-5 text-center"></i> Calendário Olímpico';
+    } else if (btn) {
+      const icon = btn.querySelector("i")?.outerHTML || '<i class="fa-solid fa-calendar-days text-base w-5 text-center"></i>';
+      btn.innerHTML = `${icon} Calendário Olímpico`;
+    }
+    const titulo = document.getElementById("pageTitleDisplay");
+    if (titulo && String(titulo.textContent || "").includes("Calendário")) titulo.textContent = "Calendário Olímpico";
   }
 
   async function carregarColecaoCompleta(chave, force = false) {
@@ -18048,4 +18052,312 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
   }
 
   console.info(TAG, "ativo — login não renderiza abas escondidas e leituras ficam por aba.");
+})();
+
+
+// ============================================================
+// PATCH — Navegação ativa e Central única de Problemas
+// Corrige: ícone do Calendário, destaque da aba Simulados e unifica relatos.
+// ============================================================
+(function patchNavEProblemasUnificados(){
+  const TAG = "[Nav/Problemas]";
+  const ANO = () => (typeof anoDadosAtivo !== "undefined" ? anoDadosAtivo : "2026");
+  const esc = (v) => typeof textoSeguro === "function" ? textoSeguro(v) : String(v ?? "").replace(/[&<>"']/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]));
+  const norm = (v) => typeof normalizarTexto === "function" ? normalizarTexto(v) : String(v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const equipeCentral = () => !!usuarioLogado && ["ADM", "Staff"].includes(usuarioLogado.nivel);
+  const colGeral = () => `anos/${ANO()}/sistema_problemas`;
+  const colQuestoes = () => `anos/${ANO()}/sistema_questoes_problemas`;
+  const colCalendario = () => `anos/${ANO()}/sistema_cronograma_problemas`;
+
+  function corrigirIconeCalendario() {
+    const btn = document.getElementById("btnNav-calendario");
+    if (!btn) return;
+    const ativo = btn.classList.contains("text-blue-400") || btn.classList.contains("bg-blue-500/10");
+    btn.innerHTML = '<i class="fa-solid fa-calendar-days text-base w-5 text-center"></i> Calendário Olímpico';
+    if (ativo) {
+      btn.classList.remove("text-gray-400");
+      btn.classList.add("text-blue-400", "bg-blue-500/10");
+    }
+  }
+
+  function botaoDaAba(aba) {
+    return document.getElementById(`btnNav-${aba}`) || ({
+      alunos: document.getElementById("btnNavAlunos"),
+      usuarios: document.getElementById("btnNavUsuarios"),
+      olimpiadas: document.getElementById("btnNavOlimpiadas"),
+      cidades: document.getElementById("btnNavCidades"),
+      escolas: document.getElementById("btnNavEscolas"),
+      layout: document.getElementById("btnNavLayout")
+    })[aba] || null;
+  }
+
+  function marcarAbaAtiva(aba) {
+    document.querySelectorAll(".nav-item").forEach(btn => {
+      btn.classList.remove("text-blue-400", "bg-blue-500/10");
+      btn.classList.add("text-gray-400");
+    });
+    const btn = botaoDaAba(aba);
+    if (btn) {
+      btn.classList.remove("text-gray-400");
+      btn.classList.add("text-blue-400", "bg-blue-500/10");
+    }
+    corrigirIconeCalendario();
+  }
+
+  const navegarBase = typeof navegarAba === "function" ? navegarAba : null;
+  if (navegarBase && !window.__navProblemasPatchAplicado) {
+    window.__navProblemasPatchAplicado = true;
+    navegarAba = function navegarAbaComAtivoCorrigido(abaId, botaoTarget) {
+      const r = navegarBase.apply(this, arguments);
+      setTimeout(() => {
+        marcarAbaAtiva(abaId);
+        corrigirIconeCalendario();
+        removerBotaoCalendarioSeparado();
+        inserirBotaoCentralProblemas();
+        injetarBotoesRelatoContextuais();
+      }, 80);
+      return r;
+    };
+    window.navegarAba = navegarAba;
+  }
+
+  function tiposPorCategoria(cat) {
+    const mapa = {
+      questoes: ["Gabarito incorreto", "Falta imagem/anexo", "Imagem não abre", "Enunciado errado", "Sem solução", "Tema/subtema errado", "Disciplina/nível errado", "Questão duplicada", "Erro de digitação", "Outro"],
+      calendario: ["Data incorreta", "Horário/período incorreto", "Evento duplicado", "Descrição confusa", "Olimpíada errada", "Link/informação faltando", "Outro"],
+      resultados: ["Resultado errado", "Premiação incorreta", "Aluno/escola incorreto", "Certificado errado", "Certificado não abre", "Olimpíada incorreta", "Outro"],
+      plataforma: ["Link quebrado", "Arquivo não abre", "Material errado", "Falta gabarito/resolução", "Imagem/áudio/vídeo ruim", "Descrição confusa", "Outro"],
+      aulas: ["Áudio ruim", "Vídeo não abre", "Imagem/visibilidade ruim", "Link quebrado", "Aula no tema errado", "Descrição errada", "Outro"],
+      simulados: ["Simulado não abre", "Arquivo ausente", "Questão/gabarito errado", "Prazo incorreto", "Problema no envio", "Modo hardcore com problema", "Outro"]
+    };
+    return mapa[cat] || ["Informação incorreta", "Link/arquivo com problema", "Outro"];
+  }
+
+  const rotuloCat = (cat) => ({questoes:"Questões", calendario:"Calendário", resultados:"Resultados", plataforma:"Plataforma", aulas:"Aulas", simulados:"Simulados"}[cat] || cat);
+
+  function garantirModalRelatoGeral() {
+    if (document.getElementById("modalRelatoProblemaGeral")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalRelatoProblemaGeral";
+    modal.className = "hidden fixed inset-0 z-[99996] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharRelatoProblemaGeral()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4"><div class="flex items-start justify-between gap-3 border-b border-gray-700 pb-3"><div><h3 id="relatoGeralTitulo" class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-flag text-amber-400 mr-2"></i>Relatar problema</h3><p id="relatoGeralSubtitulo" class="text-xs text-gray-400 mt-1">Informe o problema encontrado.</p></div><button type="button" onclick="fecharRelatoProblemaGeral()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div><input type="hidden" id="relatoGeralCategoria"><input type="hidden" id="relatoGeralAlvoId"><input type="hidden" id="relatoGeralAlvoTitulo"><div id="relatoGeralTipos" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300"></div><textarea id="relatoGeralComentario" rows="4" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200" placeholder="Explique o problema percebido..."></textarea><button type="button" onclick="enviarRelatoProblemaGeral()" class="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black uppercase"><i class="fa-solid fa-paper-plane mr-2"></i>Enviar relato</button></div>`;
+    document.body.appendChild(modal);
+  }
+
+  window.abrirRelatoProblemaGeral = function(categoria, alvoId = "", titulo = "", contexto = "") {
+    garantirModalRelatoGeral();
+    document.getElementById("relatoGeralCategoria").value = categoria || "geral";
+    document.getElementById("relatoGeralAlvoId").value = alvoId || "";
+    document.getElementById("relatoGeralAlvoTitulo").value = titulo || "";
+    document.getElementById("relatoGeralTitulo").innerHTML = `<i class="fa-solid fa-flag text-amber-400 mr-2"></i>Relatar problema — ${esc(rotuloCat(categoria))}`;
+    document.getElementById("relatoGeralSubtitulo").textContent = titulo || contexto || "Informe o problema encontrado.";
+    document.getElementById("relatoGeralComentario").value = "";
+    document.getElementById("relatoGeralTipos").innerHTML = tiposPorCategoria(categoria).map(t => `<label class="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-950/40 px-3 py-2"><input type="checkbox" name="relatoGeralTipo" value="${esc(t)}" class="accent-amber-500">${esc(t)}</label>`).join("");
+    const modal = document.getElementById("modalRelatoProblemaGeral");
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+  };
+
+  window.fecharRelatoProblemaGeral = function() {
+    const modal = document.getElementById("modalRelatoProblemaGeral");
+    modal?.classList.add("hidden"); modal?.classList.remove("flex");
+  };
+
+  window.enviarRelatoProblemaGeral = async function() {
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      if (!firebaseFirestore) throw new Error("Firestore não inicializado.");
+      const categoria = document.getElementById("relatoGeralCategoria")?.value || "geral";
+      const alvoId = document.getElementById("relatoGeralAlvoId")?.value || "";
+      const alvoTitulo = document.getElementById("relatoGeralAlvoTitulo")?.value || "";
+      const tipos = Array.from(document.querySelectorAll('input[name="relatoGeralTipo"]:checked')).map(x => x.value);
+      const comentario = document.getElementById("relatoGeralComentario")?.value.trim() || "";
+      if (!tipos.length && !comentario) return alert("Marque ao menos um tipo de problema ou escreva um comentário.");
+      const id = `${categoria}_${alvoId || "sem_id"}_${usuarioLogado?.authUid || usuarioLogado?.id || "anon"}_${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g,"_");
+      await firebaseFirestore.collection(colGeral()).doc(id).set({
+        id, categoria, alvoId, alvoTitulo, tipos, comentario, status: "Aberto", origem: "central_unificada",
+        criadoEm: Date.now(), criadoPorId: usuarioLogado?.authUid || usuarioLogado?.id || "", criadoPorNome: usuarioLogado?.nome || "", criadoPorNivel: usuarioLogado?.nivel || ""
+      }, { merge: true });
+      fecharRelatoProblemaGeral();
+      alert("Relato enviado. Obrigado por avisar.");
+      if (equipeCentral()) atualizarBadgeProblemasUnificado();
+    } catch (erro) {
+      console.error(erro);
+      alert(`Erro ao enviar relato.\n\n${erro.message || erro}`);
+    }
+  };
+
+  function removerBotaoCalendarioSeparado() {
+    document.getElementById("btnProblemasCalendario")?.remove();
+  }
+
+  function inserirBotaoCentralProblemas() {
+    if (!equipeCentral()) return;
+    removerBotaoCalendarioSeparado();
+    const antigo = document.getElementById("btnProblemasQuestoes");
+    if (antigo) {
+      antigo.id = "btnProblemasUnificado";
+      antigo.onclick = () => abrirCentralProblemasUnificada();
+      antigo.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasUnificado" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+      atualizarBadgeProblemasUnificado();
+      return;
+    }
+    if (document.getElementById("btnProblemasUnificado")) return;
+    const alvo = document.getElementById("btnToggleTema") || document.getElementById("selectAnoDados") || document.querySelector("header .flex.items-center.gap-3, header div");
+    const btn = document.createElement("button");
+    btn.id = "btnProblemasUnificado";
+    btn.type = "button";
+    btn.className = "relative px-3 py-2 rounded-xl bg-gray-950 border border-gray-800 text-gray-200 text-xs font-bold hover:bg-gray-900";
+    btn.onclick = () => abrirCentralProblemasUnificada();
+    btn.innerHTML = `<i class="fa-solid fa-bell mr-2 text-red-300"></i>Problemas <span id="badgeProblemasUnificado" class="hidden absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] flex items-center justify-center font-black">0</span>`;
+    if (alvo) alvo.insertAdjacentElement("beforebegin", btn);
+    atualizarBadgeProblemasUnificado();
+  }
+
+  async function carregarProblemasUnificados() {
+    if (typeof initFirebase === "function") initFirebase();
+    if (!firebaseFirestore || !equipeCentral()) return [];
+    const todos = [];
+    async function puxar(col, categoriaFallback) {
+      try {
+        const snap = await firebaseFirestore.collection(col).orderBy("criadoEm", "desc").limit(250).get();
+        snap.forEach(doc => todos.push({ id: doc.id, categoria: categoriaFallback, ...(doc.data() || {}) }));
+      } catch (e) { console.warn(TAG, "Falha ao carregar", col, e); }
+    }
+    await puxar(colGeral(), "geral");
+    await puxar(colQuestoes(), "questoes");
+    await puxar(colCalendario(), "calendario");
+    return todos.sort((a,b) => Number(b.criadoEm || 0) - Number(a.criadoEm || 0));
+  }
+
+  async function atualizarBadgeProblemasUnificado() {
+    const b = document.getElementById("badgeProblemasUnificado");
+    if (!b || !equipeCentral()) return;
+    const arr = await carregarProblemasUnificados();
+    const abertos = arr.filter(p => !["Resolvido", "Descartado"].includes(p.status)).length;
+    b.textContent = String(abertos);
+    b.classList.toggle("hidden", abertos <= 0);
+  }
+
+  function garantirModalCentral() {
+    if (document.getElementById("modalProblemasUnificado")) return;
+    const modal = document.createElement("div");
+    modal.id = "modalProblemasUnificado";
+    modal.className = "hidden fixed inset-0 z-[99995] items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6";
+    modal.innerHTML = `<div class="absolute inset-0" onclick="fecharCentralProblemasUnificada()"></div><div class="relative bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 border-b border-gray-700 pb-4"><div><h3 class="text-lg font-black text-white uppercase tracking-wider"><i class="fa-solid fa-bell text-red-400 mr-2"></i>Central de Problemas</h3><p class="text-xs text-gray-400 mt-1">Relatos de questões, calendário, resultados, plataforma, aulas e simulados.</p></div><div class="flex flex-wrap gap-2"><select id="filtroProblemasUnificadoCategoria" onchange="renderizarCentralProblemasUnificada()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="TODOS">Todas as áreas</option><option value="questoes">Questões</option><option value="calendario">Calendário</option><option value="resultados">Resultados</option><option value="plataforma">Plataforma</option><option value="aulas">Aulas</option><option value="simulados">Simulados</option></select><select id="filtroProblemasUnificadoStatus" onchange="renderizarCentralProblemasUnificada()" class="p-2.5 rounded-xl bg-gray-950 border border-gray-700 text-sm text-gray-200"><option value="ABERTOS">Abertos/em análise</option><option value="TODOS">Todos</option><option value="Resolvido">Resolvidos</option><option value="Descartado">Descartados</option></select><button onclick="abrirCentralProblemasUnificada(true)" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 text-xs font-bold uppercase"><i class="fa-solid fa-rotate mr-2"></i>Atualizar</button><button onclick="fecharCentralProblemasUnificada()" class="px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Fechar</button></div></div><div id="listaProblemasUnificado" class="space-y-3"></div></div>`;
+    document.body.appendChild(modal);
+  }
+
+  window.__problemasUnificadosCache = [];
+  window.abrirCentralProblemasUnificada = async function(force = false) {
+    garantirModalCentral();
+    const modal = document.getElementById("modalProblemasUnificado");
+    modal.classList.remove("hidden"); modal.classList.add("flex");
+    if (force || !window.__problemasUnificadosCache.length) window.__problemasUnificadosCache = await carregarProblemasUnificados();
+    renderizarCentralProblemasUnificada();
+    atualizarBadgeProblemasUnificado();
+  };
+
+  window.fecharCentralProblemasUnificada = function(){ const modal = document.getElementById("modalProblemasUnificado"); modal?.classList.add("hidden"); modal?.classList.remove("flex"); };
+
+  window.renderizarCentralProblemasUnificada = function() {
+    const box = document.getElementById("listaProblemasUnificado");
+    if (!box) return;
+    const cat = document.getElementById("filtroProblemasUnificadoCategoria")?.value || "TODOS";
+    const st = document.getElementById("filtroProblemasUnificadoStatus")?.value || "ABERTOS";
+    let arr = window.__problemasUnificadosCache || [];
+    if (cat !== "TODOS") arr = arr.filter(p => (p.categoria || "geral") === cat);
+    if (st === "ABERTOS") arr = arr.filter(p => !["Resolvido", "Descartado"].includes(p.status));
+    else if (st !== "TODOS") arr = arr.filter(p => p.status === st);
+    if (!arr.length) { box.innerHTML = `<div class="rounded-2xl border border-gray-700 bg-gray-900 p-8 text-center text-gray-500">Nenhum relato encontrado para este filtro.</div>`; return; }
+    box.innerHTML = arr.map(p => `<div class="rounded-2xl border border-gray-700 bg-gray-900/80 p-4"><div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div class="min-w-0"><div class="flex flex-wrap gap-2 mb-2"><span class="px-2 py-1 rounded-lg bg-red-950/40 text-red-300 text-[10px] font-bold uppercase">${esc(rotuloCat(p.categoria || "geral"))}</span><span class="px-2 py-1 rounded-lg bg-gray-950 text-gray-300 text-[10px] font-bold uppercase">${esc(p.status || "Aberto")}</span></div><h4 class="text-sm font-black text-white">${esc(p.alvoTitulo || p.questaoTitulo || p.eventoTitulo || p.eventoEtapa || p.alvoId || p.questaoId || p.eventoId || "Item relatado")}</h4><p class="text-xs text-gray-400 mt-1">${esc((p.tipos || p.tiposProblema || []).join ? (p.tipos || p.tiposProblema || []).join(", ") : (p.tipo || ""))}</p>${p.comentario ? `<p class="text-sm text-gray-300 mt-3 whitespace-pre-wrap">${esc(p.comentario)}</p>` : ""}<p class="text-[10px] text-gray-500 mt-3">Por ${esc(p.criadoPorNome || p.usuarioNome || "usuário")} · ${p.criadoEm ? new Date(p.criadoEm).toLocaleString("pt-BR") : ""}</p></div><div class="flex flex-wrap gap-2"><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Em análise')" class="px-3 py-2 rounded-xl bg-amber-900/40 text-amber-200 text-xs font-bold">Em análise</button><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Resolvido')" class="px-3 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold">Resolver</button><button onclick="atualizarStatusProblemaUnificado('${esc(p.id)}','${esc(p.categoria || "geral")}','Descartado')" class="px-3 py-2 rounded-xl bg-red-900/40 text-red-200 text-xs font-bold">Descartar</button></div></div></div>`).join("");
+  };
+
+  window.atualizarStatusProblemaUnificado = async function(id, categoria, status) {
+    try {
+      if (typeof initFirebase === "function") initFirebase();
+      let col = colGeral();
+      if (categoria === "questoes") col = colQuestoes();
+      if (categoria === "calendario") col = colCalendario();
+      await firebaseFirestore.collection(col).doc(String(id)).set({ status, atualizadoEm: Date.now(), atualizadoPorNome: usuarioLogado?.nome || "" }, { merge: true });
+      window.__problemasUnificadosCache = (window.__problemasUnificadosCache || []).map(p => String(p.id) === String(id) ? { ...p, status } : p);
+      renderizarCentralProblemasUnificada(); atualizarBadgeProblemasUnificado();
+    } catch (e) { console.error(e); alert(`Erro ao atualizar status.\n\n${e.message || e}`); }
+  };
+
+  function botaoRelato(categoria, alvoId, titulo) {
+    return `<button type="button" onclick="abrirRelatoProblemaGeral('${esc(categoria)}','${esc(alvoId || titulo || "")}', '${esc(titulo || "Item")}' )" class="btn-relato-geral px-2.5 py-1.5 rounded-lg border border-amber-900/50 text-amber-300 hover:bg-amber-950/30 text-[11px] font-bold"><i class="fa-solid fa-flag mr-1"></i>Relatar problema</button>`;
+  }
+
+  function injetarResultados() {
+    document.querySelectorAll("#tableResultadosImportacaoCorpo tr").forEach((tr, i) => {
+      if (tr.querySelector(".btn-relato-geral")) return;
+      const tds = tr.querySelectorAll("td");
+      if (tds.length < 2) return;
+      const titulo = `${tds[0]?.innerText || "Resultado"} — ${tds[5]?.innerText || ""} — ${tds[6]?.innerText || ""}`.trim();
+      const alvo = `resultado_${norm(titulo).slice(0,80)}_${i}`;
+      tds[tds.length - 1].insertAdjacentHTML("beforeend", `<div class="mt-1">${botaoRelato("resultados", alvo, titulo)}</div>`);
+    });
+  }
+
+  function injetarSimulados() {
+    document.querySelectorAll("#gridSimulados > div").forEach((card, i) => {
+      if (card.querySelector(".btn-relato-geral")) return;
+      const titulo = card.querySelector("h3")?.innerText || `Simulado ${i+1}`;
+      const alvo = `simulado_${norm(titulo).slice(0,80)}_${i}`;
+      const area = card.querySelector(".flex.flex-wrap.gap-2.mt-4") || card;
+      area.insertAdjacentHTML("beforeend", botaoRelato("simulados", alvo, titulo));
+    });
+  }
+
+  function injetarMateriais() {
+    document.querySelectorAll("#gridMateriais .bg-gray-800.border.border-gray-700.rounded-2xl.p-5").forEach((card, i) => {
+      if (card.querySelector(".btn-relato-geral")) return;
+      const titulo = card.querySelector("h4")?.innerText || `Material ${i+1}`;
+      const alvo = `material_${norm(titulo).slice(0,80)}_${i}`;
+      card.insertAdjacentHTML("beforeend", `<div class="pt-2 border-t border-gray-800">${botaoRelato("plataforma", alvo, titulo)}</div>`);
+    });
+  }
+
+  function injetarAulas() {
+    document.querySelectorAll("#gridAulas .p-5.grid").forEach((card, i) => {
+      if (card.querySelector(".btn-relato-geral")) return;
+      const titulo = card.querySelector("h4")?.innerText || `Aula ${i+1}`;
+      const alvo = `aula_${norm(titulo).slice(0,80)}_${i}`;
+      const acoes = card.querySelector(".mt-3.flex") || card.querySelector("div");
+      acoes?.insertAdjacentHTML("beforeend", botaoRelato("aulas", alvo, titulo));
+    });
+  }
+
+  function injetarBotoesRelatoContextuais() {
+    try { injetarResultados(); } catch(e) { console.warn(TAG, e); }
+    try { injetarSimulados(); } catch(e) { console.warn(TAG, e); }
+    try { injetarMateriais(); } catch(e) { console.warn(TAG, e); }
+    try { injetarAulas(); } catch(e) { console.warn(TAG, e); }
+  }
+  window.injetarBotoesRelatoContextuais = injetarBotoesRelatoContextuais;
+
+  // Envolve renderizadores principais para reinjetar botões após cada render.
+  ["renderizarResultadosImportacao", "renderizarSimulados", "renderizarPlataformaEnsino", "renderizarAulas"].forEach(nome => {
+    const fn = window[nome] || (typeof globalThis !== "undefined" ? globalThis[nome] : null);
+    if (typeof fn !== "function" || fn.__problemasWrapped) return;
+    const wrap = async function() {
+      const r = await fn.apply(this, arguments);
+      setTimeout(injetarBotoesRelatoContextuais, 120);
+      return r;
+    };
+    wrap.__problemasWrapped = true;
+    window[nome] = wrap;
+    try { eval(`${nome} = window[nome];`); } catch(_) {}
+  });
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(() => {
+    corrigirIconeCalendario();
+    marcarAbaAtiva(document.querySelector(".tab-view:not(.hidden)")?.id?.replace(/^view-/, "") || "dashboard");
+    inserirBotaoCentralProblemas();
+    removerBotaoCalendarioSeparado();
+    injetarBotoesRelatoContextuais();
+  }, 1600));
+  setInterval(() => { if (equipeCentral()) { removerBotaoCalendarioSeparado(); inserirBotaoCentralProblemas(); } }, 60000);
+
+  console.log(TAG, "patch carregado");
 })();
