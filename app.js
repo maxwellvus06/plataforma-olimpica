@@ -20162,3 +20162,239 @@ if (__abrirSimuladoPublicoBase_HardcoreModal) {
 
   console.log(TAG, 'ativo. Use diagnosticarPublicacaoListaPlataforma() no console.');
 })();
+
+
+// ============================================================
+// PATCH — Plataforma: botão "Relatar problema" nas atividades/materiais
+// Objetivo:
+// - Todo material/postagem da Plataforma passa a ter botão Relatar problema.
+// - O botão aparece no card da Plataforma e dentro da atividade aberta.
+// - Relatos são enviados para a central limpa de Problemas.
+// ============================================================
+(function patchRelatarProblemaAtividadesPlataforma(){
+  const TAG = '[Plataforma Relatar Problema]';
+  const esc = (v) => typeof textoSeguro === 'function'
+    ? textoSeguro(v)
+    : String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+
+  function anoAtualProblemasPlataforma(){
+    try { return typeof anoDadosAtivo !== 'undefined' ? anoDadosAtivo : '2026'; }
+    catch(_) { return '2026'; }
+  }
+
+  function materialPlataformaPorId(materialId){
+    try {
+      const lista = getStorage('app_plataforma', []) || [];
+      return lista.find(m => String(m.id) === String(materialId)) || null;
+    } catch(_) {
+      return null;
+    }
+  }
+
+  function tituloMaterialProblema(materialId){
+    const m = materialPlataformaPorId(materialId);
+    if (!m) return 'Atividade da Plataforma';
+    return m.titulo || m.nomeArquivo || m.descricao || 'Atividade da Plataforma';
+  }
+
+  function garantirModalRelatoPlataforma(){
+    let modal = document.getElementById('modalRelatoProblemaPlataforma');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'modalRelatoProblemaPlataforma';
+    modal.className = 'fixed inset-0 z-[10020] hidden items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6';
+    modal.innerHTML = `
+      <div class="absolute inset-0" onclick="fecharRelatoProblemaPlataforma()"></div>
+      <div class="relative w-full max-w-xl rounded-2xl border border-amber-900/60 bg-gray-900 shadow-2xl overflow-hidden">
+        <div class="p-5 border-b border-gray-800 bg-gradient-to-r from-amber-950/50 to-gray-900 flex items-start justify-between gap-3">
+          <div>
+            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-amber-300">Relato de problema</p>
+            <h3 class="text-lg font-black text-white mt-1">Atividade da Plataforma</h3>
+            <p id="relatoPlataformaAlvo" class="text-xs text-gray-400 mt-1">—</p>
+          </div>
+          <button type="button" onclick="fecharRelatoProblemaPlataforma()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-5 space-y-4">
+          <input type="hidden" id="relatoPlataformaMaterialId">
+          <div>
+            <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Tipo de problema</label>
+            <select id="relatoPlataformaTipo" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none">
+              <option>Arquivo não abre</option>
+              <option>Link quebrado</option>
+              <option>Vídeo/áudio com problema</option>
+              <option>Imagem ou PDF ilegível</option>
+              <option>Conteúdo incorreto</option>
+              <option>Gabarito/resolução incorreta</option>
+              <option>Material duplicado</option>
+              <option>Postagem no público errado</option>
+              <option>Outro problema</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] uppercase font-bold text-gray-400 mb-1">Descreva o problema</label>
+            <textarea id="relatoPlataformaDescricao" rows="5" class="w-full p-3 rounded-xl bg-gray-950 border border-gray-700 text-sm text-white focus:outline-none resize-none" placeholder="Ex: o PDF não carrega, o vídeo está sem áudio, a questão 3 está com gabarito errado..."></textarea>
+          </div>
+          <div class="rounded-xl border border-amber-900/40 bg-amber-950/20 p-3 text-xs text-amber-100 leading-relaxed">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            Esse relato será enviado para a central <b>Problemas</b>, na categoria <b>Plataforma</b>.
+          </div>
+          <div class="flex flex-col md:flex-row justify-end gap-2">
+            <button type="button" onclick="fecharRelatoProblemaPlataforma()" class="px-4 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-gray-300 text-xs font-bold uppercase">Cancelar</button>
+            <button id="btnEnviarRelatoPlataforma" type="button" onclick="enviarRelatoProblemaPlataforma()" class="px-4 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-600 text-white text-xs font-black uppercase">
+              <i class="fa-solid fa-flag mr-2"></i>Enviar relato
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  window.fecharRelatoProblemaPlataforma = function fecharRelatoProblemaPlataforma(){
+    const modal = document.getElementById('modalRelatoProblemaPlataforma');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+  };
+
+  window.abrirRelatoProblemaPlataforma = function abrirRelatoProblemaPlataforma(materialId){
+    const modal = garantirModalRelatoPlataforma();
+    const m = materialPlataformaPorId(materialId);
+    const titulo = m?.titulo || 'Atividade da Plataforma';
+    document.getElementById('relatoPlataformaMaterialId').value = String(materialId || '');
+    document.getElementById('relatoPlataformaDescricao').value = '';
+    document.getElementById('relatoPlataformaTipo').value = 'Arquivo não abre';
+    document.getElementById('relatoPlataformaAlvo').innerText = titulo;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  };
+
+  async function salvarProblemaPlataformaFirestore(relato){
+    if (typeof initFirebase === 'function') initFirebase();
+    if (!firebaseFirestore) throw new Error('Firestore não inicializado.');
+
+    const ano = anoAtualProblemasPlataforma();
+    const colecoes = [
+      `anos/${ano}/sistema_problemas`,
+      `anos/${ano}/sistema_plataforma_problemas`
+    ];
+
+    await Promise.all(colecoes.map(col => firebaseFirestore.collection(col).doc(String(relato.id)).set(relato, { merge: true })));
+  }
+
+  window.enviarRelatoProblemaPlataforma = async function enviarRelatoProblemaPlataforma(){
+    const materialId = document.getElementById('relatoPlataformaMaterialId')?.value || '';
+    const tipo = document.getElementById('relatoPlataformaTipo')?.value || 'Problema na Plataforma';
+    const descricao = String(document.getElementById('relatoPlataformaDescricao')?.value || '').trim();
+    const btn = document.getElementById('btnEnviarRelatoPlataforma');
+    const material = materialPlataformaPorId(materialId);
+    if (!descricao) return alert('Descreva o problema antes de enviar.');
+
+    const relato = {
+      id: typeof novoId === 'function' ? novoId() : `${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+      categoria: 'plataforma',
+      origem: 'plataforma',
+      tipo,
+      status: 'Pendente',
+      prioridade: tipo.includes('não abre') || tipo.includes('quebrado') ? 'Alta' : 'Normal',
+      alvoId: String(materialId || ''),
+      alvoTitulo: material?.titulo || 'Atividade da Plataforma',
+      titulo: `Problema em atividade da Plataforma: ${material?.titulo || materialId || 'sem título'}`,
+      descricao,
+      detalhes: descricao,
+      materialResumo: material ? {
+        id: material.id || '',
+        titulo: material.titulo || '',
+        disciplina: material.disciplina || '',
+        nivel: material.nivel || '',
+        tipoMaterial: material.tipoMaterial || '',
+        tipo: material.tipo || '',
+        url: material.url || material.arquivoUrl || ''
+      } : {},
+      criadoPor: usuarioLogado?.nome || 'Usuário',
+      criadoPorId: usuarioLogado?.id || usuarioLogado?.authUid || '',
+      criadoPorNivel: usuarioLogado?.nivel || '',
+      criadoEm: Date.now(),
+      atualizadoEm: Date.now(),
+      ano: anoAtualProblemasPlataforma()
+    };
+
+    try {
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Enviando...'; }
+
+      if (typeof window.abrirRelatoProblemaGeral === 'function' && false) {
+        // Mantido desativado de propósito: queremos salvar o relato direto e evitar abrir outro modal por cima.
+        window.abrirRelatoProblemaGeral('plataforma', relato.alvoId, relato.alvoTitulo);
+      }
+
+      await salvarProblemaPlataformaFirestore(relato);
+      fecharRelatoProblemaPlataforma();
+      alert('Relato enviado com sucesso. A equipe poderá acompanhar pela central Problemas.');
+    } catch (erro) {
+      console.error(TAG, erro);
+      alert(`Erro ao enviar relato.\n\n${erro.message || erro}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-flag mr-2"></i>Enviar relato'; }
+    }
+  };
+
+  function botaoRelatarProblemaPlataforma(materialId, modo='card'){
+    const cls = modo === 'modal'
+      ? 'px-3 py-2 rounded-xl bg-amber-900/40 hover:bg-amber-800 border border-amber-700/50 text-amber-200 text-xs font-bold'
+      : 'w-full text-center py-2.5 rounded-xl bg-amber-900/30 hover:bg-amber-800/60 border border-amber-800/60 text-amber-200 text-xs font-black uppercase tracking-wider transition';
+    return `<button type="button" onclick="abrirRelatoProblemaPlataforma('${esc(materialId)}')" class="${cls}" title="Relatar problema nesta atividade">
+      <i class="fa-solid fa-flag mr-2"></i>Relatar problema
+    </button>`;
+  }
+
+  // Injeta botão no card, junto ao botão principal de abrir atividade.
+  const renderConteudoBase = typeof renderizarConteudoMaterial === 'function' ? renderizarConteudoMaterial : null;
+  if (renderConteudoBase) {
+    renderizarConteudoMaterial = function renderizarConteudoMaterialComRelato(m){
+      const html = renderConteudoBase.apply(this, arguments);
+      return `${html}${botaoRelatarProblemaPlataforma(m?.id || '')}`;
+    };
+    window.renderizarConteudoMaterial = renderizarConteudoMaterial;
+  }
+
+  // Injeta botão dentro do modal da atividade aberta.
+  const abrirAtividadeBase = typeof abrirAtividadePlataforma === 'function' ? abrirAtividadePlataforma : null;
+  if (abrirAtividadeBase) {
+    abrirAtividadePlataforma = async function abrirAtividadePlataformaComRelato(materialId){
+      const r = await abrirAtividadeBase.apply(this, arguments);
+      setTimeout(() => {
+        const conteudo = document.getElementById('modalAtividadePlataformaConteudo');
+        if (!conteudo || conteudo.querySelector('#btnRelatarProblemaAtividadeAberta')) return;
+
+        const header = conteudo.firstElementChild;
+        if (!header) return;
+        const btn = document.createElement('button');
+        btn.id = 'btnRelatarProblemaAtividadeAberta';
+        btn.type = 'button';
+        btn.onclick = () => abrirRelatoProblemaPlataforma(materialId);
+        btn.className = 'px-3 py-2 rounded-xl bg-amber-900/40 hover:bg-amber-800 border border-amber-700/50 text-amber-200 text-xs font-bold';
+        btn.innerHTML = '<i class="fa-solid fa-flag mr-1"></i>Relatar problema';
+
+        const area = header.querySelector('.flex.items-start.justify-between') || header;
+        const fechar = header.querySelector('button[onclick*="fecharAtividadePlataforma"]');
+        if (fechar && fechar.parentElement) fechar.parentElement.insertBefore(btn, fechar);
+        else header.appendChild(btn);
+      }, 80);
+      return r;
+    };
+    window.abrirAtividadePlataforma = abrirAtividadePlataforma;
+  }
+
+  window.diagnosticarRelatoProblemaPlataforma = function diagnosticarRelatoProblemaPlataforma(){
+    return {
+      modalExiste: !!document.getElementById('modalRelatoProblemaPlataforma'),
+      botaoNoModalAtividade: !!document.getElementById('btnRelatarProblemaAtividadeAberta'),
+      materiais: (getStorage('app_plataforma', []) || []).length,
+      colecoesDestino: [
+        `anos/${anoAtualProblemasPlataforma()}/sistema_problemas`,
+        `anos/${anoAtualProblemasPlataforma()}/sistema_plataforma_problemas`
+      ]
+    };
+  };
+
+  console.log(TAG, 'ativo. Use diagnosticarRelatoProblemaPlataforma() no console.');
+})();
